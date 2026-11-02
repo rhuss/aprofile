@@ -1,0 +1,16 @@
+# Binaries and build output
+/aprofile
+/bin/
+/dist/
+*.test
+*.out
+
+# Secrets and local settings: never commit
+.mcp.json
+.claude/settings.local.json
+.env
+
+# Editor and OS
+.DS_Store
+.idea/
+.vscode/
