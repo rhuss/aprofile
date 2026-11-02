@@ -233,5 +233,5 @@ Candidates checked for collisions on npm, crates.io, Homebrew, PyPI and GitHub: 
 - Skills for Codex, OpenCode and pi live in `~/.agents/skills`, outside any profile dir. Per-profile skills for those harnesses need either a per-profile `.agents` location or acceptance that skills are shared there.
 - Cost tracking: is "separate" satisfied by separate state dirs, or should aprofile report per-profile usage itself?
 - Registry format: adopt Omarchy's schema verbatim so corgi reads it unchanged, or an own schema plus an Omarchy export?
-- Repository location and module path (for example under the `cc-deck` GitHub organization or the user's account), and distribution (Homebrew tap, GoReleaser).
+- Distribution (Homebrew tap, GoReleaser). The repository location was decided after the session: this sibling repository `aprofile` under the cc-deck organization with module path `github.com/cc-deck/aprofile`, local only until pushed.
 - Which cc-deck hooks, if any, aprofile should offer a generic mechanism for (a per-harness "install these hooks into every profile dir" setting) so the decoupling brainstorm has an option other than reading the registry.
