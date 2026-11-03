@@ -1,0 +1,56 @@
+# Built-in harness definition for Codex (OpenAI's coding CLI).
+# Values fixed in specs/001-aprofile-standalone-profile-cli/research.md item 4 and
+# the plan's cross-cutting config_env decision.
+# Isolation lever: CODEX_HOME relocates the whole Codex config dir (auth.json,
+# sessions, history, logs, config.toml, skills) into the profile root.
+name: codex
+binary: codex
+wrapper_prefix: codex
+
+# One redirect: CODEX_HOME points at the profile root itself.
+config_env:
+  CODEX_HOME: "."
+
+default_config_location: "~/.codex"
+# Codex has no dedicated model env var (model is set in config.toml or via the
+# `--model` flag, which passes through the wrapper). Endpoint follows the OpenAI
+# SDK convention Codex honors.
+endpoint_var: OPENAI_BASE_URL
+omarchy_provider: openai
+plugin_mechanism: "config.toml"
+
+capabilities: [login, native-profiles, mcp]
+
+# ChatGPT login (credentials in auth.json, cleanly isolated by CODEX_HOME) is the
+# default; an API key via OPENAI_API_KEY is the env-based alternative.
+default_auth_kind: chatgpt-login
+auth_kinds:
+  - name: chatgpt-login
+    vars: {} # interactive login; credentials land in auth.json
+  - name: api-key
+    vars: { OPENAI_API_KEY: ref }
+
+classification:
+  - { entry: "auth.json", layer: credentials }
+  - { entry: "sessions/", layer: state }
+  - { entry: "history.jsonl", layer: state }
+  - { entry: "logs/", layer: state }
+  # config.toml holds mcp_servers plus model/provider settings. It is a TOML file,
+  # and this slice's mixed-file merge supports JSON only, so the whole file is owned
+  # per profile (carried verbatim by a same-harness copy; its mcp_servers table is
+  # converted by a cross-harness copy). research.md item 4 allows owned here.
+  - { entry: "config.toml", layer: owned }
+  # Per-profile skills. The global ~/.agents/skills lookup is keyed to $HOME and
+  # cannot be isolated without repointing $HOME; it stays shared and is reported
+  # (FR-021, research.md item 4).
+  - { entry: "skills/", layer: owned }
+  # Everything else is shared (symlinked to the default setup).
+  - { entry: "*", layer: shared }
+
+mcp:
+  location: "config.toml#mcp_servers"
+  flavor: codex-toml
+
+skills_location:
+  path: "skills"
+  scope: per-profile

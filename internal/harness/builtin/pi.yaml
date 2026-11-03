@@ -1,0 +1,48 @@
+# Built-in harness definition for pi (earendil-works/pi, pi.dev).
+# Values fixed in specs/001-aprofile-standalone-profile-cli/research.md item 3.
+# Isolation lever: PI_CODING_AGENT_DIR relocates the agent dir (auth.json,
+# settings.json, mcp.json, mcp-auth.json, models.json, skills/, prompts/) into the
+# profile; PI_CODING_AGENT_SESSION_DIR pins sessions under it so an extension cannot
+# escape the profile.
+#
+# NOTE: config_env points PI_CODING_AGENT_DIR at an "agent" sub-dir of the profile
+# root (matching pi's own ~/.pi/agent default), so default_config_location is the
+# profile-root analog "~/.pi" to keep shared-link relative paths consistent.
+name: pi
+binary: pi
+wrapper_prefix: pi
+
+config_env:
+  PI_CODING_AGENT_DIR: "agent"
+  PI_CODING_AGENT_SESSION_DIR: "agent/sessions"
+
+default_config_location: "~/.pi"
+plugin_mechanism: "settings.json"
+omarchy_provider: pi
+
+capabilities: [login, mcp]
+
+# pi stores credentials in agent/auth.json (and MCP auth in agent/mcp-auth.json),
+# cleanly isolated by PI_CODING_AGENT_DIR.
+default_auth_kind: login
+auth_kinds:
+  - name: login
+    vars: {} # interactive login; credentials in agent/auth.json
+
+classification:
+  - { entry: "agent/auth.json", layer: credentials }
+  - { entry: "agent/mcp-auth.json", layer: credentials }
+  - { entry: "agent/sessions/", layer: state }
+  - { entry: "agent/logs/", layer: state }
+  - { entry: "agent/mcp.json", layer: owned }
+  - { entry: "agent/settings.json", layer: owned }
+  # Per-profile skills (research.md item 4); pi has no ~/.agents/skills lookup.
+  - { entry: "agent/skills/", layer: owned }
+
+mcp:
+  location: "agent/mcp.json#mcpServers"
+  flavor: pi-json
+
+skills_location:
+  path: "agent/skills"
+  scope: per-profile

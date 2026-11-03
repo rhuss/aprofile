@@ -1,0 +1,57 @@
+# Built-in harness definition for OpenCode.
+# Values fixed in specs/001-aprofile-standalone-profile-cli/research.md item 2.
+# Isolation lever: OpenCode has no single home variable, so it is isolated through
+# the XDG base-directory set. XDG_DATA_HOME relocates auth.json and the sessions
+# database together; XDG_CONFIG_HOME relocates opencode.json (config + MCP).
+#
+# SIMPLIFICATION (documented, research.md item 2): the profile root holds the XDG
+# tree (data/, config/, cache/, state/), so OpenCode's meaningful entries sit two
+# levels deep (data/opencode/..., config/opencode/...). A single
+# default_config_location cannot capture that spread, so shared-link seeding from the
+# default setup is best-effort for this harness; credential, state, owned and MCP
+# isolation (the layers that matter) are exact.
+name: opencode
+binary: opencode
+wrapper_prefix: opencode
+
+config_env:
+  XDG_DATA_HOME: "data"
+  XDG_CONFIG_HOME: "config"
+  XDG_CACHE_HOME: "cache"
+  XDG_STATE_HOME: "state"
+
+default_config_location: "~/.config/opencode"
+omarchy_provider: opencode
+plugin_mechanism: "opencode.json plugins"
+
+capabilities: [login, mcp]
+
+# OpenCode is multi-provider; credentials are managed by `opencode auth login` and
+# stored in data/opencode/auth.json, cleanly isolated by XDG_DATA_HOME.
+default_auth_kind: login
+auth_kinds:
+  - name: login
+    vars: {} # interactive `opencode auth login`; credentials in data/opencode/auth.json
+
+classification:
+  - { entry: "data/opencode/auth.json", layer: credentials }
+  # The data dir holds the sessions database and other per-profile runtime state.
+  - { entry: "data/opencode/", layer: state }
+  # Per-profile skills (research.md item 4). The global ~/.claude/skills and
+  # ~/.agents/skills lookups are keyed to $HOME and stay shared/reported (FR-021).
+  - { entry: "config/opencode/skills/", layer: owned }
+  # opencode.json is a mixed JSON file: the mcp key is owned per profile; every other
+  # key (providers, theme, ...) belongs to the user and is seeded once, never
+  # rewritten. Uncovered keys are reported like unclassified entries (FR-013).
+  - entry: "config/opencode/opencode.json"
+    layer: mixed
+    keys:
+      mcp: owned
+
+mcp:
+  location: "config/opencode/opencode.json#mcp"
+  flavor: opencode-json
+
+skills_location:
+  path: "config/opencode/skills"
+  scope: per-profile
