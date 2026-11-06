@@ -1,1 +1,5 @@
-rules: []
+rules:
+- glob: docs/README.md
+  require: ["^## What you get$", "^## What the parts are$", "^## How they fit$", "^## Ways to run it$", "^## Status and limits$", "^## Where to go next$"]
+  forbid: ["\\u2013|\\u2014"]
+  require_order: ["^## What you get$", "^## What the parts are$", "^## How they fit$", "^## Ways to run it$", "^## Status and limits$", "^## Where to go next$"]

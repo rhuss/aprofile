@@ -3,6 +3,8 @@ captured: '2026-11-06'
 sources:
 - id: aprofile
   repo: ../..
+  attributes:
+    go-minimum: "1.24.0"
   ref: HEAD
   commit: 483957da3f5eadd28e72661f5fd53875efda88d4
 - id: claude-code

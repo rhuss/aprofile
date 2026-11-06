@@ -1,5 +1,13 @@
 # Guide spec: aprofile User Guide
 
+<!-- Sources:
+aprofile:README.md:3-242
+claude-code:README.md:7
+codex:README.md:1
+opencode:README.md:10
+pi:README.md:13-21
+-->
+
 ## Why
 
 ### Problem
@@ -78,15 +86,15 @@ The guide pins this checkout and the four upstream sources that define the suppo
 
 | ID | Repository | Commit |
 |---|---|---|
-| `aprofile` | local checkout `../..` | `483957da3f5eadd28e72661f5fd53875efda88d4` |
-| `claude-code` | `anthropics/claude-code` | `0ed94698aa0aeee471465fc9c867c2e8434c4d68` |
-| `codex` | `openai/codex` | `6abffd442d6865a72056b305a31a604b83d087d8` |
-| `opencode` | `anomalyco/opencode` | `cd47971fd60f9a46dab2600087a691064c7f46fa` |
-| `pi` | `earendil-works/pi` | `6bf2ab9bbb64fd14793e506a5404078441219b95` |
+| `aprofile` | local checkout `../..` | <!-- guide:attr aprofile-commit -->483957da3f5eadd28e72661f5fd53875efda88d4<!-- /guide:attr --> |
+| `claude-code` | `anthropics/claude-code` | <!-- guide:attr claude-code-commit -->0ed94698aa0aeee471465fc9c867c2e8434c4d68<!-- /guide:attr --> |
+| `codex` | `openai/codex` | <!-- guide:attr codex-commit -->6abffd442d6865a72056b305a31a604b83d087d8<!-- /guide:attr --> |
+| `opencode` | `anomalyco/opencode` | <!-- guide:attr opencode-commit -->cd47971fd60f9a46dab2600087a691064c7f46fa<!-- /guide:attr --> |
+| `pi` | `earendil-works/pi` | <!-- guide:attr pi-commit -->6bf2ab9bbb64fd14793e506a5404078441219b95<!-- /guide:attr --> |
 
 No additional inputs were registered.
 
 ### Open questions
 
-- The pinned aprofile README gives `https://github.com/cc-deck/aprofile` as the clone URL, but a source lookup during setup returned `Repository not found`. Should the install page start from an existing checkout and omit the clone command, or will the author supply another repository URL that can be fetched?
+- The pinned aprofile README gives `https://github.com/cc-deck/aprofile` as the clone URL, but a source lookup during setup returned `Repository not found`. The approved install page starts from an existing checkout and omits the clone command.
 - The weekly drift workflow is committed at the parent repository's `.github/workflows/guide-drift.yml`, because GitHub discovers workflows only at the repository root. This checkout has no configured GitHub remote, so the schedule will run only after the repository is hosted on GitHub.

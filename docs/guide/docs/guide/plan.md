@@ -1,5 +1,13 @@
 # aprofile User Guide Implementation Plan
 
+<!-- Sources:
+aprofile:README.md:3-242
+claude-code:README.md:7
+codex:README.md:1
+opencode:README.md:10
+pi:README.md:13-21
+-->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan page by page. Follow the task procedure and use checkbox syntax to track work.
 
 **Goal:** Give end users a source-verified path to build aprofile, create and run profiles, choose a share level, manage profiles, and find command syntax.
@@ -17,11 +25,11 @@
 
   | Source | Repository | Commit | Status |
   |---|---|---|---|
-  | `aprofile` | `../..` | `483957da3f5eadd28e72661f5fd53875efda88d4` | verified |
-  | `claude-code` | `anthropics/claude-code` | `0ed94698aa0aeee471465fc9c867c2e8434c4d68` | verified |
-  | `codex` | `openai/codex` | `6abffd442d6865a72056b305a31a604b83d087d8` | verified |
-  | `opencode` | `anomalyco/opencode` | `cd47971fd60f9a46dab2600087a691064c7f46fa` | verified |
-  | `pi` | `earendil-works/pi` | `6bf2ab9bbb64fd14793e506a5404078441219b95` | verified |
+  | `aprofile` | `../..` | <!-- guide:attr aprofile-commit -->483957da3f5eadd28e72661f5fd53875efda88d4<!-- /guide:attr --> | verified |
+  | `claude-code` | `anthropics/claude-code` | <!-- guide:attr claude-code-commit -->0ed94698aa0aeee471465fc9c867c2e8434c4d68<!-- /guide:attr --> | verified |
+  | `codex` | `openai/codex` | <!-- guide:attr codex-commit -->6abffd442d6865a72056b305a31a604b83d087d8<!-- /guide:attr --> | verified |
+  | `opencode` | `anomalyco/opencode` | <!-- guide:attr opencode-commit -->cd47971fd60f9a46dab2600087a691064c7f46fa<!-- /guide:attr --> | verified |
+  | `pi` | `earendil-works/pi` | <!-- guide:attr pi-commit -->6bf2ab9bbb64fd14793e506a5404078441219b95<!-- /guide:attr --> | verified |
 
 - Baseline values available to pages (never type versions or commits): `aprofile-repo`, `aprofile-commit`, `aprofile-commit-short`, `aprofile-blob`, `aprofile-tree`; `claude-code-repo`, `claude-code-commit`, `claude-code-commit-short`, `claude-code-blob`, `claude-code-tree`; `codex-repo`, `codex-commit`, `codex-commit-short`, `codex-blob`, `codex-tree`; `opencode-repo`, `opencode-commit`, `opencode-commit-short`, `opencode-blob`, `opencode-tree`; `pi-repo`, `pi-commit`, `pi-commit-short`, `pi-blob`, `pi-tree`; `baseline-date`, `baseline-sources`.
 - Change requests documented as experimental (label only through the adapter snippet): none.

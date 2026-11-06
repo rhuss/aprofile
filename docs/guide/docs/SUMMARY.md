@@ -2,9 +2,12 @@
 
 <!-- guide: no-sources -->
 
-<!-- Every shareable page in reading order, one link per line, grouped by section.
-     Keep it in sync with README.md; make pdf assembles the PDF in this order. -->
-
 ## Overview
 
 - [aprofile User Guide](README.md)
+- [Profile basics](overview/profile-basics.md)
+
+## End user guide
+
+- [Get started](user/getting-started.md)
+- [Compare share levels](user/share-levels.md)
