@@ -1,0 +1,10 @@
+{
+  "name": "guide-site",
+  "private": true,
+  "description": "Preview and PDF printing for a cc-guide guide project in GitHub Markdown",
+  "devDependencies": {
+    "js-yaml": "^4.1.0",
+    "markserv": "1.20.0",
+    "playwright": "^1.48.0"
+  }
+}

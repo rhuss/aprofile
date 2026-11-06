@@ -1,0 +1,3 @@
+# Python writes bytecode here when a toolkit script imports another one (for example
+# check.py importing guidecfg); keep it out of the guide project's git status (FR-021).
+__pycache__/

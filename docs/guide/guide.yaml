@@ -1,0 +1,37 @@
+schema: 1
+title: "aprofile User Guide"
+format: "gfm"
+
+personas:
+  - id: user
+    title: End user
+    start: user/getting-started
+
+sections:
+  - id: overview
+    title: Overview
+    voice: conversational
+  - id: user
+    title: End user guide
+    voice: tutorial
+  - id: reference
+    title: Reference
+    voice: reference
+
+rigor: fast
+
+internal:
+  enabled: false
+  confidential_terms: []
+  confidential_patterns: []
+
+clusters: {}
+
+validate:
+  extra_queries: []
+
+drift:
+  schedule: "17 6 * * 1"
+
+upstream:
+  target: github

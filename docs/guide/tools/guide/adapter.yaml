@@ -1,0 +1,50 @@
+# GitHub Markdown adapter descriptor (contracts/adapter.md). Create copies it into a
+# guide project as tools/guide/adapter.yaml; doctor, check, leakcheck, and the skills read it.
+# The pages render on GitHub as they are; `make site` renders them with pandoc into
+# build/site so the leak check, packages, and the PDF work from a built view (research R7).
+format: gfm
+
+# Tool chain, checked by tools/guide/doctor.py (make doctor).
+requires:
+  uv: "*"
+  git: "*"
+  node: ">=20"
+  npm: "*"
+  markserv: "*"
+  pandoc: ">=3"
+  playwright-chromium: "*"
+
+# Shareable pages live under docs/, the internal part under internal/ beside it.
+# docs/README.md is the table of contents (navigation order); docs/SUMMARY.md lists the
+# same pages in the same order for the print assembly.
+content_root: docs
+internal_root: internal
+page_glob: "**/*.md"
+image_dir: docs/assets/diagrams
+
+# Source blocks and expectations are HTML comments (<!-- Sources: ... -->, <!-- expect: ... -->).
+comment: html
+
+# The five admonition types as GitHub alerts (contracts/page-conventions.md, section 5).
+admonitions:
+  note: "> [!NOTE]"
+  tip: "> [!TIP]"
+  important: "> [!IMPORTANT]"
+  warning: "> [!WARNING]"
+  caution: "> [!CAUTION]"
+
+# Experimental labels: an anchor, then an IMPORTANT alert with a fixed first line.
+experimental:
+  in-review: '<a id="<anchor>"></a> then > [!IMPORTANT] and > **Experimental: in review.** <text>'
+  on-main: '<a id="<anchor>"></a> then > [!IMPORTANT] and > **Experimental: on main.** <text>'
+
+# Baseline values are generated regions in the committed pages, rewritten by
+# `uv run tools/guide/attrs.py regions --write docs internal` (make site runs it):
+#   <!-- guide:attr <name> -->VALUE<!-- /guide:attr -->
+attributes: generated-region
+
+preview_port: 8642
+
+# Branding keys this adapter supports (specs/002-antora-branding/data-model.md, adapter
+# branding capability): none, so a guide.yaml `branding` block fails validation.
+branding: []

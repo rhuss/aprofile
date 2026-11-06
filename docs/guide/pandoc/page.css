@@ -1,0 +1,11 @@
+/* Minimal page style for the pandoc-rendered view of a GitHub Markdown guide (cc-guide). */
+body { max-width: 52rem; margin: 2rem auto; padding: 0 1rem; font: 16px/1.6 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1f2328; }
+pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+pre { background: #f6f8fa; padding: 0.8rem; overflow-x: auto; white-space: pre-wrap; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #d0d7de; padding: 0.3rem 0.6rem; }
+img { max-width: 100%; }
+.note, .tip, .important, .warning, .caution { border-left: 0.25em solid; padding: 0.2rem 1rem; margin: 1rem 0; }
+.note { border-color: #0969da; } .tip { border-color: #1a7f37; } .important { border-color: #8250df; }
+.warning { border-color: #9a6700; } .caution { border-color: #cf222e; }
+.note > .title, .tip > .title, .important > .title, .warning > .title, .caution > .title { font-weight: 600; }

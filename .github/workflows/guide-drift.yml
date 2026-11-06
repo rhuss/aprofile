@@ -1,0 +1,69 @@
+# Scheduled drift check for the guide nested under docs/guide.
+# Private sources need a GUIDE_SOURCES_TOKEN repository secret with read access.
+name: guide drift check
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Configure access to private sources
+        env:
+          GUIDE_SOURCES_TOKEN: ${{ secrets.GUIDE_SOURCES_TOKEN }}
+        run: |
+          if [ -n "$GUIDE_SOURCES_TOKEN" ]; then
+            auth=$(printf 'x-access-token:%s' "$GUIDE_SOURCES_TOKEN" | base64 | tr -d '\n')
+            echo "::add-mask::$auth"
+            git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic $auth"
+          fi
+
+      - name: Check drift
+        id: drift
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ secrets.GUIDE_SOURCES_TOKEN || github.token }}
+        run: |
+          set +e
+          uv run docs/guide/tools/guide/drift.py --check --format markdown --root docs/guide > docs/guide/drift-report.md
+          status=$?
+          set -e
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          cat docs/guide/drift-report.md
+          if [ "$status" -ne 0 ] && [ "$status" -ne 10 ]; then
+            echo "drift check failed with exit $status" >&2
+            exit "$status"
+          fi
+
+      - name: Open or update the drift issue
+        if: steps.drift.outputs.status == '10'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create guide-drift --color d93f0b --description "Sources moved since the guide baseline" 2>/dev/null || true
+          number=$(gh issue list --label guide-drift --state open --json number --jq '.[0].number // empty')
+          {
+            echo "The pinned sources of this guide changed in cited material."
+            echo "Run \`/guide:evolve\` to update the affected pages and record a new baseline."
+            echo
+            cat docs/guide/drift-report.md
+          } > issue-body.md
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file issue-body.md
+            echo "Updated issue #$number"
+          else
+            gh issue create --title "Guide drift: sources changed since the guide baseline" --label guide-drift --body-file issue-body.md
+          fi

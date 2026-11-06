@@ -1,0 +1,220 @@
+# Default read-only allowlist for /guide:validate (FR-038, contracts/page-conventions.md section 3).
+#
+# A command is a query only if every pipeline segment matches an entry under `queries`
+# and no entry under `mutating`. Everything else is mutating (default deny). Guides can
+# add query patterns through `validate.extra_queries` in guide.yaml; those are additive
+# only and never turn a command matching `mutating` into a query.
+#
+# Pattern syntax: whitespace-separated words. The first word is the tool. Later plain
+# words must equal the leading positional arguments in order ("*" matches any one word);
+# words starting with "-" must be present among the flags. Mapping entries can add:
+#   deny_flags  glob patterns on flag names; a matching flag disqualifies the entry
+#   deny_args   regular expressions searched in every argument
+#   methods     allowed values of -X / --request (curl)
+#   max_args    the most positional arguments after the pattern words
+# `value_flags` lists the flags of a tool that take a value, so their values are not
+# mistaken for positional words. Output redirection is mutating unless its target is
+# listed under `redirection.allowed_targets` (or is a file descriptor such as 2>&1).
+#
+# tools/guide/classify.py carries an identical built-in copy of this file; keep both in sync.
+version: 1
+
+value_flags:
+  oc: &kube_value_flags
+    - -n
+    - --namespace
+    - --context
+    - --kubeconfig
+    - --cluster
+    - --user
+    - -s
+    - --server
+    - --token
+    - --as
+    - --as-group
+    - --as-uid
+    - --request-timeout
+    - --certificate-authority
+    - --client-certificate
+    - --client-key
+    - --tls-server-name
+    - --cache-dir
+    - --loglevel
+    - -v
+    - --v
+    - -l
+    - --selector
+    - -o
+    - --output
+    - -c
+    - --container
+    - -f
+    - --filename
+    - -k
+    - --kustomize
+    - --field-selector
+    - --sort-by
+    - --template
+    - -L
+    - --label-columns
+    - --since
+    - --since-time
+    - --tail
+    - --chunk-size
+    - --limit-bytes
+    - --max-log-requests
+    - --subresource
+    - --api-group
+    - --raw
+  kubectl: *kube_value_flags
+  curl:
+    - -A
+    - -b
+    - -c
+    - -C
+    - -d
+    - -D
+    - -e
+    - -E
+    - -F
+    - -H
+    - -K
+    - -m
+    - -o
+    - -P
+    - -Q
+    - -r
+    - -T
+    - -t
+    - -u
+    - -U
+    - -w
+    - -x
+    - -X
+    - -y
+    - -Y
+    - -z
+    - --user-agent
+    - --cookie
+    - --cookie-jar
+    - --data
+    - --data-ascii
+    - --data-binary
+    - --data-raw
+    - --data-urlencode
+    - --dump-header
+    - --referer
+    - --cert
+    - --cacert
+    - --key
+    - --form
+    - --form-string
+    - --header
+    - --config
+    - --max-time
+    - --connect-timeout
+    - --output
+    - --range
+    - --upload-file
+    - --user
+    - --write-out
+    - --proxy
+    - --request
+    - --resolve
+    - --retry
+    - --json
+    - --url
+    - --oauth2-bearer
+
+queries:
+  # oc and kubectl
+  - oc get
+  - oc describe
+  - oc logs
+  - oc explain
+  - oc api-resources
+  - oc api-versions
+  - oc version
+  - oc whoami
+  - oc auth can-i
+  - oc adm top
+  - pattern: oc config view --minify
+    deny_flags: ["--raw", "--flatten"]
+  - oc config current-context
+  - kubectl get
+  - kubectl describe
+  - kubectl logs
+  - kubectl explain
+  - kubectl api-resources
+  - kubectl api-versions
+  - kubectl version
+  - kubectl whoami
+  - kubectl auth can-i
+  - kubectl adm top
+  - pattern: kubectl config view --minify
+    deny_flags: ["--raw", "--flatten"]
+  - kubectl config current-context
+  # curl: GET and HEAD only, no request body or upload
+  - pattern: curl
+    methods: [GET, HEAD]
+    deny_flags: ["-d", "--data*", "--json", "-F", "--form*", "-T", "--upload-file"]
+  # openshell
+  - openshell status
+  - openshell version
+  - openshell whoami
+  - openshell list
+  - openshell get
+  - openshell * list
+  - openshell * get
+  # filters
+  - grep
+  - pattern: rg
+    deny_flags: ["--pre*"]
+  - jq
+  - pattern: yq
+    deny_flags: ["-i", "--inplace*"]
+  - head
+  - tail
+  - wc
+  - pattern: sort
+    deny_flags: ["-o", "--output*"]
+  - pattern: uniq
+    max_args: 1   # a second operand is an output file
+  - cut
+  - pattern: awk
+    deny_flags: ["-f", "--file*"]   # a program file cannot be inspected
+    deny_args: ['system\(', 'getline', '\|', 'print[^;}]*>']
+
+mutating:
+  - oc debug
+  - oc exec
+  - oc rsh
+  - oc port-forward
+  - oc attach
+  - oc cp
+  - oc rsync
+  - kubectl debug
+  - kubectl exec
+  - kubectl port-forward
+  - kubectl attach
+  - kubectl cp
+  - make
+  - tee
+  - sudo
+  - xargs
+  - eval
+  - sh
+  - bash
+  - zsh
+
+redirection:
+  allowed_targets: [/dev/null]
+
+# Flags that disqualify every query of a tool, extra_queries included: they point oc or
+# kubectl at another cluster or identity than the named connection, or make curl write
+# local files or read its options from a file. A flag whose value is an allowed
+# redirection target (/dev/null) does not disqualify.
+deny_flags:
+  oc: &kube_connection_flags ["--kubeconfig", "--context", "--server", "-s", "--cluster", "--token", "--user"]
+  kubectl: *kube_connection_flags
+  curl: ["-o", "--output", "-O", "--remote-name*", "-K", "--config", "-c", "--cookie-jar", "-D", "--dump-header"]

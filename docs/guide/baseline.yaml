@@ -1,0 +1,23 @@
+# Pinned sources and change requests (the baseline). Written by tools/guide/fetch.py.
+captured: '2026-11-06'
+sources:
+- id: aprofile
+  repo: ../..
+  ref: HEAD
+  commit: 483957da3f5eadd28e72661f5fd53875efda88d4
+- id: claude-code
+  repo: anthropics/claude-code
+  ref: HEAD
+  commit: 0ed94698aa0aeee471465fc9c867c2e8434c4d68
+- id: codex
+  repo: openai/codex
+  ref: HEAD
+  commit: 6abffd442d6865a72056b305a31a604b83d087d8
+- id: opencode
+  repo: anomalyco/opencode
+  ref: HEAD
+  commit: cd47971fd60f9a46dab2600087a691064c7f46fa
+- id: pi
+  repo: earendil-works/pi
+  ref: HEAD
+  commit: 6bf2ab9bbb64fd14793e506a5404078441219b95
