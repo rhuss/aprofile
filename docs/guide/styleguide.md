@@ -9,7 +9,7 @@ Every page follows these terms and rules alongside its section voice.
 - "harness" means a supported coding agent command-line program.
 - "wrapper" means the launcher aprofile creates for a profile, such as `claude-work`.
 - "share level" means how much of a harness's default setup a profile uses.
-- Product names are spelled exactly: aprofile, Claude Code, Codex, OpenCode, and pi.
+- Product names are spelled exactly: aprofile, Claude Code, Codex CLI, OpenCode, and Pi.
 - Persona name: "End user".
 
 ## Rules
