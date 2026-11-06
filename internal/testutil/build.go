@@ -30,7 +30,7 @@ var (
 //
 // outName is the executable's file name (e.g. "claude" so a wrapper that execs
 // the "claude" binary finds the stub, or "aprofile" for the CLI).
-func BuildBinary(t *testing.T, importPath, outName string) string {
+func BuildBinary(t testing.TB, importPath, outName string) string {
 	t.Helper()
 	key := importPath + "\x00" + outName
 	buildMu.Lock()
@@ -57,7 +57,7 @@ func BuildBinary(t *testing.T, importPath, outName string) string {
 
 // moduleRoot walks up from this source file's directory to the module root (the
 // directory containing go.mod).
-func moduleRoot(t *testing.T) string {
+func moduleRoot(t testing.TB) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

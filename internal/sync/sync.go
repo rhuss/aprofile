@@ -13,6 +13,7 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/hooksets"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/registry"
@@ -27,6 +28,11 @@ type Options struct {
 	// FixLinks replaces a leaking state/owned/credentials symlink in a profile config
 	// dir with an empty real entry, never deleting the link target (FR-018).
 	FixLinks bool
+	// Relink replaces a real entry where a link is expected with the link, after
+	// Confirm and a Backup (FR-021). Without it such entries are only reported.
+	Relink  bool
+	Confirm func(profileID string, steps []layer.Step) bool
+	Backup  func(harness, name string, paths []string) (string, error)
 }
 
 // Result is a structured report of what the sync did.
@@ -39,12 +45,13 @@ type Result struct {
 	Path             PathResult
 	Problems         []string // reported, non-fatal issues (FR-022)
 	Notes            []string // reported conditions that changed nothing (FR-018: unclassified/leaking links)
+	HookChanges      int      // managed hook entries placed or removed
 }
 
 // Changed reports whether the sync changed anything.
 func (r *Result) Changed() bool {
 	return len(r.WrappersWritten) > 0 || len(r.WrappersRemoved) > 0 ||
-		r.ConfigDirChanges > 0 || r.RegistryChanged || r.Path.Changed
+		r.ConfigDirChanges > 0 || r.RegistryChanged || r.Path.Changed || r.HookChanges > 0
 }
 
 // HasProblems reports whether any profile/definition failed to load or clashed.
@@ -68,6 +75,12 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 	// Detect wrapper-name clashes (FR-002): skip both sides, report, but keep their
 	// existing files (do not treat as stale).
 	clash := wrapperNameClashes(profiles, set)
+
+	// The hook-set library (FR-023); a bad file is a problem, the others still apply.
+	lib, libErrs := hooksets.LoadLibrary(paths.HooksDir())
+	for _, e := range libErrs {
+		res.Problems = append(res.Problems, "hook set library: "+e.Error())
+	}
 
 	if !opts.DryRun {
 		if err := os.MkdirAll(paths.BinDir, 0o755); err != nil {
@@ -102,17 +115,41 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 		}
 
 		configDir := paths.ProfileConfigDir(p.Harness, p.Name)
-		changes, err := layer.PrepareConfigDirWith(def, configDir, layer.PrepareOptions{DryRun: opts.DryRun, FixLinks: opts.FixLinks})
+		prep := layer.PrepareOptions{DryRun: opts.DryRun, FixLinks: opts.FixLinks, Relink: opts.Relink}
+		if opts.Relink {
+			id := p.ID()
+			h, n := p.Harness, p.Name
+			prep.Confirm = func(steps []layer.Step) bool { return opts.Confirm != nil && opts.Confirm(id, steps) }
+			prep.Backup = func(paths []string) (string, error) {
+				if opts.Backup == nil {
+					return "", fmt.Errorf("no backup location")
+				}
+				return opts.Backup(h, n, paths)
+			}
+		}
+		changes, err := layer.PrepareConfigDirWith(def, p, configDir, prep)
+		for _, c := range changes {
+			switch {
+			case c.Mutating():
+				res.Changes = append(res.Changes, "config-dir "+p.ID()+": "+c.String())
+				res.ConfigDirChanges++
+			case c.Action == "needs-confirm":
+				// FR-017a: sync never replaces profile data; name the command that does.
+				res.Notes = append(res.Notes, fmt.Sprintf("config-dir %s: %s skipped: it replaces profile data; to complete it run: aprofile sync --relink, or aprofile edit %s --share %s",
+					p.ID(), c.Step.String(), p.ID(), p.ShareLevel()))
+			default:
+				res.Notes = append(res.Notes, "config-dir "+p.ID()+": "+c.String())
+			}
+		}
 		if err != nil {
 			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: prepare config dir: %v", p.ID(), err))
 			continue
 		}
-		for _, c := range changes {
-			if c.Mutating() {
-				res.Changes = append(res.Changes, "config-dir "+p.ID()+": "+c.String())
-				res.ConfigDirChanges++
-			} else {
-				res.Notes = append(res.Notes, "config-dir "+p.ID()+": "+c.String())
+
+		// Hook sets (FR-028): place, update and remove only the managed entries.
+		if def.Hooks != nil {
+			if err := syncHooks(paths, def, p, lib, configDir, opts, res); err != nil {
+				res.Problems = append(res.Problems, fmt.Sprintf("profile %s: hook sets: %v", p.ID(), err))
 			}
 		}
 
@@ -154,6 +191,7 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			Primary:     p.Primary,
 			ConfigDir:   configDir,
 			WrapperPath: wrapperPath,
+			Share:       string(p.ShareLevel()),
 		})
 		processed[p.ID()] = true
 	}
@@ -214,6 +252,33 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 	res.Path = EnsurePath(paths.BinDir, settings, opts.RemovePath, opts.DryRun)
 
 	return res, nil
+}
+
+// syncHooks places the managed hook entries of one profile and saves its record.
+// Diverged entries are reported and left alone; a referenced set missing from the
+// library, or a set whose body does not fit the harness, is a problem (sync exits
+// non-zero) and its entries stay unchanged.
+func syncHooks(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string, opts Options, res *Result) error {
+	hp, applied, err := hooksets.SyncProfile(def, p, lib, paths.ManagedHooksPath(p.Harness, p.Name), configDir, opts.DryRun)
+	for _, s := range applied {
+		res.Changes = append(res.Changes, "hooks "+p.ID()+": "+s.String())
+		res.HookChanges++
+	}
+	if hp != nil {
+		for _, m := range hp.MissingSets {
+			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: hook set %q is referenced but missing from %s; its managed entries were left unchanged", p.ID(), m, paths.HooksDir()))
+		}
+		for _, m := range hp.InvalidSets {
+			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: %s; the set was not applied", p.ID(), m))
+		}
+		for _, m := range hp.MissingScripts {
+			res.Notes = append(res.Notes, fmt.Sprintf("hooks %s: %s", p.ID(), m))
+		}
+		for _, d := range hp.Divergences {
+			res.Notes = append(res.Notes, fmt.Sprintf("hooks %s: %s", p.ID(), d.String()))
+		}
+	}
+	return err
 }
 
 // writeWrapper writes an executable wrapper only when its content differs, so an

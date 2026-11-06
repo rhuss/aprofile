@@ -8,6 +8,7 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/testutil"
 )
 
@@ -24,6 +25,11 @@ func claudeDef(t *testing.T) *harness.Definition {
 	return d
 }
 
+// allProfile is a claude profile at share level all.
+func allProfile() *profile.Profile {
+	return &profile.Profile{Harness: "claude", Name: "work", Share: profile.ShareAll}
+}
+
 func TestClassifyTable(t *testing.T) {
 	d := claudeDef(t)
 	cases := []struct {
@@ -35,10 +41,16 @@ func TestClassifyTable(t *testing.T) {
 		{"projects/", harness.LayerState, false},
 		{"projects", harness.LayerState, false}, // trailing slash ignored
 		{"statsig/", harness.LayerState, false},
-		{"skills/", harness.LayerOwned, false},
+		{"history.jsonl", harness.LayerState, false},
+		{"todos/", harness.LayerState, false},
+		{"skills/", harness.LayerContent, false},
 		{".claude.json", harness.LayerMixed, false},
-		{"settings.json", harness.LayerShared, false}, // falls through to *
-		{"CLAUDE.md", harness.LayerShared, false},
+		{"settings.json", harness.LayerSettings, false},
+		{"CLAUDE.md", harness.LayerContent, false},
+		{"plugins/", harness.LayerPluginStore, false},
+		// No catch-all since feature 002: unknown entries are unclassified (FR-001).
+		{"RTK.md", "", true},
+		{"foo.json", "", true},
 	}
 	for _, c := range cases {
 		res := layer.Classify(d, c.entry)
@@ -73,7 +85,7 @@ func TestPrepareConfigDirCreatesStateAndMixed(t *testing.T) {
 	d := claudeDef(t)
 	configDir := filepath.Join(h.DataHome, "aprofile", "profiles", "claude", "work")
 
-	changes, err := layer.PrepareConfigDir(d, configDir, false)
+	changes, err := layer.PrepareConfigDir(d, allProfile(), configDir, false)
 	if err != nil {
 		t.Fatalf("PrepareConfigDir: %v", err)
 	}
@@ -94,12 +106,14 @@ func TestPrepareConfigDirCreatesStateAndMixed(t *testing.T) {
 	}
 
 	// Idempotent: a second prepare makes no changes.
-	changes2, err := layer.PrepareConfigDir(d, configDir, false)
+	changes2, err := layer.PrepareConfigDir(d, allProfile(), configDir, false)
 	if err != nil {
 		t.Fatalf("second PrepareConfigDir: %v", err)
 	}
-	if len(changes2) != 0 {
-		t.Errorf("second prepare should be a no-op, got %v", changes2)
+	for _, c := range changes2 {
+		if c.Mutating() {
+			t.Errorf("second prepare should be a no-op, got %v", c)
+		}
 	}
 }
 
@@ -111,7 +125,7 @@ func TestSeedMixedFileExcludesCredentialsAndState(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(defaultSetup, ".claude.json"),
 		`{"oauthAccount":{"email":"me@example.com"},"projects":{"/x":{"trusted":true}},"numStartups":7,"mcpServers":{"s":{"command":"x"}}}`)
 	configDir := filepath.Join(h.DataHome, "aprofile", "profiles", "claude", "work")
-	if _, err := layer.PrepareConfigDir(d, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDir(d, allProfile(), configDir, false); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(configDir, ".claude.json"))
@@ -142,7 +156,7 @@ func TestPrepareSharedSymlinkLazyAndNonDestructive(t *testing.T) {
 	configDir := filepath.Join(h.DataHome, "aprofile", "profiles", "claude", "work")
 
 	// No default setup yet: shared links are deferred (lazy).
-	if _, err := layer.PrepareConfigDir(d, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDir(d, allProfile(), configDir, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(configDir, "CLAUDE.md")); !os.IsNotExist(err) {
@@ -152,7 +166,7 @@ func TestPrepareSharedSymlinkLazyAndNonDestructive(t *testing.T) {
 	// Create a default setup with a shared file and re-sync: link appears.
 	defaultSetup := filepath.Join(h.Root, ".claude")
 	testutil.WriteFile(t, filepath.Join(defaultSetup, "CLAUDE.md"), "# shared\n")
-	if _, err := layer.PrepareConfigDir(d, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDir(d, allProfile(), configDir, false); err != nil {
 		t.Fatal(err)
 	}
 	li, err := os.Lstat(filepath.Join(configDir, "CLAUDE.md"))
@@ -161,5 +175,27 @@ func TestPrepareSharedSymlinkLazyAndNonDestructive(t *testing.T) {
 	}
 	if li.Mode()&os.ModeSymlink == 0 {
 		t.Error("CLAUDE.md should be a symlink to the default setup")
+	}
+}
+
+// A user catch-all glob must not win over the hook location: Codex's hooks.json
+// stays the hook location, so hook sets can still be placed (spec Edge Cases).
+func TestClassifyHookLocationWinsOverUserGlob(t *testing.T) {
+	set, err := harness.LoadBuiltins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, ok := set.Get("codex")
+	if !ok {
+		t.Fatal("codex not loaded")
+	}
+	withGlob := *d
+	withGlob.Classification = append(append([]harness.EntryRule(nil), d.Classification...),
+		harness.EntryRule{Entry: "*", Layer: harness.LayerContent})
+	if res := layer.Classify(&withGlob, "hooks.json"); res.Layer != harness.LayerHookLocation {
+		t.Errorf("Classify(hooks.json) with a user catch-all = %q, want hook location", res.Layer)
+	}
+	if res := layer.Classify(&withGlob, "RTK.md"); res.Layer != harness.LayerContent {
+		t.Errorf("the catch-all still classifies other entries: %q", res.Layer)
 	}
 }

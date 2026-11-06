@@ -23,7 +23,8 @@ These are public interfaces (Constitution V, FR-030, FR-032). Breaking changes r
       "auth_kind": "oauth-token",
       "primary": true,
       "config_dir": "/abs/path/to/profile/config/dir",
-      "wrapper_path": "/abs/path/to/bin/claude-work"
+      "wrapper_path": "/abs/path/to/bin/claude-work",
+      "share": "content"
     }
   ]
 }
@@ -32,6 +33,10 @@ These are public interfaces (Constitution V, FR-030, FR-032). Breaking changes r
 Field notes: `color`/`icon` are the display values from the profile. `config_dir` is the directory
 the wrapper points the harness at. `wrapper_path` is the generated launcher. No credentials, no
 references.
+
+**Addition (feature 002, `specs/002-profile-isolation-levels`)**: `share` (`all`, `content` or
+`none`) was added additively at `format_version` 1; a reader that ignores unknown fields is
+unaffected. Profiles without a stored level are published as `all`.
 
 ## Omarchy export (opt-in, FR-031)
 
@@ -58,6 +63,7 @@ Every wrapper sets these, never caller-overridable (FR-026):
 | `APROFILE_COLOR` | profile color |
 | `APROFILE_ICON` | profile icon |
 | `APROFILE_CONFIG_DIR` | the profile config dir |
+| `APROFILE_SHARE` | the profile's share level: `all`, `content` or `none` (added by feature 002) |
 | `APROFILE_SET_VARS` | space-separated names of the model/endpoint/extra variables the wrapper set |
 
 The wrapper also sets the harness's own config-dir variable (e.g. `CLAUDE_CONFIG_DIR`) and the

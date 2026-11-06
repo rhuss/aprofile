@@ -101,11 +101,36 @@ func decodeJSONObject(data []byte) (map[string]json.RawMessage, error) {
 // keys sorted), with a trailing newline, preserving the semantic content of every
 // value.
 func encodeJSONObject(m map[string]json.RawMessage) ([]byte, error) {
-	out, err := json.MarshalIndent(m, "", "  ")
+	out, err := EncodeJSON(m)
 	if err != nil {
 		return nil, fmt.Errorf("encode mixed file: %w", err)
 	}
-	return append(out, '\n'), nil
+	return out, nil
+}
+
+// EncodeJSON renders a value as indented JSON with a trailing newline, without
+// HTML escaping, so commands such as "a && b > c" in a user's settings file stay
+// readable when aprofile rewrites it.
+func EncodeJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// EncodeJSONCompact renders a value as compact JSON without HTML escaping.
+func EncodeJSONCompact(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // jsonValueEqual compares two JSON values ignoring insignificant whitespace and
@@ -132,3 +157,6 @@ func normalizeJSON(raw json.RawMessage) ([]byte, error) {
 func isJSONExt(ext string) bool {
 	return strings.EqualFold(ext, ".json")
 }
+
+// IsJSONExt reports whether ext names a JSON file (case-insensitive).
+func IsJSONExt(ext string) bool { return isJSONExt(ext) }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/testutil"
 )
 
@@ -95,6 +96,12 @@ func TestMixedSharedDriftDetectsChange(t *testing.T) {
 	}
 }
 
+// contentProfile is a profile at share level content (mixed files are seeded at
+// all and content; at none they start minimal, see plan_test.go).
+func contentProfile() *profile.Profile {
+	return &profile.Profile{Harness: "fake", Name: "p", Share: profile.ShareContent}
+}
+
 // TestSeedMixedSharedKeysSeededOnce proves shared keys are seeded once from the
 // default setup and never rewritten afterwards (FR-013), while credentials/state
 // keys are excluded from the seed.
@@ -110,7 +117,7 @@ func TestSeedMixedSharedKeysSeededOnce(t *testing.T) {
 		Classification:        []harness.EntryRule{*mixedRule()},
 	}
 	configDir := filepath.Join(h.DataHome, "cfg")
-	if _, err := layer.PrepareConfigDir(def, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDir(def, contentProfile(), configDir, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,7 +145,7 @@ func TestSeedMixedSharedKeysSeededOnce(t *testing.T) {
 
 	// Edit the seeded shared key, then prepare again: it must not be rewritten.
 	testutil.WriteFile(t, target, `{"sharedKey":"edited","ownedA":"o"}`)
-	if _, err := layer.PrepareConfigDir(def, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDir(def, contentProfile(), configDir, false); err != nil {
 		t.Fatal(err)
 	}
 	data2, _ := os.ReadFile(target)

@@ -17,8 +17,9 @@
 // The live config dir holds the harness's real files. The importer classifies each
 // entry with the harness definition and copies the credentials- and owned-layer
 // entries (and, for a mixed file, only its credential and owned keys) into the new
-// profile config dir. State entries are never copied; shared entries are left for a
-// later `aprofile sync` to symlink. This layout is a placeholder: the field names and
+// profile config dir. State entries are never copied; content, settings, the plugin
+// store and the hook location are left for a later `aprofile sync`, which links or
+// copies them according to the profile's share level. This layout is a placeholder: the field names and
 // the credential source location must be confirmed against the real cc-deck schema.
 package importer
 
@@ -45,6 +46,9 @@ type Options struct {
 	DryRun               bool
 	Overwrite            bool
 	OverwriteCredentials bool
+	// Share is the share level imported profiles get (FR-007): --share or the
+	// global default. Empty means content, the built-in default.
+	Share profile.Share
 	// Now supplies the backup timestamp; nil uses time.Now.
 	Now func() time.Time
 }
@@ -134,7 +138,7 @@ func Import(paths *config.Paths, set *harness.Set, store *profile.Store, sourceD
 			continue
 		}
 
-		p, berr := buildProfile(cp)
+		p, berr := buildProfile(cp, opts.Share)
 		if berr != nil {
 			act.Status = "skip"
 			act.Reason = "invalid cc-deck profile: " + berr.Error()
@@ -218,8 +222,12 @@ func readCCProfiles(sourceDir string) ([]ccProfile, error) {
 
 // buildProfile maps a cc-deck record to an aprofile profile, keeping auth values as
 // references (FR-045, Principle IV).
-func buildProfile(cp ccProfile) (*profile.Profile, error) {
+func buildProfile(cp ccProfile, share profile.Share) (*profile.Profile, error) {
+	if share == "" {
+		share = profile.Share(config.BuiltinDefaultShare)
+	}
 	p := &profile.Profile{
+		Share:    share,
 		Harness:  cp.Harness,
 		Name:     cp.Name,
 		Label:    cp.Label,
@@ -248,7 +256,8 @@ func buildProfile(cp ccProfile) (*profile.Profile, error) {
 
 // applyConfig copies the credentials and owned layers from the cc-deck live config
 // dir into the new profile config dir, honoring the overwrite flags and backing up
-// replaced credentials (FR-045). State is never copied; shared is left for sync.
+// replaced credentials (FR-045). State is never copied; content, settings, the
+// plugin store and the hook location are left for sync.
 func applyConfig(paths *config.Paths, def *harness.Definition, cp ccProfile, destDir string, exists bool, opts Options, act *Action) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
@@ -275,7 +284,7 @@ func applyConfig(paths *config.Paths, def *harness.Definition, cp ccProfile, des
 	for i := range def.Classification {
 		rule := &def.Classification[i]
 		if isGlob(rule.Entry) {
-			continue // shared catch-all: handled by sync, never imported
+			continue // glob rules classify entries; they name nothing to import
 		}
 		rel := strings.TrimSuffix(rule.Entry, "/")
 		src := filepath.Join(srcDir, filepath.FromSlash(rel))
@@ -328,8 +337,10 @@ func applyConfig(paths *config.Paths, def *harness.Definition, cp ccProfile, des
 			if err := applyMixed(rule, src, dst, rel, exists, opts, ensureBackup, act); err != nil {
 				return err
 			}
-		case harness.LayerState, harness.LayerShared:
-			// State stays fresh; shared is symlinked by sync.
+		default:
+			// State stays fresh. Content, settings, the plugin store and the hook
+			// location are never imported: sync links or copies them from the default
+			// setup according to the profile's share level.
 		}
 	}
 	return nil

@@ -1,0 +1,120 @@
+package cli
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/cc-deck/aprofile/internal/profile"
+)
+
+// This file is the single source of the share-level text (plan Design Decision 6):
+// flag help, the TUI, show, `help sharing` and the README tables all render these
+// values, and readme_test.go checks the README against them (SC-003).
+
+// levelDescriptions are the one-line descriptions of FR-014 (at most 80 characters,
+// used verbatim everywhere a level is shown).
+var levelDescriptions = map[profile.Share]string{
+	profile.ShareAll:     "Uses your whole setup live; logins, history and memory stay private.",
+	profile.ShareContent: "Uses your instructions and skills; keeps its own settings and hooks.",
+	profile.ShareNone:    "Shares nothing with your setup; starts clean, with only named hook sets.",
+}
+
+// alwaysPrivate is the sentence every guide states up front (FR-012, US2 AS3).
+const alwaysPrivate = "logins, history, sessions and memory are always private"
+
+// levelDescription returns the one-line description of a level.
+func levelDescription(s profile.Share) string { return levelDescriptions[s] }
+
+// useCase is one row of the use-case table (spec, "Use cases and the recommended
+// share level").
+type useCase struct {
+	ID          string
+	Case        string
+	Recommended string
+	Why         string
+}
+
+var useCases = []useCase{
+	{"UC1", "Work and personal accounts of the same harness, often running at the same time", "content",
+		"Same instructions everywhere; a permission granted at work stays out of the personal account"},
+	{"UC2", "A client account that must never see personal memory, instructions or plugins", "none",
+		"Nothing is shared; show and doctor list the remaining $HOME escapes"},
+	{"UC3", "A throwaway profile for trying a plugin, hook or model endpoint", "content",
+		"Plugin and settings experiments stay in the profile; remove --purge throws it away"},
+	{"UC4", "Claude Code and Codex used together with a common set of hooks", "content",
+		"Use the same hook sets in each profile; content stays per harness"},
+	{"UC5", "A local or alternative endpoint that should behave exactly like the default setup", "all",
+		"Settings, plugins and hooks stay identical to the default setup and change with it"},
+	{"UC6", "A demo or recording profile with nothing personal on screen", "none",
+		"Personal instructions, permissions and plugins stay out of view"},
+	{"UC7", "A CI or automation profile with only explicitly chosen hooks", "none",
+		"No borrowed settings; only the hook sets the profile names (--hook-sets)"},
+}
+
+// levelRow is one row of the level table: what each level does with a category.
+type levelRow struct {
+	Category string
+	All      string
+	Content  string
+	None     string
+}
+
+var levelTable = []levelRow{
+	{"Credentials", "private", "private", "private"},
+	{"Runtime state (history, sessions, memory, logs, caches)", "private", "private", "private"},
+	{"Owned (MCP servers, model, endpoint)", "private", "private", "private, starts empty"},
+	{"Content (instructions, skills, agents, commands, prompts)", "linked", "linked", "not present"},
+	{"Settings (permissions, enabled plugins, status line)", "linked", "own copy, taken once", "own, starts minimal"},
+	{"Plugin store (installed plugin code)", "linked", "linked", "private"},
+	{"Hooks", "the default setup's", "hook sets (named + every-profile)", "named hook sets only"},
+}
+
+// shareFlagHelp is the help text of the --share flag.
+func shareFlagHelp() string {
+	var parts []string
+	for _, s := range profile.Shares {
+		parts = append(parts, fmt.Sprintf("%s: %s", s, levelDescription(s)))
+	}
+	return "share level (all|content|none; see: aprofile help sharing). " + strings.Join(parts, " ")
+}
+
+// useCasesFor returns the use cases a level is recommended for.
+func useCasesFor(s profile.Share) []useCase {
+	var out []useCase
+	for _, uc := range useCases {
+		if uc.Recommended == string(s) {
+			out = append(out, uc)
+		}
+	}
+	return out
+}
+
+// useCaseMarkdown renders the use-case table as Markdown, the exact form the
+// README carries (FR-012, SC-003; checked by readme_test.go).
+func useCaseMarkdown() string {
+	var b strings.Builder
+	b.WriteString("| # | Use case | Recommended | Why |\n|---|----------|-------------|-----|\n")
+	for _, uc := range useCases {
+		fmt.Fprintf(&b, "| %s | %s | `--share %s` | %s |\n", uc.ID, uc.Case, uc.Recommended, uc.Why)
+	}
+	return b.String()
+}
+
+// levelTableMarkdown renders the level table as Markdown for the README.
+func levelTableMarkdown() string {
+	var b strings.Builder
+	b.WriteString("| Category | `all` | `content` | `none` |\n|----------|-------|-----------|--------|\n")
+	for _, r := range levelTable {
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", r.Category, r.All, r.Content, r.None)
+	}
+	return b.String()
+}
+
+// levelListMarkdown renders the levels with their one-line descriptions.
+func levelListMarkdown() string {
+	var b strings.Builder
+	for _, s := range profile.Shares {
+		fmt.Fprintf(&b, "- `%s`: %s\n", s, levelDescription(s))
+	}
+	return b.String()
+}

@@ -32,12 +32,11 @@ auth_kinds:
     vars: {} # interactive login; credentials land in the Keychain / .credentials.json
 
 classification:
+  # Entries verified on disk with Claude Code 2.1.318 on 2026-11-04
+  # (specs/002-profile-isolation-levels/research.md R1). There is no catch-all:
+  # an entry not listed here is reported, never linked (FR-001).
   - { entry: ".credentials.json", layer: credentials }
-  - { entry: "projects/", layer: state }
-  - { entry: "statsig/", layer: state }
-  - { entry: "logs/", layer: state }
-  - { entry: "history/", layer: state }
-  - { entry: "skills/", layer: owned }
+  - { entry: ".credentials.lock", layer: credentials }
   # .claude.json is a mixed file: account keys are credentials, mcpServers is
   # owned, project trust and start counts are state.
   - entry: ".claude.json"
@@ -48,8 +47,61 @@ classification:
       mcpServers: owned
       projects: state
       numStartups: state
-  # Everything else is shared (symlinked to the default setup).
-  - { entry: "*", layer: shared }
+  # Runtime state: always private (FR-002).
+  - { entry: "projects/", layer: state }
+  - { entry: "history.jsonl", layer: state }
+  - { entry: "sessions/", layer: state }
+  - { entry: "session-env/", layer: state }
+  - { entry: "file-history/", layer: state }
+  - { entry: "todos/", layer: state }
+  - { entry: "shell-snapshots/", layer: state }
+  - { entry: "tasks/", layer: state }
+  - { entry: "teams/", layer: state }
+  - { entry: "plans/", layer: state }
+  - { entry: "paste-cache/", layer: state }
+  - { entry: "debug/", layer: state }
+  - { entry: "logs/", layer: state }
+  - { entry: "telemetry/", layer: state }
+  - { entry: "statsig/", layer: state }
+  - { entry: "stats-cache.json", layer: state }
+  - { entry: "jobs/", layer: state }
+  - { entry: "daemon/", layer: state }
+  - { entry: "daemon.log", layer: state }
+  - { entry: "daemon.lock", layer: state }
+  - { entry: "daemon.status.json", layer: state }
+  - { entry: "daemon-auth-status.json", layer: state }
+  - { entry: "daemon-auth-cooldown", layer: state }
+  # IDE extensions started from a profile wrapper write here (research R8).
+  - { entry: "ide/", layer: state }
+  - { entry: "backups/", layer: state }
+  - { entry: "cache/", layer: state }
+  - { entry: "state/", layer: state }
+  - { entry: "transcripts/", layer: state }
+  - { entry: "mcp-needs-auth-cache.json", layer: state }
+  - { entry: ".last-cleanup", layer: state }
+  - { entry: ".last-update-result.json", layer: state }
+  # Content: hand-written material reused by every non-none profile.
+  - { entry: "CLAUDE.md", layer: content }
+  - { entry: "skills/", layer: content }
+  - { entry: "agents/", layer: content }
+  - { entry: "commands/", layer: content }
+  - { entry: "output-styles/", layer: content }
+  - { entry: "themes/", layer: content }
+  - { entry: "keybindings.json", layer: content }
+  # Hook scripts: not written by Claude Code, but the conventional place for the
+  # scripts that settings.json hooks run (walkthrough observation, RUNBOOK Step 7).
+  - { entry: "hooks/", layer: content }
+  # Settings: written by Claude Code at runtime (permissions, enabledPlugins,
+  # statusLine). settings.json holds no owned keys, so it is linkable at all.
+  - { entry: "settings.json", layer: settings }
+  - { entry: "settings.local.json", layer: settings }
+  # Installed plugin code and install records.
+  - { entry: "plugins/", layer: plugin-store }
+
+# Hooks are the "hooks" key of settings.json.
+hooks:
+  location: "settings.json#hooks"
+  form: event-groups
 
 mcp:
   location: ".claude.json#mcpServers"
@@ -57,4 +109,4 @@ mcp:
 
 skills_location:
   path: "skills"
-  scope: per-profile
+  scope: per-profile # ignored since feature 002: skills are content

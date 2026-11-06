@@ -34,6 +34,9 @@ type Entry struct {
 	Primary     bool   `json:"primary"`
 	ConfigDir   string `json:"config_dir"`
 	WrapperPath string `json:"wrapper_path"`
+	// Share is the profile's share level (feature 002, FR-019): all, content or
+	// none. Added additively at format_version 1.
+	Share string `json:"share"`
 }
 
 // Marshal renders the registry JSON deterministically: entries sorted by

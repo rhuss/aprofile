@@ -15,7 +15,7 @@ import (
 func TestScenario3Isolation(t *testing.T) {
 	e := newEnv(t)
 
-	// A default setup with a shared file (CLAUDE.md falls through to the `*` rule).
+	// A default setup with a content file (CLAUDE.md is classified as content).
 	defaultSetup := filepath.Join(e.root, ".claude")
 	writeFile(t, filepath.Join(defaultSetup, "CLAUDE.md"), "v1\n")
 

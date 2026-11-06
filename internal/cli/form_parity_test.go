@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/testutil"
 	"github.com/cc-deck/aprofile/internal/tui"
 )
@@ -42,6 +43,7 @@ func TestFormAddMatchesFlagAdd(t *testing.T) {
 		model: "m1", endpoint: "https://ep",
 		authKind: "oauth-token", authKey: "env:TOK",
 		herdrAgent: "coder",
+		share:      "none",
 	}
 	if err := createProfileFromFlags(a, def, "claude", "viaflags", flagF); err != nil {
 		t.Fatalf("flag add: %v", err)
@@ -54,6 +56,7 @@ func TestFormAddMatchesFlagAdd(t *testing.T) {
 		Model: "m1", Endpoint: "https://ep",
 		AuthKind: "oauth-token", AuthKey: "env:TOK",
 		HerdrAgent: "coder",
+		Share:      "none",
 	}
 	formF := &profileFlags{}
 	applyFormValues(formF, v)
@@ -95,5 +98,22 @@ func TestRequiredAddFlags(t *testing.T) {
 	// An interactive kind (oauth-login declares no variable): nothing required.
 	if got := requiredAddFlags(claude, &profileFlags{authKind: "oauth-login"}); got != nil {
 		t.Errorf("claude oauth-login: got %v, want nil", got)
+	}
+}
+
+// TestFormOffersShareLevels checks the form's share choice (US2 AS2): every level
+// with its single-source description and at least one use case, the current one
+// first.
+func TestFormOffersShareLevels(t *testing.T) {
+	a := newTestApp(t)
+	def, _ := a.set.Get("claude")
+	cfg := profileFormConfig(a, def, &profileFlags{share: "none"})
+	if len(cfg.ShareOptions) != 3 || cfg.ShareOptions[0].Value != "none" {
+		t.Fatalf("share options = %+v", cfg.ShareOptions)
+	}
+	for _, o := range cfg.ShareOptions {
+		if o.Description != levelDescription(profile.Share(o.Value)) || len(o.UseCases) == 0 {
+			t.Errorf("option %s lacks its description or use cases: %+v", o.Value, o)
+		}
 	}
 }

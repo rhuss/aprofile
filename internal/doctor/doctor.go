@@ -16,18 +16,48 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/hooksets"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
 	"github.com/cc-deck/aprofile/internal/wrapper"
 )
 
-// Finding is one reported problem. Profile is the "<harness>/<name>" it concerns
-// (empty for installation-wide findings); Fix names a remedy.
+// Severities (feature 002, FR-020): only problems make doctor exit non-zero.
+const (
+	SeverityProblem = "problem"
+	SeverityInfo    = "info"
+)
+
+// Finding is one reported condition. Profile is the "<harness>/<name>" it concerns
+// (empty for installation-wide findings); Fix names a remedy; Severity is problem
+// or info.
 type Finding struct {
-	Profile string `json:"profile,omitempty"`
-	Message string `json:"message"`
-	Fix     string `json:"fix,omitempty"`
+	Profile  string `json:"profile,omitempty"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Fix      string `json:"fix,omitempty"`
+}
+
+// HasProblems reports whether any finding has problem severity (FR-020).
+func HasProblems(findings []Finding) bool {
+	for _, f := range findings {
+		if f.Severity != SeverityInfo {
+			return true
+		}
+	}
+	return false
+}
+
+// Problems counts the problem findings.
+func Problems(findings []Finding) int {
+	n := 0
+	for _, f := range findings {
+		if f.Severity != SeverityInfo {
+			n++
+		}
+	}
+	return n
 }
 
 // Run collects findings for every profile in the store plus installation-wide findings
@@ -51,6 +81,12 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 		findings = append(findings, Finding{Profile: f.ID(), Message: "profile failed to load: " + f.Err.Error(), Fix: "fix the profile file or remove it"})
 	}
 
+	findings = append(findings, definitionFindings(set, profiles)...)
+	lib, libErrs := hooksets.LoadLibrary(paths.HooksDir())
+	for _, e := range libErrs {
+		findings = append(findings, Finding{Message: "invalid hook set: " + e.Error(), Fix: "correct the hook set file"})
+	}
+
 	for _, p := range profiles {
 		def, ok := set.Get(p.Harness)
 		if !ok {
@@ -59,12 +95,130 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 		}
 		configDir := paths.ProfileConfigDir(p.Harness, p.Name)
 		findings = append(findings, isolationFindings(def, configDir, p.ID())...)
+		findings = append(findings, shareFindings(paths, def, p, lib, configDir)...)
 		findings = append(findings, binaryFindings(def, p.ID())...)
 		findings = append(findings, wrapperFindings(paths, def, p)...)
 		findings = append(findings, referenceFindings(p)...)
 		findings = append(findings, authStatusFindings(def, configDir, p)...)
 	}
+	for i := range findings {
+		if findings[i].Severity == "" {
+			findings[i].Severity = SeverityProblem
+		}
+	}
 	return findings, nil
+}
+
+// definitionFindings reports definition-level conditions once per harness: user
+// rules with the deprecated shared alias or a borrowable catch-all (problems), and
+// default-setup entries no rule covers (information, FR-001a), for harnesses that
+// have a profile borrowing from the default setup.
+func definitionFindings(set *harness.Set, profiles []*profile.Profile) []Finding {
+	var out []Finding
+	borrowing := map[string]bool{}
+	for _, p := range profiles {
+		if p.ShareLevel() != profile.ShareNone {
+			borrowing[p.Harness] = true
+		}
+	}
+	for _, d := range set.All() {
+		for _, r := range d.Classification {
+			if r.CompanionOf != "" {
+				continue
+			}
+			if r.Deprecated {
+				out = append(out, Finding{Message: fmt.Sprintf("%s: rule %q in %s uses the deprecated layer shared (read as content)", d.Name, r.Entry, r.Origin),
+					Fix: "change it to content, settings or plugin-store"})
+			}
+			if r.IsGlob() && r.Layer.Borrowable() {
+				out = append(out, Finding{Message: fmt.Sprintf("%s: rule %q in %s is a catch-all: every unknown entry is linked to the default setup", d.Name, r.Entry, r.Origin),
+					Fix: "classify entries one by one (aprofile harness classify) and remove the catch-all"})
+			}
+		}
+		if !borrowing[d.Name] {
+			continue
+		}
+		if unb, err := layer.UnborrowedDefaultEntries(d); err == nil && len(unb) > 0 {
+			out = append(out, Finding{Severity: SeverityInfo,
+				Message: fmt.Sprintf("%s: default setup entries not borrowed by any profile because they are unclassified: %s", d.Name, strings.Join(unb, ", ")),
+				Fix:     fmt.Sprintf("aprofile harness classify %s <entry> --as content (or settings, state, ...)", d.Name)})
+		}
+	}
+	return out
+}
+
+// shareFindings reports the share-level checks of FR-020 for one profile: linked
+// entries replaced by real files, diverged managed hooks, missing hook sets and
+// scripts (problems); settings that differ from the default setup and $HOME
+// escapes (information).
+func shareFindings(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string) []Finding {
+	var out []Finding
+	id := p.ID()
+	if entries, err := layer.Treatments(def, p, "", configDir); err == nil {
+		for _, e := range entries {
+			switch e.Status {
+			case layer.StatusLinkReplacedByFile:
+				out = append(out, Finding{Profile: id, Message: fmt.Sprintf("the profile stopped sharing %s: the link was replaced by a real file", e.Entry),
+					Fix: "aprofile sync --relink (backs the file up and asks first)"})
+			case layer.StatusKeptFromUpgrade:
+				out = append(out, Finding{Profile: id, Severity: SeverityInfo,
+					Message: fmt.Sprintf("%s is the profile's own from before share levels and is kept, not shared", e.Entry),
+					Fix:     "keep it, or share the default setup's with: aprofile sync --relink (backs it up and asks first)"})
+			case layer.StatusLeakingLink:
+				if isGlobMatch(def, e.Entry) {
+					out = append(out, Finding{Profile: id, Message: fmt.Sprintf("%s entry %q is a link (leaks across profiles)", e.Category, e.Entry), Fix: "run: aprofile sync --fix-links"})
+				}
+			}
+		}
+		if diff := layer.SettingsDiffer(entries); len(diff) > 0 && p.ShareLevel() == profile.ShareContent {
+			out = append(out, Finding{Profile: id, Severity: SeverityInfo,
+				Message: fmt.Sprintf("settings differ from the default setup: %s", strings.Join(diff, ", ")),
+				Fix:     "aprofile settings pull " + id + " --dry-run (to refresh)"})
+		}
+	}
+	for _, he := range def.HomeEscapes {
+		out = append(out, Finding{Profile: id, Severity: SeverityInfo,
+			Message: fmt.Sprintf("%s (%s) is read from $HOME: shared with every profile; no share level can separate this", he.Path, he.What)})
+	}
+	if p.ShareLevel() == profile.ShareAll && len(p.HookSets) > 0 {
+		// Only a hand-edited file gets here: attaching a set to an all profile fails
+		// (FR-027). The sets have no effect, so say so instead of staying silent.
+		out = append(out, Finding{Profile: id, Severity: SeverityInfo,
+			Message: fmt.Sprintf("hook sets %s are attached but ignored: share level all uses the hooks of the default setup", strings.Join(p.HookSets, ", ")),
+			Fix:     "aprofile edit " + id + " --share content (to use them), or remove hook_sets from the profile file"})
+	}
+	if def.Hooks == nil || p.ShareLevel() == profile.ShareAll {
+		return out
+	}
+	rec, err := hooksets.LoadRecord(paths.ManagedHooksPath(p.Harness, p.Name))
+	if err != nil {
+		return append(out, Finding{Profile: id, Message: err.Error(), Fix: "remove the record file; the next sync rewrites it"})
+	}
+	hp, err := hooksets.PlanHooks(def, p, lib, rec, configDir, hooksets.PlanOptions{})
+	if err != nil {
+		return append(out, Finding{Profile: id, Message: "hook sets: " + err.Error(), Fix: "correct the file"})
+	}
+	for _, m := range hp.MissingSets {
+		out = append(out, Finding{Profile: id, Message: fmt.Sprintf("hook set %q is referenced but missing from %s", m, paths.HooksDir()),
+			Fix: "restore the set, or remove it with: aprofile edit " + id + " --hook-sets <others>"})
+	}
+	for _, m := range hp.InvalidSets {
+		out = append(out, Finding{Profile: id, Message: m, Fix: "correct the hook set's body for this harness"})
+	}
+	for _, m := range hp.MissingScripts {
+		out = append(out, Finding{Profile: id, Message: m, Fix: "create the script or correct the hook set"})
+	}
+	for _, d := range hp.Divergences {
+		out = append(out, Finding{Profile: id, Message: d.String(), Fix: "aprofile hook-sets reapply " + id + " --dry-run"})
+	}
+	return out
+}
+
+// isGlobMatch reports whether an entry is classified by a glob rule (named rules
+// are covered by isolationFindings).
+func isGlobMatch(def *harness.Definition, entry string) bool {
+	r := layer.Classify(def, entry)
+	return r.Rule != nil && r.Rule.IsGlob()
 }
 
 // pathFindings reports when aprofile's bin dir is not on the current PATH, so wrappers
@@ -214,7 +368,7 @@ func sameDir(a, b string) bool {
 // mixed-file shared keys that drifted from the default setup.
 func isolationFindings(def *harness.Definition, configDir, id string) []Finding {
 	var out []Finding
-	defaultSetup := expandHome(def.DefaultConfigLocation)
+	defaultSetup := harness.ExpandHome(def.DefaultConfigLocation)
 
 	// Unclassified entries (FR-018).
 	if unc, err := layer.Unclassified(def, configDir); err == nil {
@@ -236,7 +390,16 @@ func isolationFindings(def *harness.Definition, configDir, id string) []Finding 
 		entryPath := filepath.Join(configDir, filepath.FromSlash(rel))
 
 		switch rule.Layer {
-		case harness.LayerState, harness.LayerCredentials, harness.LayerOwned:
+		case harness.LayerState, harness.LayerCredentials, harness.LayerOwned, harness.LayerMixed:
+			if rule.Layer == harness.LayerMixed {
+				if fi, err := os.Lstat(entryPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+					target, _ := os.Readlink(entryPath)
+					out = append(out, Finding{Profile: id, Message: fmt.Sprintf("mixed entry %q is a symlink -> %s (leaks across profiles)", rule.Entry, target), Fix: "run: aprofile sync --fix-links"})
+					continue
+				}
+				out = append(out, mixedDrift(def, rule, rel, entryPath, id)...)
+				continue
+			}
 			// A state/owned/credentials entry must be a real per-profile entry; a
 			// symlink leaks data across profiles (FR-014/015/016).
 			fi, err := os.Lstat(entryPath)
@@ -250,25 +413,31 @@ func isolationFindings(def *harness.Definition, configDir, id string) []Finding 
 			}
 			out = append(out, Finding{Profile: id, Message: msg, Fix: "run: aprofile sync --fix-links"})
 
-		case harness.LayerMixed:
-			// Seeded shared keys that drifted from the default setup (FR-013, FR-044).
-			profileFile, err1 := os.ReadFile(entryPath)
-			defaultFile, err2 := os.ReadFile(filepath.Join(defaultSetup, filepath.FromSlash(rel)))
-			if err1 != nil || err2 != nil {
-				continue
-			}
-			drift, err := layer.MixedSharedDrift(rule, profileFile, defaultFile, strings.ToLower(filepath.Ext(rel)))
-			if err != nil {
-				continue
-			}
-			for _, key := range drift {
-				out = append(out, Finding{
-					Profile: id,
-					Message: fmt.Sprintf("mixed file %q seeded shared key %q differs from the default setup", rule.Entry, key),
-					Fix:     "reconcile the key with the default setup or accept the profile's value",
-				})
-			}
 		}
+	}
+	return out
+}
+
+// mixedDrift reports, as information, seeded keys of a mixed file declared with
+// the slice one `shared` key layer that drifted from the default setup (FR-013).
+func mixedDrift(def *harness.Definition, rule *harness.EntryRule, rel, entryPath, id string) []Finding {
+	profileFile, err1 := os.ReadFile(entryPath)
+	defaultFile, err2 := os.ReadFile(def.DefaultPath(rel))
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	drift, err := layer.MixedSharedDrift(rule, profileFile, defaultFile, strings.ToLower(filepath.Ext(rel)))
+	if err != nil {
+		return nil
+	}
+	var out []Finding
+	for _, key := range drift {
+		out = append(out, Finding{
+			Severity: SeverityInfo,
+			Profile:  id,
+			Message:  fmt.Sprintf("mixed file %q seeded key %q differs from the default setup", rule.Entry, key),
+			Fix:      "reconcile the key with the default setup or accept the profile's value",
+		})
 	}
 	return out
 }
@@ -281,14 +450,4 @@ func leaksToDefault(target, defaultSetup string) bool {
 	t := filepath.Clean(target)
 	d := filepath.Clean(defaultSetup)
 	return t == d || strings.HasPrefix(t, d+string(filepath.Separator))
-}
-
-// expandHome expands a leading ~ to the current HOME.
-func expandHome(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/"))
-		}
-	}
-	return p
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/importer"
+	"github.com/cc-deck/aprofile/internal/profile"
 )
 
 func newImportCmd() *cobra.Command {
@@ -22,6 +23,7 @@ func newImportCmd() *cobra.Command {
 func newImportCCDeckCmd() *cobra.Command {
 	var source string
 	var dryRun, overwrite, overwriteCreds, asJSON bool
+	var share string
 	cmd := &cobra.Command{
 		Use:   "cc-deck",
 		Short: "Import cc-deck profiles; never modifies or deletes a cc-deck file (FR-045)",
@@ -33,6 +35,7 @@ func newImportCCDeckCmd() *cobra.Command {
 				overwrite:      overwrite,
 				overwriteCreds: overwriteCreds,
 				asJSON:         asJSON,
+				share:          share,
 			})
 		},
 	}
@@ -42,10 +45,12 @@ func newImportCCDeckCmd() *cobra.Command {
 	fl.BoolVar(&overwrite, "overwrite", false, "replace an existing profile's settings and owned layer, keep its credentials and state")
 	fl.BoolVar(&overwriteCreds, "overwrite-credentials", false, "additionally replace credentials, backing up the old ones first")
 	fl.BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	fl.StringVar(&share, "share", "", "share level of the imported profiles (default: settings default_share, else content); "+shareFlagHelp())
 	return cmd
 }
 
 type importArgs struct {
+	share          string
 	source         string
 	dryRun         bool
 	overwrite      bool
@@ -86,7 +91,16 @@ func runImportCCDeck(cmd *cobra.Command, args importArgs) error {
 		source = filepath.Join(filepath.Dir(a.paths.ConfigDir), "cc-deck")
 	}
 
+	share := args.share
+	if share == "" {
+		share = a.settings.EffectiveDefaultShare()
+	}
+	level, err := profile.ParseShare(share)
+	if err != nil {
+		return err
+	}
 	res, err := importer.Import(a.paths, a.set, a.store, source, importer.Options{
+		Share:                level,
 		DryRun:               args.dryRun,
 		Overwrite:            args.overwrite,
 		OverwriteCredentials: args.overwriteCreds,

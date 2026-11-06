@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/hooksets"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
@@ -40,6 +41,10 @@ type profileJSON struct {
 	WrapperStatus  string            `json:"wrapper_status"`
 	ConfigDir      string            `json:"config_dir"`
 	WrapperPath    string            `json:"wrapper_path"`
+	// Feature 002.
+	Share            string `json:"share"`
+	ShareDescription string `json:"share_description"`
+	ShareImplicit    bool   `json:"share_implicit,omitempty"`
 }
 
 type listJSON struct {
@@ -94,7 +99,7 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 		if p.Primary {
 			primary = " (primary)"
 		}
-		fmt.Fprintf(a.out, "  %s%s  [%s]\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon), primary, status)
+		fmt.Fprintf(a.out, "  %s%s  [%s] share: %s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon), primary, status, p.ShareLevel())
 	}
 	for _, f := range failures {
 		fmt.Fprintf(a.errOut, "aprofile: profile %s failed to load: %v\n", f.ID(), f.Err)
@@ -116,6 +121,22 @@ func newShowCmd() *cobra.Command {
 	return cmd
 }
 
+// showJSON is show's --json schema: the list schema plus the per-entry treatment
+// (FR-015, data-model.md Entry treatment).
+type showJSON struct {
+	profileJSON
+	Entries                  []layer.EntryTreatment `json:"entries"`
+	HookSets                 []hookSetJSON          `json:"hook_sets"`
+	SettingsDiffer           bool                   `json:"settings_differ"`
+	HomeEscapes              []harness.HomeEscape   `json:"home_escapes"`
+	UnborrowedDefaultEntries []string               `json:"unborrowed_default_entries"`
+}
+
+type hookSetJSON struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"` // named | every-profile | excluded | missing | failed-to-load
+}
+
 func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	a, err := newApp(cmd)
 	if err != nil {
@@ -129,14 +150,51 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	pj := a.profileToJSON(p)
+	sj := showJSON{profileJSON: a.profileToJSON(p), HookSets: []hookSetJSON{}, HomeEscapes: []harness.HomeEscape{}, UnborrowedDefaultEntries: []string{}}
+	def, _ := a.set.Get(h)
+	if def != nil {
+		entries, err := layer.Treatments(def, p, "", sj.ConfigDir)
+		if err != nil {
+			return err
+		}
+		sj.Entries = entries
+		sj.SettingsDiffer = len(layer.SettingsDiffer(entries)) > 0
+		if def.HomeEscapes != nil {
+			sj.HomeEscapes = def.HomeEscapes
+		}
+		if unb, err := layer.UnborrowedDefaultEntries(def); err == nil && unb != nil && p.ShareLevel() != profile.ShareNone {
+			sj.UnborrowedDefaultEntries = unb
+		}
+		lib, _ := a.loadHookLibrary()
+		for _, name := range sortedSetNames(lib) {
+			if r := hooksets.Reason(lib[name], p); r != "" {
+				sj.HookSets = append(sj.HookSets, hookSetJSON{Name: name, Reason: r})
+			}
+		}
+		for _, name := range p.HookSets {
+			switch s, ok := lib[name]; {
+			case !ok:
+				sj.HookSets = append(sj.HookSets, hookSetJSON{Name: name, Reason: "missing"})
+			case s.LoadErr != nil:
+				sj.HookSets = append(sj.HookSets, hookSetJSON{Name: name, Reason: "failed-to-load"})
+			}
+		}
+	}
+	if sj.Entries == nil {
+		sj.Entries = []layer.EntryTreatment{}
+	}
 
 	if asJSON {
-		return writeJSON(a.out, pj)
+		return writeJSON(a.out, sj)
 	}
+	pj := sj.profileJSON
 	fmt.Fprintf(a.out, "%s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon))
 	fmt.Fprintf(a.out, "  harness:        %s\n", p.Harness)
 	fmt.Fprintf(a.out, "  name:           %s\n", p.Name)
+	fmt.Fprintf(a.out, "  share level:    %s: %s\n", p.ShareLevel(), levelDescription(p.ShareLevel()))
+	if p.ShareImplicit {
+		fmt.Fprintf(a.out, "                  (no level stored: profiles from before share levels are all; consider: aprofile edit %s --share content --dry-run)\n", p.ID())
+	}
 	fmt.Fprintf(a.out, "  primary:        %v\n", p.Primary)
 	fmt.Fprintf(a.out, "  auth kind:      %s\n", p.AuthKind)
 	fmt.Fprintf(a.out, "  credentials:    %s\n", presentStr(pj.HasCredentials))
@@ -148,7 +206,73 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	}
 	fmt.Fprintf(a.out, "  config dir:     %s\n", pj.ConfigDir)
 	fmt.Fprintf(a.out, "  wrapper:        %s [%s]\n", pj.WrapperPath, pj.WrapperStatus)
+	var sets []string
+	for _, hs := range sj.HookSets {
+		sets = append(sets, hs.Name+" ("+reasonText(hs.Reason)+")")
+	}
+	fmt.Fprintf(a.out, "  hook sets:      %s\n", joinOr(sets, "none"))
+	if p.ShareLevel() == profile.ShareContent {
+		if sj.SettingsDiffer {
+			fmt.Fprintf(a.out, "  settings:       differ from the default setup (refresh with: aprofile settings pull %s --dry-run)\n", p.ID())
+		} else {
+			fmt.Fprintln(a.out, "  settings:       same as the default setup")
+		}
+	}
+	printEntries(a, sj.Entries)
+	if len(sj.UnborrowedDefaultEntries) > 0 {
+		fmt.Fprintln(a.out, "  not borrowed (unclassified in the default setup):")
+		for _, e := range sj.UnborrowedDefaultEntries {
+			fmt.Fprintf(a.out, "    %s  (fix: aprofile harness classify %s %s --as content)\n", e, p.Harness, e)
+		}
+	}
 	return nil
+}
+
+// treatmentGroups orders show's entry groups.
+var treatmentGroups = []struct{ key, title string }{
+	{layer.TreatmentPrivate, "private"},
+	{layer.TreatmentLinked, "linked to the default setup"},
+	{layer.TreatmentOwnCopy, "the profile's own"},
+	{layer.TreatmentManaged, "managed by hook sets"},
+	{layer.TreatmentUnclassified, "unclassified"},
+	{layer.TreatmentHomeEscape, "$HOME escapes"},
+}
+
+// absentGroup holds the entries the level would link but the default setup does
+// not have (status missing-link-target): nothing is linked, so show lists them
+// apart from the linked entries instead of under them.
+const absentGroup = "absent"
+
+// printEntries prints the entries grouped by treatment, each with its reason and
+// any status other than ok.
+func printEntries(a *app, entries []layer.EntryTreatment) {
+	groups := append(append([]struct{ key, title string }(nil), treatmentGroups[:2]...),
+		struct{ key, title string }{absentGroup, "not in the default setup (linked once it is)"})
+	groups = append(groups, treatmentGroups[2:]...)
+	for _, g := range groups {
+		var group []layer.EntryTreatment
+		for _, e := range entries {
+			absent := e.Treatment == layer.TreatmentLinked && e.Status == layer.StatusMissingLinkTarget
+			if (g.key == absentGroup && absent) || (g.key == e.Treatment && !absent) {
+				e2 := e
+				if absent {
+					e2.Status = layer.StatusOK // the group title already says it
+				}
+				group = append(group, e2)
+			}
+		}
+		if len(group) == 0 {
+			continue
+		}
+		fmt.Fprintf(a.out, "  %s:\n", g.title)
+		for _, e := range group {
+			status := ""
+			if e.Status != layer.StatusOK {
+				status = " [" + e.Status + "]"
+			}
+			fmt.Fprintf(a.out, "    %-28s %s%s\n", e.Entry, e.Reason, status)
+		}
+	}
 }
 
 // profileToJSON builds the secret-free JSON representation of a profile.
@@ -168,6 +292,10 @@ func (a *app) profileToJSON(p *profile.Profile) profileJSON {
 		HerdrAgent:    p.HerdrAgent,
 		WrapperStatus: a.wrapperStatus(p, def),
 		ConfigDir:     configDir,
+
+		Share:            string(p.ShareLevel()),
+		ShareDescription: levelDescription(p.ShareLevel()),
+		ShareImplicit:    p.ShareImplicit,
 	}
 	if def != nil {
 		pj.HasCredentials = layer.HasCredentials(def, configDir)

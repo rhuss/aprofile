@@ -77,7 +77,7 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 			continue
 		}
 		if bn, ok := builtinNodes[pf.name]; ok {
-			overridden := mergeMapping(bn, pf.node)
+			overridden, ruleEntries := mergeMapping(bn, pf.node)
 			data, err := yaml.Marshal(bn)
 			if err != nil {
 				set.errors = append(set.errors, LoadError{File: pf.file, Msg: err.Error()})
@@ -88,7 +88,7 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 				set.errors = append(set.errors, *lerr)
 				continue
 			}
-			setMergedSource(def, pf.file, overridden)
+			setMergedSource(def, pf.file, overridden, ruleEntries)
 			set.defs[def.Name] = def
 			continue
 		}
@@ -109,8 +109,9 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 }
 
 // setMergedSource marks each effective field's origin: the overriding file for a
-// field the user file set, "builtin" otherwise (FR-010).
-func setMergedSource(def *Definition, filePath string, overridden []string) {
+// field the user file set, "builtin" otherwise (FR-010). Classification rules are
+// marked per entry, because that list merges by entry (FR-001a).
+func setMergedSource(def *Definition, filePath string, overridden, ruleEntries []string) {
 	ov := map[string]bool{}
 	for _, k := range overridden {
 		ov[k] = true
@@ -123,13 +124,30 @@ func setMergedSource(def *Definition, filePath string, overridden []string) {
 			def.Source[f] = "builtin"
 		}
 	}
+	fromFile := map[string]bool{}
+	for _, e := range ruleEntries {
+		fromFile[strings.TrimSuffix(e, "/")] = true
+	}
+	for i := range def.Classification {
+		r := &def.Classification[i]
+		key := r.Path()
+		if r.CompanionOf != "" {
+			key = strings.TrimSuffix(r.CompanionOf, "/")
+		}
+		if fromFile[key] {
+			r.Origin = filePath
+		} else {
+			r.Origin = "builtin"
+		}
+	}
 }
 
 // mergeMapping merges the override mapping node into base in place and returns the
 // top-level keys the override set (FR-009): a mapping value merges by key, an
-// explicit null removes the inherited key, and any other value replaces.
-func mergeMapping(base, override *yaml.Node) []string {
-	var overridden []string
+// explicit null removes the inherited key, and any other value replaces. The one
+// exception is `classification`, which merges by entry (FR-001a); the entries the
+// override touched are returned as ruleEntries.
+func mergeMapping(base, override *yaml.Node) (overridden, ruleEntries []string) {
 	for i := 0; i+1 < len(override.Content); i += 2 {
 		k := override.Content[i]
 		v := override.Content[i+1]
@@ -139,13 +157,62 @@ func mergeMapping(base, override *yaml.Node) []string {
 			continue
 		}
 		bv := findMapValue(base, k.Value)
-		if bv != nil && bv.Kind == yaml.MappingNode && v.Kind == yaml.MappingNode {
+		switch {
+		case k.Value == "classification" && bv != nil && bv.Kind == yaml.SequenceNode && v.Kind == yaml.SequenceNode:
+			ruleEntries = mergeRulesByEntry(bv, v)
+		case bv != nil && bv.Kind == yaml.MappingNode && v.Kind == yaml.MappingNode:
 			mergeMapping(bv, v)
-		} else {
+		default:
 			setMapKey(base, k.Value, v)
 		}
 	}
-	return overridden
+	return overridden, ruleEntries
+}
+
+// mergeRulesByEntry merges override classification rules into base by their
+// `entry`: the same entry replaces the built-in rule, a new entry is appended, and
+// `layer: null` removes the rule. It returns the entries the override set.
+func mergeRulesByEntry(base, override *yaml.Node) []string {
+	var touched []string
+	entryOf := func(n *yaml.Node) string {
+		if n.Kind != yaml.MappingNode {
+			return ""
+		}
+		if e := findMapValue(n, "entry"); e != nil {
+			return strings.TrimSuffix(e.Value, "/")
+		}
+		return ""
+	}
+	for _, rule := range override.Content {
+		entry := entryOf(rule)
+		if entry == "" {
+			base.Content = append(base.Content, rule) // invalid; validation reports it
+			continue
+		}
+		touched = append(touched, entry)
+		remove := false
+		if l := findMapValue(rule, "layer"); l != nil && l.Tag == "!!null" {
+			remove = true
+		}
+		idx := -1
+		for i, b := range base.Content {
+			if entryOf(b) == entry {
+				idx = i
+				break
+			}
+		}
+		switch {
+		case remove && idx >= 0:
+			base.Content = append(base.Content[:idx], base.Content[idx+1:]...)
+		case remove:
+			// nothing to remove
+		case idx >= 0:
+			base.Content[idx] = rule
+		default:
+			base.Content = append(base.Content, rule)
+		}
+	}
+	return touched
 }
 
 // topMapping decodes YAML bytes into the top-level mapping node.

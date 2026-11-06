@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
 	"github.com/rivo/uniseg"
 	"github.com/spf13/cobra"
 
@@ -24,11 +26,10 @@ func isTTY(w io.Writer) bool {
 	if !ok {
 		return false
 	}
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	// A character device is not enough: /dev/null is one, and a command run with
+	// its input redirected from it must count as non-interactive (exit 3 instead of
+	// a prompt nobody can answer).
+	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }
 
 // colorEnabled reports whether colored output should be used for w: only on a TTY
@@ -120,3 +121,5 @@ func parseProfileRef(s string) (harness, name string, err error) {
 	}
 	return parts[0], parts[1], nil
 }
+
+func sortStrings(s []string) { sort.Strings(s) }

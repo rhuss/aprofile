@@ -1,10 +1,8 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package profile
 
-// Running reports whether a harness process started for the given profile config
-// dir is currently running. Reliable per-process environment inspection is not
-// portable (on macOS another process's environment is not readable), so on
-// non-Linux platforms aprofile cannot detect a running harness and returns false;
-// `rename` proceeds and the documented limitation applies (FR-006a).
-func Running(configDir string) bool { return false }
+// scanProcesses cannot inspect other processes' environments on this platform:
+// the answer is unknown, so callers ask the user before a share level change
+// (FR-017) and rename proceeds (FR-006a).
+func scanProcesses(configDir string) (Process, bool, bool) { return Process{}, false, false }

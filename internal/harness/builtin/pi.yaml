@@ -30,14 +30,26 @@ auth_kinds:
     vars: {} # interactive login; credentials in agent/auth.json
 
 classification:
+  # Entries verified on disk with pi 1.3.0 on 2026-11-04
+  # (specs/002-profile-isolation-levels/research.md R1).
   - { entry: "agent/auth.json", layer: credentials }
   - { entry: "agent/mcp-auth.json", layer: credentials }
+  - { entry: "agent/mcp.json", layer: owned }
   - { entry: "agent/sessions/", layer: state }
   - { entry: "agent/logs/", layer: state }
-  - { entry: "agent/mcp.json", layer: owned }
-  - { entry: "agent/settings.json", layer: owned }
-  # Per-profile skills (research.md item 4); pi has no ~/.agents/skills lookup.
-  - { entry: "agent/skills/", layer: owned }
+  - { entry: "agent/trust.json", layer: state }
+  - { entry: "agent/models-store.json", layer: state }
+  # Content.
+  - { entry: "agent/skills/", layer: content }
+  - { entry: "agent/prompts/", layer: content }
+  - { entry: "agent/themes/", layer: content }
+  # settings.json holds only theme and lastChangelogVersion: settings.
+  - { entry: "agent/settings.json", layer: settings }
+
+# Hooks are extension files in this directory; pi has no separate plugin store.
+hooks:
+  location: "agent/extensions"
+  form: files
 
 mcp:
   location: "agent/mcp.json#mcpServers"
@@ -45,4 +57,4 @@ mcp:
 
 skills_location:
   path: "agent/skills"
-  scope: per-profile
+  scope: per-profile # ignored since feature 002: skills are content

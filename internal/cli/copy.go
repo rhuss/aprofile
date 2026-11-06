@@ -14,6 +14,7 @@ import (
 	"github.com/cc-deck/aprofile/internal/mcp"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/cc-deck/aprofile/internal/tui"
 )
 
 // copyReportJSON is the --json schema for copy (FR-041), the full ConversionReport
@@ -30,6 +31,12 @@ type copyReportJSON struct {
 	DroppedSettings []string             `json:"dropped_settings,omitempty"`
 	PluginsSkipped  []string             `json:"plugins_skipped,omitempty"`
 	SecretWarnings  []mcp.SecretWarning  `json:"secret_warnings,omitempty"`
+	// Feature 002 (FR-007a).
+	Share            string   `json:"share"`
+	SettingsCarried  []string `json:"settings_carried,omitempty"`
+	HookSetsCarried  []string `json:"hook_sets_carried,omitempty"`
+	HookSetsLeftOut  []string `json:"hook_sets_left_out,omitempty"`
+	SettingsWarnings []string `json:"settings_warnings,omitempty"`
 }
 
 type copyFlags struct {
@@ -39,6 +46,29 @@ type copyFlags struct {
 	color     string
 	icon      string
 	asJSON    bool
+	// Feature 002.
+	share           string
+	hookSets        []string
+	excludeHookSets []string
+	setHookSets     bool
+	setExclude      bool
+}
+
+// copyFlagsFromForm maps the copy form's values onto the copy flags, the same path
+// the command uses (Constitution VI).
+func copyFlagsFromForm(v tui.CopyValues) *copyFlags {
+	return &copyFlags{
+		overwrite:       v.Overwrite,
+		auth:            v.Auth,
+		label:           v.Label,
+		color:           v.Color,
+		icon:            v.Icon,
+		share:           v.Share,
+		hookSets:        v.HookSets,
+		excludeHookSets: v.ExcludeHookSets,
+		setHookSets:     len(v.HookSets) > 0,
+		setExclude:      len(v.ExcludeHookSets) > 0,
+	}
 }
 
 func newCopyCmd() *cobra.Command {
@@ -48,10 +78,15 @@ func newCopyCmd() *cobra.Command {
 		Short: "Copy a profile within or across harnesses (does not write wrappers; run sync after)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			f.setHookSets = cmd.Flags().Changed("hook-sets")
+			f.setExclude = cmd.Flags().Changed("exclude-hook-sets")
 			return runCopy(cmd, args[0], args[1], f)
 		},
 	}
 	fl := cmd.Flags()
+	fl.StringVar(&f.share, "share", "", "share level of the target (default: the source's); "+shareFlagHelp())
+	fl.StringSliceVar(&f.hookSets, "hook-sets", nil, "hook sets of the target (default: the source's, where the target harness has a body)")
+	fl.StringSliceVar(&f.excludeHookSets, "exclude-hook-sets", nil, "every-profile hook sets the target skips (default: the source's)")
 	fl.BoolVar(&f.overwrite, "overwrite", false, "replace only what the copy writes if the target exists")
 	fl.StringVar(&f.auth, "auth", "", "auth kind for a cross-harness target (defaults to the target's default)")
 	fl.StringVar(&f.label, "label", "", "override the carried label")
@@ -120,9 +155,49 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		target = &profile.Profile{Harness: dh, Name: dn}
 	}
 
-	// Prepare the target config dir: empty credentials + state, owned dirs, seeded
-	// mixed files (idempotent; never touches existing credentials/state on overwrite).
-	if _, err := layer.PrepareConfigDir(dstDef, dstConfigDir, false); err != nil {
+	// Share level (FR-007a): --share, else the source's.
+	level := src.ShareLevel()
+	if f.share != "" {
+		if level, err = profile.ParseShare(f.share); err != nil {
+			return err
+		}
+	}
+	if targetExists && existingTarget.ShareLevel() != level {
+		// A level change goes through edit --share, which plans it, refuses while
+		// the profile runs and confirms replacements (FR-017).
+		return exitErrorf(ExitInvalidForLevel, "target %s uses share level %s; change it first with: aprofile edit %s --share %s, then copy again",
+			existingTarget.ID(), existingTarget.ShareLevel(), existingTarget.ID(), level)
+	}
+	target.Share = level
+	report.Share = string(level)
+
+	// Hook sets travel with the copy when the target harness has a body for them
+	// (FR-007a); explicit flags replace them.
+	carried, leftOut := a.carryHookSets(src, dstDef, level, f)
+	target.HookSets, target.ExcludeHookSets = carried.named, carried.excluded
+	report.HookSetsCarried = append(append([]string(nil), carried.named...), carried.excluded...)
+	report.HookSetsLeftOut = leftOut
+	if err := a.validateHookSets(target, dstDef); err != nil {
+		return err
+	}
+
+	// When source and target both have their own settings, the target's settings
+	// start as a copy of the source's (hook location excluded). This runs before the
+	// config dir is prepared, so preparation copies from the default setup only what
+	// is still absent.
+	if sh == dh && src.ShareLevel() != profile.ShareAll && level != profile.ShareAll {
+		names, warnings, err := carrySettings(srcDef, srcConfigDir, dstConfigDir)
+		if err != nil {
+			return err
+		}
+		report.SettingsCarried = names
+		report.SettingsWarnings = warnings
+	}
+
+	// Prepare the target config dir for its level: empty credentials + state, owned
+	// dirs, seeded mixed files, links or own copies per category (idempotent; never
+	// touches existing credentials/state on overwrite).
+	if _, err := layer.PrepareConfigDir(dstDef, target, dstConfigDir, false); err != nil {
 		return fmt.Errorf("prepare target config dir: %w", err)
 	}
 
@@ -134,12 +209,14 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 			return err
 		}
 		report.SecretWarnings = warnings
-		// The whole owned layer (including the MCP file and skills) is carried verbatim;
+		// The whole owned layer (including the MCP file) is carried verbatim;
 		// record the carried servers in the MCP report for symmetry.
 		if names, err := mcpServerNames(dstDef, dstConfigDir); err == nil {
 			report.MCP.Converted = names
 		}
-		report.SkillsCarried = srcDef.SkillsLocation != nil && dirExists(skillsPath(srcDef, srcConfigDir))
+		carriedSkills, skillsReport := carrySkills(srcDef, dstDef, level, srcConfigDir, dstConfigDir)
+		report.SkillsCarried = carriedSkills
+		report.SkillsReport = skillsReport
 	} else {
 		report.Mode = "cross-harness"
 		if err := applyCrossHarnessSettings(target, src, dstDef, f, targetExists); err != nil {
@@ -153,8 +230,8 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		}
 		report.MCP = mcpRep
 		// Skills (FR-036).
-		carried, skillsReport := carrySkills(srcDef, dstDef, srcConfigDir, dstConfigDir)
-		report.SkillsCarried = carried
+		carriedSkills, skillsReport := carrySkills(srcDef, dstDef, level, srcConfigDir, dstConfigDir)
+		report.SkillsCarried = carriedSkills
 		report.SkillsReport = skillsReport
 		// Plugins are never carried across harnesses (FR-036).
 		if srcDef.PluginMechanism != "" {
@@ -320,31 +397,128 @@ func convertMCP(srcDef, dstDef *harness.Definition, srcDir, dstDir string, overw
 	return rep, nil
 }
 
-// carrySkills copies per-profile skills to the target, or reports when the target's
-// skills location is shared (FR-021, FR-036).
-func carrySkills(srcDef, dstDef *harness.Definition, srcDir, dstDir string) (bool, []string) {
+// carrySkills copies skills only when they are the source's own (FR-007a): skills are
+// content, linked at all and content, so only a none profile has a skills
+// directory of its own. They are written only into a target at none; a target at
+// all or content links the default setup's skills instead, which is reported.
+func carrySkills(srcDef, dstDef *harness.Definition, level profile.Share, srcDir, dstDir string) (bool, []string) {
 	if srcDef.SkillsLocation == nil {
 		return false, nil
 	}
 	srcSkills := skillsPath(srcDef, srcDir)
-	if !dirExists(srcSkills) {
+	if fi, err := os.Lstat(srcSkills); err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+		return false, nil // linked to the default setup, or absent: nothing of the source's own
+	}
+	if entries, _ := os.ReadDir(srcSkills); len(entries) == 0 {
 		return false, nil
 	}
-	if dstDef.SkillsLocation == nil || dstDef.SkillsLocation.Scope != "per-profile" {
-		names, _ := os.ReadDir(srcSkills)
-		var report []string
-		for _, e := range names {
-			report = append(report, "skill not written (target skills are shared, FR-021): "+e.Name())
-		}
-		if report == nil {
-			report = []string{"target skills location is shared (FR-021); nothing written"}
-		}
-		return false, report
+	if dstDef.SkillsLocation == nil {
+		return false, []string{"target harness declares no skills location; the source's own skills were not copied"}
 	}
-	if err := copyTree(srcSkills, skillsPath(dstDef, dstDir)); err != nil {
+	if level != profile.ShareNone {
+		return false, []string{fmt.Sprintf("the source's own skills were not copied: the target (share level %s) links the default setup's skills", level)}
+	}
+	dst := skillsPath(dstDef, dstDir)
+	if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return false, []string{"target skills are a link; the source's own skills were not copied"}
+	}
+	if err := copyTree(srcSkills, dst); err != nil {
 		return false, []string{"skills copy failed: " + err.Error()}
 	}
 	return true, nil
+}
+
+// carrySettings copies the source's own settings entries into an absent target
+// entry, leaving out the hook location key (FR-007a). It returns the copied entry
+// names and per-key secret warnings (research R6).
+func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []string, error) {
+	var names, warnings []string
+	for _, rule := range def.Classification {
+		if rule.Layer != harness.LayerSettings || rule.IsGlob() {
+			continue
+		}
+		rel := filepath.FromSlash(rule.Path())
+		s := filepath.Join(srcDir, rel)
+		d := filepath.Join(dstDir, rel)
+		fi, err := os.Lstat(s)
+		if err != nil || fi.Mode()&os.ModeSymlink != 0 || pathExists(d) {
+			continue
+		}
+		if fi.IsDir() {
+			if err := copyTree(s, d); err != nil {
+				return nil, nil, err
+			}
+			names = append(names, rule.Path())
+			continue
+		}
+		data, err := os.ReadFile(s)
+		if err != nil {
+			return nil, nil, err
+		}
+		if key := def.HookKeyIn(rule.Path()); key != "" {
+			if data, err = layer.WithoutKey(data, key, s); err != nil {
+				return nil, nil, err
+			}
+		}
+		for _, k := range layer.SecretWarnings(data) {
+			warnings = append(warnings, rule.Path()+": "+k)
+		}
+		if err := config.WriteFileAtomic(d, data, fi.Mode().Perm()); err != nil {
+			return nil, nil, err
+		}
+		names = append(names, rule.Path())
+	}
+	return names, warnings, nil
+}
+
+type hookSetLists struct{ named, excluded []string }
+
+// carryHookSets decides the target's hook sets: explicit flags win; otherwise the
+// source's named and excluded sets travel when the target harness has a body for
+// them, and the others are reported as left out (FR-007a).
+func (a *app) carryHookSets(src *profile.Profile, dstDef *harness.Definition, level profile.Share, f *copyFlags) (hookSetLists, []string) {
+	out := hookSetLists{}
+	if f.setHookSets {
+		out.named = f.hookSets
+	}
+	if f.setExclude {
+		out.excluded = f.excludeHookSets
+	}
+	var leftOut []string
+	lib, _ := a.loadHookLibrary()
+	keep := func(name, what string) bool {
+		s, ok := lib[name]
+		switch {
+		case !ok:
+			leftOut = append(leftOut, name+" ("+what+"; not in the library)")
+		case s.LoadErr != nil:
+			leftOut = append(leftOut, name+" ("+what+"; its library file failed to load: fix it, then attach it with edit --hook-sets)")
+		case dstDef.Hooks == nil:
+			leftOut = append(leftOut, name+" ("+what+"; harness "+dstDef.Name+" does not support hook sets)")
+		case s.Bodies[dstDef.Name].Events == nil && s.Bodies[dstDef.Name].Files == nil:
+			leftOut = append(leftOut, name+" ("+what+"; no body for "+dstDef.Name+")")
+		case what == "named" && level == profile.ShareAll:
+			leftOut = append(leftOut, name+" (named; the target uses share level all)")
+		default:
+			return true
+		}
+		return false
+	}
+	if !f.setHookSets {
+		for _, n := range src.HookSets {
+			if keep(n, "named") {
+				out.named = append(out.named, n)
+			}
+		}
+	}
+	if !f.setExclude {
+		for _, n := range src.ExcludeHookSets {
+			if keep(n, "excluded") {
+				out.excluded = append(out.excluded, n)
+			}
+		}
+	}
+	return out, leftOut
 }
 
 func printCopyReport(a *app, r copyReportJSON) {
@@ -366,6 +540,19 @@ func printCopyReport(a *app, r copyReportJSON) {
 	}
 	for _, p := range r.PluginsSkipped {
 		fmt.Fprintf(a.out, "  %s\n", p)
+	}
+	fmt.Fprintf(a.out, "  share level: %s\n", r.Share)
+	if len(r.SettingsCarried) > 0 {
+		fmt.Fprintf(a.out, "  settings copied from the source: %s (hooks excluded)\n", strings.Join(r.SettingsCarried, ", "))
+	}
+	if len(r.HookSetsCarried) > 0 {
+		fmt.Fprintf(a.out, "  hook sets carried: %s\n", strings.Join(r.HookSetsCarried, ", "))
+	}
+	for _, h := range r.HookSetsLeftOut {
+		fmt.Fprintf(a.out, "  hook set left out: %s\n", h)
+	}
+	for _, w := range r.SettingsWarnings {
+		fmt.Fprintf(a.errOut, "aprofile: warning: settings value %s looks like a secret and was copied verbatim\n", w)
 	}
 	for _, w := range r.SecretWarnings {
 		fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s %s looks like a secret and was duplicated verbatim\n", w.Server, w.Field)

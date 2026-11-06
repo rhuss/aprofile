@@ -31,21 +31,55 @@ auth_kinds:
     vars: { OPENAI_API_KEY: ref }
 
 classification:
+  # Entries verified on disk with Codex CLI 0.166.0 on 2026-11-04
+  # (specs/002-profile-isolation-levels/research.md R1). No catch-all (FR-001).
   - { entry: "auth.json", layer: credentials }
+  - { entry: "auth.lock", layer: credentials }
+  # config.toml holds mcp_servers plus model/provider settings. It is TOML, which
+  # the mixed-file merge does not support, so the whole file is owned per profile at
+  # every level, all included (FR-009a).
+  - { entry: "config.toml", layer: owned }
+  # Runtime state (FR-003). Every *.sqlite database covers its -wal/-shm/-journal
+  # and .lock companions (FR-004).
   - { entry: "sessions/", layer: state }
   - { entry: "history.jsonl", layer: state }
-  - { entry: "logs/", layer: state }
-  # config.toml holds mcp_servers plus model/provider settings. It is a TOML file,
-  # and this slice's mixed-file merge supports JSON only, so the whole file is owned
-  # per profile (carried verbatim by a same-harness copy; its mcp_servers table is
-  # converted by a cross-harness copy). research.md item 4 allows owned here.
-  - { entry: "config.toml", layer: owned }
-  # Per-profile skills. The global ~/.agents/skills lookup is keyed to $HOME and
-  # cannot be isolated without repointing $HOME; it stays shared and is reported
-  # (FR-021, research.md item 4).
-  - { entry: "skills/", layer: owned }
-  # Everything else is shared (symlinked to the default setup).
-  - { entry: "*", layer: shared }
+  - { entry: "session_index.jsonl", layer: state }
+  - { entry: "session_index.jsonl.lock", layer: state }
+  - { entry: "log/", layer: state }
+  - { entry: "*.sqlite", layer: state }
+  - { entry: ".sqlite-maintenance.lock", layer: state }
+  - { entry: "app-server-control/", layer: state }
+  - { entry: "app-server-daemon/", layer: state }
+  - { entry: "thread-writer-locks/", layer: state }
+  - { entry: "shell_snapshots/", layer: state }
+  - { entry: "tui-thread-reference-capabilities/", layer: state }
+  - { entry: "cache/", layer: state }
+  - { entry: "tmp/", layer: state }
+  - { entry: ".tmp/", layer: state }
+  - { entry: "models_cache.json", layer: state }
+  - { entry: "version.json", layer: state }
+  - { entry: "installation_id", layer: state }
+  - { entry: ".personality_migration", layer: state }
+  - { entry: ".sandbox_migration", layer: state }
+  # Content.
+  - { entry: "AGENTS.md", layer: content }
+  - { entry: "prompts/", layer: content }
+  - { entry: "skills/", layer: content }
+  # Codex writes "always allow" decisions into rules/default.rules at runtime.
+  - { entry: "rules/", layer: settings }
+  # Installed plugin code.
+  - { entry: "plugins/", layer: plugin-store }
+  - { entry: "packages/", layer: plugin-store }
+
+# hooks.json has the same event-groups shape as Claude Code's hooks key. It is an
+# entry of its own, so at all it is linked to the default setup's file.
+hooks:
+  location: "hooks.json#hooks"
+  form: event-groups
+
+# Codex also reads ~/.agents/skills relative to $HOME (research.md item 4).
+home_escapes:
+  - { path: "~/.agents/skills", what: "skills" }
 
 mcp:
   location: "config.toml#mcp_servers"
@@ -53,4 +87,4 @@ mcp:
 
 skills_location:
   path: "skills"
-  scope: per-profile
+  scope: per-profile # ignored since feature 002: skills are content

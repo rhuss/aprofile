@@ -28,6 +28,13 @@ type profileFlags struct {
 	primary    bool
 	herdrAgent string
 	adopt      bool
+	// Feature 002: share level and hook sets (add, edit, and via copy).
+	share           string
+	hookSets        []string
+	excludeHookSets []string
+	// edit only: preview or confirm a share level change.
+	dryRun bool
+	yes    bool
 }
 
 func (f *profileFlags) bind(cmd *cobra.Command) {
@@ -43,6 +50,9 @@ func (f *profileFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.label, "label", "", "human-readable label (defaults to the name)")
 	fl.BoolVar(&f.primary, "primary", false, "mark this profile primary for its harness")
 	fl.StringVar(&f.herdrAgent, "herdr-agent", "", "set the HERDR_AGENT hint")
+	fl.StringVar(&f.share, "share", "", shareFlagHelp())
+	fl.StringSliceVar(&f.hookSets, "hook-sets", nil, "hook sets from the library to attach (comma-separated; not at share level all)")
+	fl.StringSliceVar(&f.excludeHookSets, "exclude-hook-sets", nil, "every-profile hook sets this profile skips (comma-separated)")
 }
 
 func newAddCmd() *cobra.Command {
@@ -93,12 +103,16 @@ func runAdd(cmd *cobra.Command, harnessName, name string, f *profileFlags) error
 	// no credential without a reference. When the user did not supply one, open the
 	// form on a terminal (FR-043) or, off a terminal, fail naming the missing flag and
 	// never block on a form (Scenario 9 AS3).
+	if f.share == "" {
+		// The form offers the levels with the effective default first (FR-007).
+		f.share = a.settings.EffectiveDefaultShare()
+	}
 	if missing := requiredAddFlags(def, f); len(missing) > 0 {
 		if !bothTTY(cmd) {
 			return fmt.Errorf("profile %s/%s is missing required %s: pass %s env:NAME (or file:/abs/path), choose an interactive kind with --auth-kind, or run from a terminal to use the form",
 				harnessName, name, strings.Join(missing, ", "), strings.Join(missing, " "))
 		}
-		v, ok, err := tui.RunProfileForm(os.Stdin, cmd.OutOrStdout(), profileFormConfig(def, f))
+		v, ok, err := tui.RunProfileForm(os.Stdin, cmd.OutOrStdout(), profileFormConfig(a, def, f))
 		if err != nil {
 			return err
 		}
@@ -131,6 +145,18 @@ func createProfileFromFlags(a *app, def *harness.Definition, harnessName, name s
 	if err := applyValueFlags(p, def, f); err != nil {
 		return err
 	}
+	share := f.share
+	if share == "" {
+		share = a.settings.EffectiveDefaultShare()
+	}
+	level, err := profile.ParseShare(share)
+	if err != nil {
+		return err
+	}
+	p.Share = level
+	if err := a.applyHookSetFlags(p, def, f.hookSets, f.excludeHookSets, true, true, true); err != nil {
+		return err
+	}
 	if err := p.Validate(); err != nil {
 		return err
 	}
@@ -143,6 +169,7 @@ func createProfileFromFlags(a *app, def *harness.Definition, harnessName, name s
 		return err
 	}
 	fmt.Fprintf(a.out, "created profile %s (run: aprofile sync)\n", p.ID())
+	fmt.Fprintf(a.out, "  share level: %s: %s\n", p.Share, levelDescription(p.Share))
 	return nil
 }
 
@@ -167,17 +194,49 @@ func requiredAddFlags(def *harness.Definition, f *profileFlags) []string {
 
 // profileFormConfig derives a form configuration from the harness definition (Principle
 // I) and pre-fills it with any flags already given.
-func profileFormConfig(def *harness.Definition, f *profileFlags) tui.ProfileFormConfig {
+func profileFormConfig(a *app, def *harness.Definition, f *profileFlags) tui.ProfileFormConfig {
 	var kinds []string
 	for _, k := range def.AuthKinds {
 		kinds = append(kinds, k.Name)
 	}
-	return tui.ProfileFormConfig{
+	cfg := tui.ProfileFormConfig{
 		AuthKinds:        kinds,
 		SupportsModel:    def.ModelVar != "",
 		SupportsEndpoint: def.EndpointVar != "",
 		Values:           formValuesFromFlags(f),
+		ShareOptions:     shareOptions(f.share),
 	}
+	if a != nil && def.Hooks != nil {
+		lib, _ := a.loadHookLibrary()
+		for _, name := range sortedSetNames(lib) {
+			if _, ok := lib[name].Bodies[def.Name]; !ok {
+				continue
+			}
+			cfg.HookSetOptions = append(cfg.HookSetOptions, name)
+			if lib[name].EveryProfile {
+				cfg.EveryProfileSets = append(cfg.EveryProfileSets, name)
+			}
+		}
+	}
+	return cfg
+}
+
+// shareOptions lists the levels for the form, the current or default one first,
+// with the single-source descriptions and use cases (FR-014, US2 AS2).
+func shareOptions(current string) []tui.ShareOption {
+	var out []tui.ShareOption
+	for _, s := range profile.Shares {
+		o := tui.ShareOption{Value: string(s), Description: levelDescription(s)}
+		for _, uc := range useCasesFor(s) {
+			o.UseCases = append(o.UseCases, uc.Case)
+		}
+		if string(s) == current {
+			out = append([]tui.ShareOption{o}, out...)
+		} else {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 // formValuesFromFlags copies the value flags into the form's pre-fill values.
@@ -192,6 +251,10 @@ func formValuesFromFlags(f *profileFlags) tui.FormValues {
 		AuthKey:    f.authKey,
 		HerdrAgent: f.herdrAgent,
 		Primary:    f.primary,
+
+		Share:           f.share,
+		HookSets:        f.hookSets,
+		ExcludeHookSets: f.excludeHookSets,
 	}
 }
 
@@ -207,6 +270,9 @@ func applyFormValues(f *profileFlags, v tui.FormValues) {
 	f.authKey = v.AuthKey
 	f.herdrAgent = v.HerdrAgent
 	f.primary = v.Primary
+	f.share = v.Share
+	f.hookSets = v.HookSets
+	f.excludeHookSets = v.ExcludeHookSets
 }
 
 // applyValueFlags validates and applies the shared value flags onto a profile.

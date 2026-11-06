@@ -71,6 +71,13 @@ func decodeProfile(data []byte, harness, name string) (*Profile, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
+	if p.Share == "" {
+		// FR-033: profiles written before share levels existed behave as all. The
+		// level is written only when the profile is next saved by an edit.
+		p.Share = ShareAll
+		p.ShareImplicit = true
+	}
+	p.normalizeLists()
 	return &p, nil
 }
 
@@ -79,7 +86,14 @@ func (s *Store) Save(p *Profile) error {
 	if err := p.Validate(); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(p)
+	p.normalizeLists()
+	out := *p
+	if out.ShareImplicit && out.Share == ShareAll {
+		// FR-033: a level the file never stored stays unstored until the user sets
+		// one (edit --share clears ShareImplicit); other edits keep it that way.
+		out.Share = ""
+	}
+	data, err := yaml.Marshal(&out)
 	if err != nil {
 		return fmt.Errorf("encode profile %s: %w", p.ID(), err)
 	}

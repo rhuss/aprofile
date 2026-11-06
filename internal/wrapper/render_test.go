@@ -10,7 +10,7 @@ import (
 	"github.com/cc-deck/aprofile/internal/wrapper"
 )
 
-func claudeDef(t *testing.T) *harness.Definition {
+func claudeDef(t testing.TB) *harness.Definition {
 	t.Helper()
 	set, err := harness.LoadBuiltins()
 	if err != nil {
@@ -52,6 +52,7 @@ func TestRenderSetsConfigEnvAndContract(t *testing.T) {
 		"APROFILE_COLOR='blue'",
 		"APROFILE_ICON='W'",
 		"APROFILE_CONFIG_DIR='/data/profiles/claude/work'",
+		"APROFILE_SHARE='all'", // a profile without a stored level is all (FR-033)
 	}
 	for _, m := range must {
 		if !strings.Contains(s, m) {
@@ -136,14 +137,14 @@ func TestWrapperFullAProfileContract(t *testing.T) {
 	s := renderWork(t)
 	contractVars := []string{
 		"APROFILE_HARNESS", "APROFILE_NAME", "APROFILE_LABEL", "APROFILE_COLOR",
-		"APROFILE_ICON", "APROFILE_CONFIG_DIR", "APROFILE_SET_VARS",
+		"APROFILE_ICON", "APROFILE_CONFIG_DIR", "APROFILE_SHARE", "APROFILE_SET_VARS",
 	}
 	for _, name := range contractVars {
 		if !strings.Contains(s, name+"=") {
 			t.Errorf("wrapper missing contract variable assignment %q:\n%s", name, s)
 		}
 	}
-	if !strings.Contains(s, "export APROFILE_HARNESS APROFILE_NAME APROFILE_LABEL APROFILE_COLOR APROFILE_ICON APROFILE_CONFIG_DIR") {
+	if !strings.Contains(s, "export APROFILE_HARNESS APROFILE_NAME APROFILE_LABEL APROFILE_COLOR APROFILE_ICON APROFILE_CONFIG_DIR APROFILE_SHARE") {
 		t.Errorf("the always-set contract variables are not exported together:\n%s", s)
 	}
 	if !strings.Contains(s, "export APROFILE_SET_VARS") {

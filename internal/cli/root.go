@@ -72,15 +72,19 @@ func NewRootCmd() *cobra.Command {
 		newHarnessCmd(),
 		newImportCmd(),
 		newUICmd(),
+		newSharingHelpCmd(),
+		newSettingsCmd(),
+		newHookSetsCmd(),
 	)
 	return root
 }
 
-// Execute runs the root command and returns a process exit code.
+// Execute runs the root command and returns a process exit code: the code of an
+// ExitError (2, 3 or 4, contracts/cli.md), 1 for any other error, 0 on success.
 func Execute() int {
-	if err := NewRootCmd().Execute(); err != nil {
+	err := NewRootCmd().Execute()
+	if err != nil {
 		fmt.Fprintln(cmdErr(), "aprofile: "+err.Error())
-		return 1
 	}
-	return 0
+	return exitCode(err)
 }

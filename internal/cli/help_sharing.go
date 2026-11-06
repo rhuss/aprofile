@@ -1,0 +1,216 @@
+package cli
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/profile"
+)
+
+// newSharingHelpCmd registers the `aprofile help sharing` topic (FR-013): a command
+// without Run, which cobra lists under "Additional help topics". Its help prints
+// the decision guide from the single text source (levels.go).
+func newSharingHelpCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sharing",
+		Short: "How share levels work and which one fits your use case",
+	}
+	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
+		set, err := harness.Load(harnessesDirOrEmpty())
+		if err != nil {
+			set = nil
+		}
+		writeSharingGuide(c.OutOrStdout(), set)
+	})
+	return cmd
+}
+
+// harnessesDirOrEmpty returns the harnesses.d dir, or "" when paths cannot be
+// resolved (the guide then shows the built-ins).
+func harnessesDirOrEmpty() string {
+	if p, err := config.ResolvePaths(); err == nil {
+		return p.HarnessesDir()
+	}
+	return ""
+}
+
+// writeSharingGuide renders the guide: the always-private sentence first, the
+// levels, the use-case table, the level table and per-harness differences.
+func writeSharingGuide(w io.Writer, set *harness.Set) {
+	fmt.Fprintln(w, "Share levels: how much of your default setup a profile uses")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "At every level, %s to the profile,\n", alwaysPrivate)
+	fmt.Fprintln(w, "and so are logs and caches. The level only decides how much of your setup it uses.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Levels (choose with --share on add, edit, copy and import):")
+	for _, s := range profile.Shares {
+		fmt.Fprintf(w, "  %-8s %s\n", s, levelDescription(s))
+	}
+	fmt.Fprintln(w, "  New profiles get content unless settings.yaml sets default_share.")
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "Which level fits your use case:")
+	uc := [][]string{{"#", "Use case", "Level", "Why"}}
+	for _, u := range useCases {
+		uc = append(uc, []string{u.ID, u.Case, u.Recommended, u.Why})
+	}
+	writeTable(w, uc, []int{4, 46, 8, 0})
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "What each level does:")
+	lt := [][]string{{"Category", "all", "content", "none"}}
+	for _, r := range levelTable {
+		lt = append(lt, []string{r.Category, r.All, r.Content, r.None})
+	}
+	writeTable(w, lt, []int{36, 20, 22, 0})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "A none profile starts with the harness's first-run onboarding; that is expected.")
+	fmt.Fprintln(w, "Preview a change with: aprofile edit <harness>/<name> --share <level> --dry-run")
+	fmt.Fprintln(w, "See one profile's entries with: aprofile show <harness>/<name>")
+
+	if set == nil {
+		return
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Per-harness differences (aprofile harness show <name> has the details):")
+	for _, d := range set.All() {
+		diffs := harnessDifferences(d)
+		if len(diffs) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "  %s:\n", d.Name)
+		for _, line := range diffs {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+}
+
+// harnessDifferences lists how one definition differs from the level table
+// (FR-022): settings files that are never linked (FR-009a), where hooks live, a
+// missing plugin store, $HOME escapes and policy cells it overrides.
+func harnessDifferences(d *harness.Definition) []string {
+	var out []string
+	hasPluginStore := false
+	for _, r := range d.Classification {
+		if r.IsGlob() || r.CompanionOf != "" {
+			continue
+		}
+		switch r.Layer {
+		case harness.LayerPluginStore:
+			hasPluginStore = true
+		case harness.LayerMixed:
+			if owned := ownedKeys(r); len(owned) > 0 {
+				out = append(out, fmt.Sprintf("%s is never linked, at any level: it holds %s (owned keys); at all and content it starts as a copy of the default setup's (credentials and state keys left out), at none it starts minimal", r.Path(), strings.Join(owned, ", ")))
+			}
+		case harness.LayerOwned:
+			if d.MCP != nil && strings.HasPrefix(d.MCP.Location, r.Path()+"#") {
+				out = append(out, fmt.Sprintf("%s is private at every level, all included: it holds the MCP servers; at all and content it starts as a copy of the default setup's, at none it starts absent", r.Path()))
+			}
+		}
+	}
+	if d.Hooks != nil {
+		switch {
+		case d.Hooks.Form == harness.HookFormFiles:
+			out = append(out, fmt.Sprintf("hooks are files in %s/: linked at all; at content and none only hook-set files are linked there", d.Hooks.File()))
+		case d.HookFileRule() != nil:
+			out = append(out, fmt.Sprintf("hooks are the %q key of %s: at all they come with the linked file; at content and none hook sets are placed there", d.Hooks.Key(), d.Hooks.File()))
+		default:
+			out = append(out, fmt.Sprintf("hooks live in %s, a separate file: linked at all; the profile's own at content and none", d.Hooks.File()))
+		}
+	} else {
+		out = append(out, "no hook location is declared: hook sets are not supported")
+	}
+	if !hasPluginStore {
+		out = append(out, "no separate plugin store (extensions are single files)")
+	}
+	for _, he := range d.HomeEscapes {
+		out = append(out, fmt.Sprintf("%s (%s) is read from $HOME: shared with every profile; no share level can separate it", he.Path, he.What))
+	}
+	var cats []string
+	for cat := range d.SharePolicy {
+		cats = append(cats, string(cat))
+	}
+	sortStrings(cats)
+	for _, c := range cats {
+		cat := harness.Layer(c)
+		for _, lv := range harness.Levels {
+			if t := d.Treatment(cat, lv); t != harness.DefaultSharePolicy[cat].Get(lv) {
+				out = append(out, fmt.Sprintf("%s at %s: %s (instead of %s)", cat, lv, t, harness.DefaultSharePolicy[cat].Get(lv)))
+			}
+		}
+	}
+	return out
+}
+
+func ownedKeys(r harness.EntryRule) []string {
+	var out []string
+	for k, l := range r.Keys {
+		if l == harness.LayerOwned {
+			out = append(out, k)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+// writeTable prints rows as aligned columns; a width of 0 means "rest of line".
+// Long cells wrap within their column.
+func writeTable(w io.Writer, rows [][]string, widths []int) {
+	for i, row := range rows {
+		cells := make([][]string, len(row))
+		lines := 1
+		for c, cell := range row {
+			width := widths[c]
+			if width == 0 {
+				width = 60
+			}
+			cells[c] = wrapText(cell, width-1)
+			if len(cells[c]) > lines {
+				lines = len(cells[c])
+			}
+		}
+		for l := 0; l < lines; l++ {
+			var b strings.Builder
+			b.WriteString("  ")
+			for c := range row {
+				text := ""
+				if l < len(cells[c]) {
+					text = cells[c][l]
+				}
+				if widths[c] == 0 || c == len(row)-1 {
+					b.WriteString(text)
+				} else {
+					b.WriteString(fmt.Sprintf("%-*s", widths[c], text))
+				}
+			}
+			fmt.Fprintln(w, strings.TrimRight(b.String(), " "))
+		}
+		if i == 0 {
+			fmt.Fprintln(w, "  "+strings.Repeat("-", 100))
+		}
+	}
+}
+
+// wrapText splits text into lines of at most width characters at spaces.
+func wrapText(text string, width int) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	cur := words[0]
+	for _, word := range words[1:] {
+		if len(cur)+1+len(word) > width {
+			lines = append(lines, cur)
+			cur = word
+			continue
+		}
+		cur += " " + word
+	}
+	return append(lines, cur)
+}

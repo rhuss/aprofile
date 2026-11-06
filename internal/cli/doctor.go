@@ -43,23 +43,29 @@ func runDoctor(cmd *cobra.Command, asJSON bool) error {
 		if err := writeJSON(a.out, doctorJSON{FormatVersion: schemaVersion, Findings: findings}); err != nil {
 			return err
 		}
-	} else if len(findings) == 0 {
-		fmt.Fprintln(a.out, "no problems found")
 	} else {
 		for _, f := range findings {
+			tag := ""
+			if f.Severity == doctor.SeverityInfo {
+				tag = "info: "
+			}
 			if f.Profile != "" {
-				fmt.Fprintf(a.out, "[%s] %s\n", f.Profile, f.Message)
+				fmt.Fprintf(a.out, "%s[%s] %s\n", tag, f.Profile, f.Message)
 			} else {
-				fmt.Fprintf(a.out, "%s\n", f.Message)
+				fmt.Fprintf(a.out, "%s%s\n", tag, f.Message)
 			}
 			if f.Fix != "" {
 				fmt.Fprintf(a.out, "    fix: %s\n", f.Fix)
 			}
 		}
+		if !doctor.HasProblems(findings) {
+			fmt.Fprintln(a.out, "no problems found")
+		}
 	}
 
-	if len(findings) > 0 {
-		return fmt.Errorf("doctor found %d problem(s)", len(findings))
+	// FR-020: the exit status counts problems only, not information.
+	if n := doctor.Problems(findings); n > 0 {
+		return fmt.Errorf("doctor found %d problem(s)", n)
 	}
 	return nil
 }

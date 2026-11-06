@@ -1,6 +1,20 @@
 <!--
 Sync Impact Report
-- Version change: (unversioned template) → 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4
+- Version change: (unversioned template) → 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4 → 1.1.0
+- 1.1.0 (MINOR, spec 002-profile-isolation-levels FR-035): Principle III now has share levels
+  (`all`, `content`, `none`) and splits the former shared layer into content, settings, plugin
+  store and hook location; skills move from owned to content; credentials and state stay private
+  at every level; the enabled plugin
+  set is per profile except at `all`; unclassified entries are never linked by built-in
+  definitions. Principle II adds the writes share levels and hook sets need (one-time settings
+  copy, `settings pull`, managed hook entries, links to hook-set files, link changes on a confirmed
+  level change, relinking after backup). Principle I lists share-level data, plugin store, hook
+  location and `$HOME` escapes as definition data. Technical Constraints: slice two scope names
+  share levels and hook sets. Principle IV extends the owned-file secret exception to the
+  settings copy and `settings pull` (warn per secret-looking value).
+  Modified principles: I, II, III, IV (titles unchanged). Added/removed sections: none.
+  Follow-up: README and slice one spec text that call the enabled plugin set always per profile
+  are superseded by spec 002 (FR-012, FR-032).
 - 1.0.4 (PATCH, final spec review of 001): Principle IV exception for owned-layer files a harness
   wrote: same-harness copy carries literal secrets verbatim with a warning, cross-harness
   conversion drops them.
@@ -36,8 +50,9 @@ permission presets; documentation MUST make that distinction the first time the 
 ### I. Harness Knowledge Is Data
 
 - Per-harness knowledge (binary, config dir variable, env mapping for model and endpoint, auth
-  kinds, entry classification, config patches, MCP location and schema flavor, skills directory,
-  plugin mechanism, capability flags) MUST live in harness definition records, not in Go code
+  kinds, entry classification and its treatment per share level, config patches, MCP location and
+  schema flavor, skills directory, plugin mechanism and plugin store, hook location and form,
+  `$HOME` escapes, capability flags) MUST live in harness definition records, not in Go code
   branching on harness names.
 - Built-in definitions ship as data embedded in the binary and use the same format that users
   load from `harnesses.d`. A user definition MUST be able to override or add a harness without a
@@ -55,12 +70,18 @@ Rationale: a tool that must be edited every time a harness ships a new flag is a
   decisions, OAuth refreshes, plugin caches, session state), except through the explicit,
   confirmed operations listed below.
 - Writes into a profile config dir are limited to: entries the harness definition classifies as
-  owned (and owned keys of mixed files); symlinks for shared entries; empty state entries at
-  creation; one-time seeding of the shared keys of a mixed file when aprofile creates that file;
-  credential files an explicit `import` brings in (after a backup); on explicit request,
-  replacing a leaking link with an empty real entry (never touching the link target); and
-  deleting the whole profile config dir on a confirmed purge. Config patches MUST merge into
-  existing files and preserve keys aprofile does not own.
+  owned (and owned keys of mixed files); symlinks for entries the profile's share level links;
+  empty state entries at creation; one-time seeding of the shared keys of a mixed file when
+  aprofile creates that file; a one-time copy of the default setup's settings (without the hook
+  location) when aprofile creates a profile's own settings; managed hook entries and links to
+  hook-set files (only entries aprofile placed, never other hook entries); credential files an
+  explicit `import` brings in (after a backup); on explicit request, replacing a leaking link with
+  an empty real entry (never touching the link target); on an explicit, confirmed request and
+  after a backup, `settings pull`, a share level change that replaces profile data with a link,
+  and relinking an entry the harness turned into a real file; and deleting the whole profile
+  config dir on a confirmed purge. Adding or removing a link for a share level change needs no
+  confirmation, because it never deletes profile data or a link target. Config patches MUST merge
+  into existing files and preserve keys aprofile does not own.
 - The user's default harness setup stays first class and is never modified by `sync`, except for
   explicitly requested operations such as import.
 - Every write operation MUST be idempotent: running `sync` twice yields the same state as once.
@@ -69,18 +90,32 @@ Rationale: harnesses keep live state in their config dirs; regenerating them cor
 
 ### III. Profile Isolation by Construction
 
-Each profile config dir has four layers, and their rules are non-negotiable:
+Each profile config dir has layers, and their rules are non-negotiable at every share level:
 
 - **Credentials**: isolated per profile, never copied, never symlinked, never exported.
-- **State** (sessions, transcripts, history, logs, Claude auto-memory, caches): per profile,
-  created empty, never symlinked, never copied.
-- **Owned** (MCP servers, skills, enabled plugin set, model and endpoint settings): per profile,
-  travels with `copy`.
-- **Shared**: everything else, symlinked to the default setup.
+- **State** (sessions, transcripts, history, logs, auto-memory, caches, databases, locks): per
+  profile, created empty, never symlinked, never copied.
+- **Owned** (MCP servers, model and endpoint settings): per profile, travels with `copy`.
+- **Borrowable** entries, which the definition declares as one of: **content** (read-mostly
+  material such as instructions, skills, agents, commands, themes), **settings** (configuration the
+  harness also writes, including the enabled plugin set), **plugin store** (installed plugin
+  code), or **hook location**.
 
-"Everything else" means every other entry the harness definition classifies as shared. An entry
-the definition does not classify MUST default to a non-leaking treatment (neither linked nor
-copied) and be reported, never silently shared. Profile identity is the pair `(harness, name)`.
+Each profile has one share level that decides how borrowable entries are treated:
+
+- `all`: content, settings, plugin store and hook location are linked to the default setup.
+- `content`: content and plugin store are linked; settings are the profile's own, copied once
+  from the default setup; hooks come from hook sets.
+- `none`: nothing is linked or copied from the default setup; settings and skills are the
+  profile's own and start minimal; hooks come only from hook sets the profile names.
+
+A settings file that also holds owned or credentials keys MUST NOT be linked at any level. The
+enabled plugin set is therefore per profile at `content` and `none`, and shared at `all`. An
+entry the definition does not classify MUST default to a non-leaking treatment (neither linked
+nor copied) and be reported, never silently shared; built-in definitions MUST NOT use a
+catch-all rule that links unclassified entries. The share levels and what each one links for a
+harness MUST be explained to users in plain language (README, in-tool help, `show`). Profile
+identity is the pair `(harness, name)`.
 
 Rationale: separate history, memory and billing per account is the reason the tool exists.
 
@@ -92,7 +127,9 @@ Rationale: separate history, memory and billing per account is the reason the to
 - An owned-layer file a harness maintains may already hold literal secrets aprofile did not write.
   A same-harness `copy` MAY carry that file verbatim and MUST warn about each value matching a
   secret pattern; a cross-harness conversion MUST drop any literal secret it cannot express as a
-  reference and report it.
+  reference and report it. The same applies to the one-time settings copy and `settings pull` from
+  the user's default setup into a profile: values are carried verbatim, with a warning per value
+  that matches a secret pattern (naming the key, never the value).
 - Canonical MCP records hold secrets only as references; conversion between harnesses MUST preserve
   references and MUST NOT emit a new literal secret.
 - Log and error output MUST NOT print credential contents.
@@ -149,7 +186,8 @@ Rationale: a bug in this tool damages live accounts; tests are the only safe pla
   plan.
 - Scope discipline: slice one covers profiles, harness definitions, layered config dirs,
   wrappers and sync, registry, copy, MCP conversion, CLI and TUI, and a one-time cc-deck import.
-  Per-project MCP activation, plugin toggling and permission presets belong to slice two.
+  Slice two covers share levels and hook sets (spec 002), then per-project MCP activation, plugin
+  toggling and permission presets in their own specs.
   Keychain integration and permanent cc-deck schema compatibility are out of scope until a spec
   says otherwise.
 - `.mcp.json` and any file holding credentials MUST be gitignored and never committed.
@@ -176,4 +214,4 @@ Rationale: a bug in this tool damages live accounts; tests are the only safe pla
 - Compliance is reviewed at each spex gate and in code review. Violations are either fixed or
   recorded as justified exceptions in the plan's Complexity Tracking section.
 
-**Version**: 1.0.4 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-03
+**Version**: 1.1.0 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-04

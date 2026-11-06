@@ -31,6 +31,22 @@ type Settings struct {
 	BinDir string `yaml:"bin_dir,omitempty"`
 	// DisableShellEdit turns off all edits to shell startup files (FR-024).
 	DisableShellEdit bool `yaml:"disable_shell_edit,omitempty"`
+	// DefaultShare is the share level of new profiles (FR-007): all, content or
+	// none. Empty means the built-in default, content.
+	DefaultShare string `yaml:"default_share,omitempty"`
+}
+
+// BuiltinDefaultShare is the share level new profiles get when settings.yaml does
+// not name one (FR-007).
+const BuiltinDefaultShare = "content"
+
+// EffectiveDefaultShare returns the configured default share level or the
+// built-in one.
+func (s *Settings) EffectiveDefaultShare() string {
+	if s == nil || s.DefaultShare == "" {
+		return BuiltinDefaultShare
+	}
+	return s.DefaultShare
 }
 
 // xdg returns the value of an XDG environment variable, or, when it is unset or
@@ -125,6 +141,18 @@ func (p *Paths) BackupDir(harness, name, timestamp string) string {
 	return filepath.Join(p.BackupsDir, harness, name, timestamp)
 }
 
+// HooksDir is the hook-set library: one <name>.yaml per set (FR-023).
+func (p *Paths) HooksDir() string {
+	return filepath.Join(p.ConfigDir, "hooks.d")
+}
+
+// ManagedHooksPath is the record of hook entries aprofile placed into one profile
+// (research R4). It lives in aprofile's data dir so the harness config dir gains no
+// unknown entry.
+func (p *Paths) ManagedHooksPath(harness, name string) string {
+	return filepath.Join(p.DataDir, "managed-hooks", harness, name+".json")
+}
+
 // LoadSettings reads the global settings file from configDir. A missing file is
 // not an error: it returns zero-valued Settings.
 func LoadSettings(configDir string) (*Settings, error) {
@@ -139,6 +167,11 @@ func LoadSettings(configDir string) (*Settings, error) {
 	var s Settings
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parse settings %s: %w", path, err)
+	}
+	switch s.DefaultShare {
+	case "", "all", "content", "none":
+	default:
+		return nil, fmt.Errorf("settings %s: default_share %q must be all, content or none", path, s.DefaultShare)
 	}
 	return &s, nil
 }

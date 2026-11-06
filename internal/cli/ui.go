@@ -122,7 +122,7 @@ func uiAdd(cmd *cobra.Command, a *app) error {
 	if _, err := exec.LookPath(def.Binary); err != nil {
 		fmt.Fprintf(a.errOut, "aprofile: warning: harness binary %q not found on PATH; the wrapper will report this when started\n", def.Binary)
 	}
-	v, ok, err := tui.RunProfileForm(os.Stdin, cmd.OutOrStdout(), profileFormConfig(def, &profileFlags{}))
+	v, ok, err := tui.RunProfileForm(os.Stdin, cmd.OutOrStdout(), profileFormConfig(a, def, &profileFlags{share: a.settings.EffectiveDefaultShare()}))
 	if err != nil || !ok {
 		return err
 	}
@@ -141,11 +141,11 @@ func uiEdit(cmd *cobra.Command, a *app, sel *tui.ProfileRow) error {
 	if !ok {
 		return fmt.Errorf("unknown harness %q", sel.Harness)
 	}
-	v, ok, err := tui.RunProfileForm(os.Stdin, cmd.OutOrStdout(), profileFormConfig(def, formEditDefaults(p)))
+	v, ok, err := tui.RunProfileForm(os.Stdin, cmd.OutOrStdout(), profileFormConfig(a, def, formEditDefaults(p)))
 	if err != nil || !ok {
 		return err
 	}
-	return applyEditForm(a, p, def, v)
+	return applyEditForm(a, cmd, p, def, v)
 }
 
 // uiCopy collects a copy through the form and runs the same copy operation the command
@@ -163,17 +163,11 @@ func uiCopy(cmd *cobra.Command, a *app, sel *tui.ProfileRow) error {
 	if sel != nil {
 		initial.Source = sel.Harness + "/" + sel.Name
 	}
-	v, ok, err := tui.RunCopyForm(os.Stdin, cmd.OutOrStdout(), sources, initial)
+	v, ok, err := tui.RunCopyForm(os.Stdin, cmd.OutOrStdout(), sources, initial, shareOptions(""))
 	if err != nil || !ok {
 		return err
 	}
-	return runCopy(cmd, v.Source, v.Target, &copyFlags{
-		overwrite: v.Overwrite,
-		auth:      v.Auth,
-		label:     v.Label,
-		color:     v.Color,
-		icon:      v.Icon,
-	})
+	return runCopy(cmd, v.Source, v.Target, copyFlagsFromForm(v))
 }
 
 // uiRemove confirms and removes the selected profile through the same remove operation

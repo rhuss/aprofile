@@ -149,9 +149,10 @@ func TestImportCreatesProfilesAndPreservesCCDeck(t *testing.T) {
 	if strings.Contains(mixed, "numStartups") || strings.Contains(mixed, `"/x"`) {
 		t.Errorf("mixed file should not carry state keys: %s", mixed)
 	}
-	// Owned dir copied.
-	if got := readFile(t, filepath.Join(cfg, "skills", "skill1.md")); !strings.Contains(got, "SRC_SKILL") {
-		t.Errorf("owned skills not copied: %q", got)
+	// Skills are content since feature 002 (FR-008): they are never imported; sync
+	// links them from the default setup according to the share level.
+	if _, err := os.Stat(filepath.Join(cfg, "skills", "skill1.md")); !os.IsNotExist(err) {
+		t.Errorf("skills are content and must not be imported (err=%v)", err)
 	}
 	// State NOT carried (fresh state layer).
 	if _, err := os.Stat(filepath.Join(cfg, "projects")); !os.IsNotExist(err) {

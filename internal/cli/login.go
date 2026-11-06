@@ -52,7 +52,7 @@ func runLogin(cmd *cobra.Command, ref string) error {
 
 	// Ensure the config dir exists so credentials land in the profile.
 	configDir := a.paths.ProfileConfigDir(h, n)
-	if _, err := layer.PrepareConfigDir(def, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDir(def, p, configDir, false); err != nil {
 		return err
 	}
 
@@ -93,6 +93,7 @@ func loginEnv(p *profile.Profile, def *harness.Definition, configDir string) ([]
 	env["APROFILE_COLOR"] = p.Color
 	env["APROFILE_ICON"] = p.Icon
 	env["APROFILE_CONFIG_DIR"] = configDir
+	env["APROFILE_SHARE"] = string(p.ShareLevel())
 	// Resolved auth for the selected kind.
 	if kind, ok := def.AuthKind(p.AuthKind); ok {
 		for _, v := range kind.VarNames() {

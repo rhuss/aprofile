@@ -4,12 +4,10 @@
 # the XDG base-directory set. XDG_DATA_HOME relocates auth.json and the sessions
 # database together; XDG_CONFIG_HOME relocates opencode.json (config + MCP).
 #
-# SIMPLIFICATION (documented, research.md item 2): the profile root holds the XDG
-# tree (data/, config/, cache/, state/), so OpenCode's meaningful entries sit two
-# levels deep (data/opencode/..., config/opencode/...). A single
-# default_config_location cannot capture that spread, so shared-link seeding from the
-# default setup is best-effort for this harness; credential, state, owned and MCP
-# isolation (the layers that matter) are exact.
+# The profile root holds the XDG tree (data/, config/, cache/, state/), so
+# OpenCode's entries sit two levels deep (data/opencode/..., config/opencode/...).
+# default_locations maps each of these prefixes to the matching default XDG
+# directory, so content and settings are borrowed from ~/.config/opencode.
 name: opencode
 binary: opencode
 wrapper_prefix: opencode
@@ -33,20 +31,55 @@ auth_kinds:
   - name: login
     vars: {} # interactive `opencode auth login`; credentials in data/opencode/auth.json
 
+# OpenCode's default setup is spread over the XDG directories; each profile-relative
+# prefix maps to its own default location.
+default_locations:
+  "config/opencode": "~/.config/opencode"
+  "data/opencode": "~/.local/share/opencode"
+  "state/opencode": "~/.local/state/opencode"
+  "cache/opencode": "~/.cache/opencode"
+
 classification:
+  # Entries verified on disk with OpenCode 2.1.4 on 2026-11-04
+  # (specs/002-profile-isolation-levels/research.md R1).
   - { entry: "data/opencode/auth.json", layer: credentials }
-  # The data dir holds the sessions database and other per-profile runtime state.
+  - { entry: "data/opencode/mcp-auth.json", layer: credentials }
+  - { entry: "data/opencode/account.json", layer: credentials }
+  # The data dir holds the sessions database (with -wal/-shm), storage, snapshots
+  # and logs: per-profile runtime state.
   - { entry: "data/opencode/", layer: state }
-  # Per-profile skills (research.md item 4). The global ~/.claude/skills and
-  # ~/.agents/skills lookups are keyed to $HOME and stay shared/reported (FR-021).
-  - { entry: "config/opencode/skills/", layer: owned }
-  # opencode.json is a mixed JSON file: the mcp key is owned per profile; every other
-  # key (providers, theme, ...) belongs to the user and is seeded once, never
-  # rewritten. Uncovered keys are reported like unclassified entries (FR-013).
+  - { entry: "state/opencode/", layer: state }
+  - { entry: "cache/opencode/", layer: state }
+  # opencode.json is a mixed JSON file: the mcp key is owned per profile; every
+  # other key (providers, theme, ...) is seeded once, never rewritten (FR-013).
+  # Being mixed, it is never linked (FR-009a).
   - entry: "config/opencode/opencode.json"
     layer: mixed
     keys:
       mcp: owned
+  # Content.
+  - { entry: "config/opencode/skills/", layer: content }
+  - { entry: "config/opencode/agent/", layer: content }
+  - { entry: "config/opencode/command/", layer: content }
+  - { entry: "config/opencode/themes/", layer: content }
+  # Settings.
+  - { entry: "config/opencode/tui.jsonc", layer: settings }
+  - { entry: "config/opencode/cli.json", layer: settings }
+  # Installed plugin code (npm/bun install of the plugin key's packages).
+  - { entry: "config/opencode/node_modules/", layer: plugin-store }
+  - { entry: "config/opencode/package.json", layer: plugin-store }
+  - { entry: "config/opencode/bun.lock", layer: plugin-store }
+  - { entry: "config/opencode/package-lock.json", layer: plugin-store }
+
+# Hooks are plugin files in this directory.
+hooks:
+  location: "config/opencode/plugins"
+  form: files
+
+# OpenCode also reads skills relative to $HOME (research.md item 4).
+home_escapes:
+  - { path: "~/.agents/skills", what: "skills" }
+  - { path: "~/.claude/skills", what: "skills" }
 
 mcp:
   location: "config/opencode/opencode.json#mcp"
@@ -54,4 +87,4 @@ mcp:
 
 skills_location:
   path: "config/opencode/skills"
-  scope: per-profile
+  scope: per-profile # ignored since feature 002: skills are content

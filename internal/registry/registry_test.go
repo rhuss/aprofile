@@ -82,7 +82,7 @@ func TestNoSecretsInRegistry(t *testing.T) {
 	}
 	allowed := map[string]bool{
 		"harness": true, "name": true, "label": true, "color": true, "icon": true,
-		"auth_kind": true, "primary": true, "config_dir": true, "wrapper_path": true,
+		"auth_kind": true, "primary": true, "config_dir": true, "wrapper_path": true, "share": true,
 	}
 	for _, p := range raw.Profiles {
 		for k := range p {
@@ -95,8 +95,8 @@ func TestNoSecretsInRegistry(t *testing.T) {
 
 // TestRegistrySchemaMatchesContract pins the public registry schema documented in
 // contracts/registry-and-env.md (FR-030): the top level is exactly
-// {format_version, profiles}, and each profile carries exactly the nine documented
-// fields. A change here is a breaking change that must bump FormatVersion.
+// {format_version, profiles}, and each profile carries exactly the ten documented
+// fields (share was added additively by feature 002 at format_version 1). A change here is a breaking change that must bump FormatVersion.
 func TestRegistrySchemaMatchesContract(t *testing.T) {
 	data, err := registry.Marshal(sampleEntries())
 	if err != nil {
@@ -120,7 +120,7 @@ func TestRegistrySchemaMatchesContract(t *testing.T) {
 	if reg.FormatVersion != registry.FormatVersion {
 		t.Errorf("format_version = %d, want %d", reg.FormatVersion, registry.FormatVersion)
 	}
-	wantFields := []string{"harness", "name", "label", "color", "icon", "auth_kind", "primary", "config_dir", "wrapper_path"}
+	wantFields := []string{"harness", "name", "label", "color", "icon", "auth_kind", "primary", "config_dir", "wrapper_path", "share"}
 	for _, p := range reg.Profiles {
 		if len(p) != len(wantFields) {
 			t.Errorf("profile has %d fields, want exactly %d (%v): %v", len(p), len(wantFields), wantFields, keysOf(p))
