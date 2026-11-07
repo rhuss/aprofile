@@ -39,6 +39,8 @@ aprofile knows how to select a separate configuration for each supported tool. Y
 
 A **share level** decides how much of the tool's default setup a profile uses. You can reuse instructions while keeping settings separate, reuse more of the default setup, or start clean. Credentials and runtime state, such as conversations, sessions, and memory, stay private to each profile at every share level.
 
+Even `all` keeps each profile's history and sessions separate. Switching profiles does not bring your conversations with you. Read [History and sessions](user/share-levels.md#history-and-sessions) before choosing a profile for ongoing work.
+
 Profile changes can leave wrappers stale. Run `aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
 
 ## Ways to run it

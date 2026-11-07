@@ -41,6 +41,8 @@ A profile keeps several kinds of data of its own. These categories help you unde
 
 Shared content is a different category. Instructions, prompts, and commands can come from your default setup without sharing your login or conversation history. That distinction lets you use the same instructions for work and personal accounts while keeping their sessions separate.
 
+For example, `claude/work` and `claude/personal` have separate histories, even when both use `all`. A conversation created in the work profile stays with that profile; selecting the personal profile does not transfer it. Copying a profile also leaves its history and sessions behind. See [History and sessions](../user/share-levels.md#history-and-sessions) for the details.
+
 ## What a share level changes
 
 A *share level* controls how much of the default setup a profile uses. Choose it per profile, according to how closely you want that profile to follow your usual configuration:

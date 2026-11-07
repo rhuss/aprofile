@@ -9,6 +9,7 @@ aprofile:internal/cli/edit.go:21-34,457-468,546-558
 aprofile:internal/cli/sync.go:17-32
 aprofile:internal/cli/login.go:18-28
 aprofile:internal/cli/copy.go:74-96
+aprofile:internal/cli/copy.go:197-222
 aprofile:internal/cli/mcp.go:38-49,101-114
 aprofile:internal/cli/hooksets.go:150-165,208-225,264-301,304-316
 aprofile:internal/cli/doctor.go:16-28
@@ -26,7 +27,7 @@ aprofile:internal/cli/doctor.go:16-28
 | `aprofile remove <harness> <name>` | Remove a profile. `--purge` also deletes its config directory after confirmation; `--yes` skips that prompt. |
 | `aprofile sync` | Prepare config directories, update wrappers, place hook sets, publish the registry, and manage the PATH block. `--dry-run` lists changes. |
 | `aprofile login <harness>/<name>` | Run the harness login flow with the profile's environment. |
-| `aprofile copy <harness>/<name> <harness>/<name>` | Copy a profile within or across harnesses. The command does not update wrappers; run `aprofile sync` after. |
+| `aprofile copy <harness>/<name> <harness>/<name>` | Copy a profile within or across harnesses. History, sessions, and credentials are not copied. The command does not update wrappers; run `aprofile sync` after. |
 
 Profile changes can leave wrappers stale until `aprofile sync` runs. Only `sync` writes or removes wrappers. Use [Manage profiles](../user/manage-profiles.md) for the procedures.
 

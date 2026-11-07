@@ -6,6 +6,9 @@ aprofile:internal/harness/builtin/claude.yaml:34-40,50-55,83-100
 aprofile:internal/harness/builtin/codex.yaml:33-41,64-82
 aprofile:internal/harness/builtin/opencode.yaml:42-80
 aprofile:internal/harness/builtin/pi.yaml:32-52
+aprofile:internal/cli/copy.go:184-222
+aprofile:internal/cli/root.go:52-79
+aprofile:internal/wrapper/wrapper.go:99-106,254-255
 claude-code:README.md:7
 codex:README.md:1
 opencode:README.md:10
@@ -46,10 +49,14 @@ New profiles use `content` by default, unless `default_share` in `<config dir>/a
 
 ## What each level shares
 
-At every level, credentials, runtime state, and harness-owned entries stay private. The table shows what happens to the other entries.
+At every level, credentials, runtime state, and harness-owned entries stay private. The table includes history and sessions so you can see which data remains separate when you share more of your setup.
 
 | Entry | `all` | `content` | `none` |
 |---|---|---|---|
+| Credentials | Private | Private | Private |
+| Conversation history and sessions | Private | Private | Private |
+| Memory, logs, and caches | Private | Private | Private |
+| Owned data, such as MCP servers and model settings | Private | Private | Private |
 | Content, such as instructions and skills | Linked to the default setup | Linked to the default setup | Not present |
 | Settings, such as permissions and enabled plugins | Linked to the default setup | Own copy, taken once | Own minimal setup |
 | Plugin store | Linked to the default setup | Linked to the default setup | Private |
@@ -58,6 +65,16 @@ At every level, credentials, runtime state, and harness-owned entries stay priva
 The built-in harnesses are Claude Code, a terminal coding tool; Codex CLI, a coding agent that runs locally; OpenCode, an open source coding agent; and Pi, a minimal, extensible agent harness. Their configuration directories differ: Claude Code uses `CLAUDE_CONFIG_DIR`, Codex uses `CODEX_HOME`, OpenCode uses XDG base directory variables, and Pi uses `PI_CODING_AGENT_DIR` plus a session directory. This affects where aprofile applies the sharing rules, not the meaning of the levels.
 
 There are two exceptions to keep in mind when choosing `none`. Codex and OpenCode read skills from `~/.agents/skills`, and OpenCode also reads `~/.claude/skills`. Those directories are outside their config directories, so share levels cannot isolate them. `aprofile show` and `aprofile doctor` list these paths.
+
+### History and sessions
+
+Each profile starts with its own empty runtime state. aprofile does not seed its history or sessions from the default setup or from another profile. Selecting `all` or changing between share levels does not make those conversations shared.
+
+For example, a conversation created through `claude-work` belongs to `claude/work`. Starting `claude-personal` selects a different profile configuration, even if you open it in the same project directory. aprofile does not import the work conversation into the personal profile. Use the original profile's wrapper when looking for its history; the coding tool handles its own session browsing and resume behavior.
+
+`aprofile copy` does not copy conversation history or sessions, whether the destination uses the same harness or a different one. Its cross-harness conversion covers configuration such as MCP servers. aprofile currently provides no conversation-transfer, history-mirroring, or merged-history command.
+
+If a session seems to have disappeared after changing profiles, follow [Check which profile owns the session](troubleshooting.md#check-which-profile-owns-the-session).
 
 ## Limits to know
 

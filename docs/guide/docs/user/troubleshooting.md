@@ -5,6 +5,9 @@ aprofile:README.md:91-107
 aprofile:README.md:143-169
 aprofile:README.md:236-238
 aprofile:internal/doctor/doctor.go:90-100,125-145,155-170,231-246,255-290,294-322,370-382
+aprofile:README.md:42-48,62-72,184-207
+aprofile:internal/cli/copy.go:197-222
+aprofile:internal/wrapper/wrapper.go:99-106,254-255
 -->
 
 When a profile behaves differently than you expect, inspect its recorded setup first, then ask `doctor` to check for drift. The report names each finding and gives a next step, so you can fix the specific cause instead of changing the share level blindly.
@@ -64,3 +67,26 @@ Start with the fix printed beside the finding. These common cases have direct re
    ```
 
    Check: aprofile asks before replacing the file, then reports the backup and relink.
+
+## Check which profile owns the session
+
+If you cannot find a conversation after switching profiles, check which profile you originally used. History and sessions remain private at `all`, `content`, and `none`. Sharing more setup or copying a profile does not transfer them.
+
+1. Inspect the original profile. For a conversation started through `claude-work`:
+
+   ```sh
+   aprofile show claude/work
+   ```
+
+   Check: the output identifies `claude/work` and shows its configuration entries and their treatment. This inspects the profile's setup, not the contents of a conversation.
+   <!-- expect: contains "claude/work" -->
+
+2. Start the original profile's wrapper:
+
+   ```sh
+   claude-work
+   ```
+
+   Check: Claude Code starts with the work profile's configuration. Use its session tools to look for the conversation there. The available sessions and resume behavior are handled by Claude Code.
+
+Starting another profile selects that profile's configuration. aprofile does not automatically make the original conversation available in it. See [History and sessions](share-levels.md#history-and-sessions) for the current limits.

@@ -5,6 +5,8 @@ aprofile:README.md:111-140
 aprofile:internal/cli/hooksets.go:269-270
 aprofile:README.md:143-169
 aprofile:README.md:188-195
+aprofile:internal/cli/copy.go:184-222
+aprofile:internal/cli/edit.go:457-467,546-605
 -->
 
 Profiles are easy to inspect before you change them. The main thing to keep in mind is that profile records and wrappers are separate: after a profile change, run `aprofile sync` so its launcher catches up.
@@ -64,10 +66,10 @@ Edit a profile when its settings need to change, or rename it when you want a cl
    aprofile remove claude team
    ```
 
-   Check: aprofile asks for confirmation before removing the profile.
+   Check: aprofile removes the profile record and reports that its config directory is retained.
 
    > [!CAUTION]
-   > Add `--purge` only when you also want to delete the profile's config directory. aprofile asks for confirmation because that directory may contain data created by the harness.
+   > Add `--purge` only when you also want to delete the profile's config directory, including the history and sessions stored there. Without `--purge`, aprofile retains that directory.
 
    A share-level change to `all` can replace files after backup and confirmation. `aprofile settings pull --replace` also replaces settings with the default setup, so inspect the profile first.
 
@@ -82,6 +84,8 @@ Edit a profile when its settings need to change, or rename it when you want a cl
 ## Copy profile data
 
 Copy a profile when you want a second setup or want to move its owned configuration to another harness. The copy command converts MCP servers for the destination harness. Credentials and runtime state are not copied.
+
+A new destination starts with its own empty history and sessions. Copying `claude/work` to another Claude Code profile or to `codex/team` does not make work conversations resumable there. If you copy over an existing destination, its own credentials and runtime state remain in place; the source's conversations are not merged into them. See [History and sessions](share-levels.md#history-and-sessions).
 
 1. Copy a profile within or across harnesses:
 
