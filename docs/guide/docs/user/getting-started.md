@@ -34,7 +34,7 @@ Build from an existing aprofile source checkout. Building from source is the sup
    <!-- expect: exit 0 -->
 
    ```sh
-   go env GOVERSION | awk -F. '{major=$1; sub(/^go/, "", major); if (major+0 > 1 || (major+0 == 1 && $2+0 >= 24)) exit 0; exit 1}'
+   go env GOVERSION | awk -F. '$1 ~ /^go[0-9]+$/ && $2 ~ /^[0-9]+$/ && (substr($1, 3)+0 > 1 || (substr($1, 3)+0 == 1 && $2+0 >= 24)) { exit 0 } { exit 1 }'
    ```
    <!-- expect: exit 0 -->
 
