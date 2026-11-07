@@ -26,7 +26,7 @@ Build from an existing aprofile source checkout. Building from source is the sup
 
 1. Open a terminal at the root of your aprofile checkout. Keep this directory for the `./bin/aprofile` commands on this page.
 
-   Check: the checkout contains the build inputs, and Go reports the required version or newer.
+   Check: the checkout contains the build inputs, and the installed Go version is 1.24 or newer, as required by the module.
 
    ```sh
    test -f go.mod && test -f Makefile && test -d cmd/aprofile
@@ -34,8 +34,9 @@ Build from an existing aprofile source checkout. Building from source is the sup
    <!-- expect: exit 0 -->
 
    ```sh
-   go version
+   go env GOVERSION | awk -F. '{major=$1; sub(/^go/, "", major); if (major+0 > 1 || (major+0 == 1 && $2+0 >= 24)) exit 0; exit 1}'
    ```
+   <!-- expect: exit 0 -->
 
 2. Build the executable.
 

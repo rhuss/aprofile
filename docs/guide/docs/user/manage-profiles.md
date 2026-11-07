@@ -2,6 +2,7 @@
 
 <!-- Sources:
 aprofile:README.md:111-140
+aprofile:internal/cli/hooksets.go:269-270
 aprofile:README.md:143-169
 aprofile:README.md:188-195
 -->
@@ -112,19 +113,27 @@ Hook sets let profiles choose named groups of hooks. Attach a set by editing the
    aprofile hook-sets list
    ```
 
-   Check: the output lists the hook sets in the library.
+   Check: the output lists available hook sets, or says there are none.
 
-2. Attach or exclude sets on a profile, then sync:
+2. If no `base` set exists, create it from Claude Code's existing hooks, then list the sets again:
 
    ```sh
-   aprofile edit claude/work --hook-sets base,jira
-   aprofile edit claude/work --exclude-hook-sets rtk
+   aprofile hook-sets import claude --name base
+   aprofile hook-sets list
+   ```
+
+   Check: the list shows `base`. Import creates the set from the default setup's existing hooks; it does not modify that setup.
+
+3. Attach the set you confirmed is available, then sync:
+
+   ```sh
+   aprofile edit claude/work --hook-sets base
    aprofile sync
    ```
 
-   Check: sync places, updates, or removes the managed entries for the profile's hook sets.
+   Check: sync places, updates, or removes the managed entries for the profile's hook sets. Use `base` here only if it appears in the list; for other hook sets, use only names that the list shows.
 
-3. Use `reapply` if you intentionally want to restore a managed hook entry that you edited by hand:
+4. Use `reapply` if you intentionally want to restore a managed hook entry that you edited by hand:
 
    ```sh
    aprofile hook-sets reapply claude/work
