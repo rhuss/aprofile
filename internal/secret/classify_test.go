@@ -129,3 +129,83 @@ func TestIsReferenceOnly(t *testing.T) {
 		}
 	}
 }
+
+// T093: a value that is an environment variable name (Codex env_key =
+// "OPENAI_API_KEY") names where the secret lives; it is not the secret. The value
+// rule is strict: an upper case identifier holding an underscore, at most 64
+// characters, without a known secret prefix.
+func TestLooksLikeEnvVarName(t *testing.T) {
+	for v, want := range map[string]bool{
+		"OPENAI_API_KEY":               true,
+		"_X":                           true,
+		"A1_B2":                        true,
+		"openai_api_key":               false, // lower case: not the env name convention
+		"OpenAI":                       false,
+		"1ABC":                         false,
+		"":                             false,
+		"sk-abc":                       false,
+		"ABC DEF":                      false,
+		"ABC-DEF":                      false,
+		"HUNTER2":                      false, // no underscore
+		"JBSWY3DPEHPK3PXP":             false, // base32 TOTP seed: no underscore
+		"AKIA_IOSFODNN7_EXAMP":         false, // known secret prefix
+		"A_" + strings.Repeat("B", 63): false, // longer than 64
+	} {
+		if got := secret.LooksLikeEnvVarName(v); got != want {
+			t.Errorf("LooksLikeEnvVarName(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// T093 follow-up: the exemption needs a key that names a variable.
+func TestKeyNamesEnvVar(t *testing.T) {
+	for k, want := range map[string]bool{
+		"env_key":              true,
+		"api_key_env":          true,
+		"token_env_var":        true,
+		"api_key_var":          true,
+		"envKey":               true,
+		"bearer_token_env_var": true,
+		"apiKeyVar":            true,
+		"api_key":              false,
+		"token":                false,
+		"password":             false,
+		"secret":               false,
+		"apiKey":               false,
+	} {
+		if got := secret.KeyNamesEnvVar(k); got != want {
+			t.Errorf("KeyNamesEnvVar(%q) = %v, want %v", k, got, want)
+		}
+	}
+}
+
+// T093: the credential-key rule skips env-var-name values only under a key that
+// names a variable, keeps every other literal, and the prefix check still applies
+// to name-shaped values. All-caps secrets under plain credential keys still count.
+func TestSecretUnderCredentialKey(t *testing.T) {
+	cases := []struct {
+		key, value string
+		want       bool
+	}{
+		{"env_key", "OPENAI_API_KEY", false},
+		{"api_key_env", "MY_TOKEN_VAR", false},
+		{"apiKey", "MY_TOKEN_VAR", true}, // the key does not name a variable
+		{"env_key", "abc123", true},
+		{"env_key", "HUNTER2", true}, // no underscore: not a variable name
+		{"token", "s3cr3t-value", true},
+		{"apiKey", "env:OPENAI_API_KEY", false},
+		{"apiKey", "${OPENAI_API_KEY}", false},
+		{"theme", "abc123", false},
+		{"env_key", "", false},
+		// All-caps secrets under credential keys warn again.
+		{"password", "HUNTER2", true},
+		{"api_key", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", true},
+		{"token", "ABCDEF0123456789ABCDEF0123456789ABCDEF01", true},
+		{"secret", "X9K2_PROD_KEY_2024", true},
+	}
+	for _, c := range cases {
+		if got := secret.SecretUnderCredentialKey(c.key, c.value); got != c.want {
+			t.Errorf("SecretUnderCredentialKey(%q, %q) = %v, want %v", c.key, c.value, got, c.want)
+		}
+	}
+}

@@ -75,7 +75,11 @@ type Action struct {
 	CredentialsReplaced bool     // true when --overwrite-credentials replaced credentials
 	BackupDir           string   // where the replaced credentials were backed up
 	PrimaryMovedFrom    []string // profiles of the same harness that lost the primary flag (FR-001)
-	Warnings            []string // non-fatal issues; never carry credential contents
+	// ExternalCredentialFiles lists the credential files the import copies (in a dry
+	// run: would copy) from outside cc-deck's own config and data folders, as named
+	// by cc-deck's config. Paths only, never content (FR-045).
+	ExternalCredentialFiles []string
+	Warnings                []string // non-fatal issues; never carry credential contents
 }
 
 // Result is the full import report.
@@ -146,7 +150,7 @@ func Import(paths *config.Paths, set *harness.Set, store *profile.Store, sourceD
 
 	// Every stored profile, plus each one this run creates (or, in a dry run, would
 	// create), so a wrapper-name clash is caught against both (FR-002).
-	keys, err := storedKeys(store)
+	keys, err := store.Keys()
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +201,7 @@ func Import(paths *config.Paths, set *harness.Set, store *profile.Store, sourceD
 		} else {
 			act.Status = "import"
 		}
+		act.ExternalCredentialFiles = externalCredentialFiles(pl.creds, []string{sourceDir, dataDir}, exists, opts)
 
 		if opts.DryRun {
 			if !exists {
@@ -214,6 +219,9 @@ func Import(paths *config.Paths, set *harness.Set, store *profile.Store, sourceD
 		if err := importOne(paths, store, def, pl, dataDir, exists, opts, &act); err != nil {
 			act.Status = StatusFailed
 			act.Reason = err.Error()
+			// A failed profile was rolled back or stopped partway; its report names
+			// the failure, not files that may never have been copied.
+			act.ExternalCredentialFiles = nil
 			res.Actions = append(res.Actions, act)
 			continue
 		}
@@ -282,23 +290,6 @@ func importOne(paths *config.Paths, store *profile.Store, def *harness.Definitio
 	return nil
 }
 
-// storedKeys lists the (harness, name) of every stored profile, including those
-// whose file fails to load.
-func storedKeys(store *profile.Store) ([]harness.ProfileKey, error) {
-	profiles, failures, err := store.List()
-	if err != nil {
-		return nil, err
-	}
-	keys := make([]harness.ProfileKey, 0, len(profiles)+len(failures))
-	for _, p := range profiles {
-		keys = append(keys, harness.ProfileKey{Harness: p.Harness, Name: p.Name})
-	}
-	for _, f := range failures {
-		keys = append(keys, harness.ProfileKey{Harness: f.Harness, Name: f.Name})
-	}
-	return keys, nil
-}
-
 // otherPrimaries lists the profiles of p's harness, other than p, that carry the
 // primary flag. Store files that fail to load are skipped (List reports them
 // elsewhere).
@@ -347,9 +338,9 @@ type importPlan struct {
 }
 
 // buildProfile maps a cc-deck entry to an aprofile profile using only the harness
-// definition's data and the cc-deck field and backend tables in ccdeck.go. Auth
-// values stay references (Principle IV); file-sourced credentials are planned as
-// copies. An error means the profile cannot be expressed in aprofile.
+// definition's data (auth kinds, backends) and the cc-deck field table in
+// ccdeck.go. Auth values stay references (Principle IV); file-sourced credentials
+// are planned as copies. An error means the profile cannot be expressed in aprofile.
 func buildProfile(e ccEntry, def *harness.Definition, share profile.Share, sourceDir, credDir string) (*importPlan, error) {
 	if share == "" {
 		share = profile.Share(config.BuiltinDefaultShare)
@@ -382,9 +373,17 @@ func buildProfile(e ccEntry, def *harness.Definition, share profile.Share, sourc
 		p.Icon = cp.Icon
 	}
 
-	backend, ok := ccBackends[cp.Backend]
-	if !ok {
-		return nil, fmt.Errorf("unknown cc-deck backend %q", cp.Backend)
+	// Backend (Constitution I): the environment a cc-deck backend implies is the
+	// definition's data. An empty backend is the harness's default and sets nothing;
+	// a backend the definition does not declare cannot be expressed, so the profile
+	// is skipped rather than imported against another backend.
+	var backend harness.Backend
+	if cp.Backend != "" {
+		b, ok := def.Backends[cp.Backend]
+		if !ok {
+			return nil, fmt.Errorf("cc-deck backend %q is not declared in the backends of harness definition %q%s", cp.Backend, def.Name, declaredBackends(def))
+		}
+		backend = b
 	}
 
 	auth := ccAuth{}
@@ -478,17 +477,17 @@ func buildProfile(e ccEntry, def *harness.Definition, share profile.Share, sourc
 	// Environment: backend variables first, then the profile's env, which wins on a
 	// clash (cc-deck exports env after the backend lines).
 	extra := &envList{}
-	for _, kv := range backend.expand(cp) {
-		extra.set(profile.ExtraEnvVar{Name: kv[0], Value: kv[1], Literal: true})
+	for _, kv := range backend.Expand(map[string]string{"project": cp.Project, "region": cp.Region}) {
+		extra.set(profile.ExtraEnvVar{Name: kv.Name, Value: kv.Value, Literal: true})
 	}
 	if auth.Credentials != nil && !auth.Login {
 		switch {
-		case backend.credentialsVar == "":
+		case backend.CredentialsVar == "":
 			warn("cc-deck auth.credentials ignored: backend %q takes no credentials file", cp.Backend)
 		case auth.Credentials.Env != "":
-			extra.set(profile.ExtraEnvVar{Name: backend.credentialsVar, Value: "env:" + auth.Credentials.Env})
+			extra.set(profile.ExtraEnvVar{Name: backend.CredentialsVar, Value: "env:" + auth.Credentials.Env})
 		default:
-			extra.set(profile.ExtraEnvVar{Name: backend.credentialsVar, Value: fileRef(fieldCredentials, auth.Credentials), Literal: true})
+			extra.set(profile.ExtraEnvVar{Name: backend.CredentialsVar, Value: fileRef(fieldCredentials, auth.Credentials), Literal: true})
 		}
 	}
 	reserved := map[string]string{}
@@ -538,6 +537,19 @@ func buildProfile(e ccEntry, def *harness.Definition, share profile.Share, sourc
 		return nil, err
 	}
 	return pl, nil
+}
+
+// declaredBackends lists the definition's backend names for an error message.
+func declaredBackends(def *harness.Definition) string {
+	if len(def.Backends) == 0 {
+		return " (it declares none)"
+	}
+	names := make([]string, 0, len(def.Backends))
+	for n := range def.Backends {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return " (declared: " + strings.Join(names, ", ") + ")"
 }
 
 // loginKind returns the harness's auth kind without variables (an interactive
@@ -613,14 +625,11 @@ func plainCopier(act *Action) copier {
 // up and replaces them (FR-045).
 func applyCredentialFiles(creds []credFile, exists bool, opts Options, bk *backup, act *Action) error {
 	for _, cf := range creds {
-		if cf.src == "" {
+		copyIt, replace := credentialCopy(cf, exists, opts)
+		if !copyIt {
 			continue
 		}
-		have := layer.PathExists(cf.dest)
-		switch {
-		case have && exists && !opts.OverwriteCredentials:
-			continue // --overwrite keeps credentials
-		case have && opts.OverwriteCredentials:
+		if replace {
 			if err := bk.save(cf.dest, "imported-credentials/"+cf.field); err != nil {
 				return err
 			}
@@ -632,6 +641,62 @@ func applyCredentialFiles(creds []credFile, exists bool, opts Options, bk *backu
 		act.Warnings = append(act.Warnings, fmt.Sprintf("copied credential file %s verbatim to %s (mode 0600); its content is not shown", cf.src, cf.dest))
 	}
 	return nil
+}
+
+// credentialCopy decides whether a planned credential file is copied: never when no
+// source was found; a new profile gets it; --overwrite keeps an existing copy (adding
+// only a missing one); --overwrite-credentials replaces it, backing it up first
+// (replace) (FR-045).
+func credentialCopy(cf credFile, exists bool, opts Options) (copyIt, replace bool) {
+	if cf.src == "" {
+		return false, false
+	}
+	have := layer.PathExists(cf.dest)
+	switch {
+	case have && exists && !opts.OverwriteCredentials:
+		return false, false
+	case have && opts.OverwriteCredentials:
+		return true, true
+	}
+	return true, false
+}
+
+// externalCredentialFiles returns the source of each credential file the import
+// copies (or would copy) that lies outside every dir in ccDirs, cc-deck's own config
+// and data folders, so a user can see which other files a cc-deck config makes it
+// read (FR-045). Symlinks are resolved where possible, so a link out of cc-deck's
+// folders counts as outside.
+func externalCredentialFiles(creds []credFile, ccDirs []string, exists bool, opts Options) []string {
+	var out []string
+	for _, cf := range creds {
+		if copyIt, _ := credentialCopy(cf, exists, opts); !copyIt {
+			continue
+		}
+		src := resolvedPath(cf.src)
+		inside := false
+		for _, d := range ccDirs {
+			if d != "" && within(resolvedPath(d), src) {
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			out = append(out, cf.src)
+		}
+	}
+	return out
+}
+
+// resolvedPath returns path made absolute with its symlinks resolved, or the
+// absolute (else the given) path when it cannot be resolved.
+func resolvedPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+	return path
 }
 
 // applyConfig copies the credentials and owned layers from cc-deck's live config

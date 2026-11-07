@@ -1,11 +1,6 @@
 package cli
 
-import (
-	"fmt"
-
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
-)
+import "fmt"
 
 // wrapperClash returns the ID ("<harness>/<name>") of another stored profile whose
 // wrapper name equals the one the profile (harnessName, name) would get, or "" when
@@ -15,7 +10,7 @@ import (
 // itself. Store files that fail to load still count: their (harness, name) is known
 // from the file path.
 func wrapperClash(a *app, harnessName, name, except string) (otherID string, err error) {
-	keys, err := storedProfileKeys(a.store)
+	keys, err := a.store.Keys()
 	if err != nil {
 		return "", err
 	}
@@ -34,21 +29,4 @@ func checkWrapperClash(a *app, harnessName, name, except string) error {
 	}
 	wrapper, _ := a.set.WrapperName(harnessName, name)
 	return fmt.Errorf("wrapper name %q is already used by profile %s; choose another name", wrapper, other)
-}
-
-// storedProfileKeys lists the (harness, name) of every stored profile, including
-// those whose file fails to load.
-func storedProfileKeys(store *profile.Store) ([]harness.ProfileKey, error) {
-	profiles, failures, err := store.List()
-	if err != nil {
-		return nil, err
-	}
-	keys := make([]harness.ProfileKey, 0, len(profiles)+len(failures))
-	for _, p := range profiles {
-		keys = append(keys, harness.ProfileKey{Harness: p.Harness, Name: p.Name})
-	}
-	for _, f := range failures {
-		keys = append(keys, harness.ProfileKey{Harness: f.Harness, Name: f.Name})
-	}
-	return keys, nil
 }

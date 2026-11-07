@@ -56,8 +56,16 @@ func mergeJSONDoc(flavor Flavor, fileData []byte, mcpKey string, newServers []Se
 	}
 	mcpObj := map[string]json.RawMessage{}
 	if raw, ok := top[mcpKey]; ok && len(bytes.TrimSpace(raw)) > 0 {
-		if err := json.Unmarshal(raw, &mcpObj); err != nil {
-			return nil, res, fmt.Errorf("decode existing %q object: %w", mcpKey, err)
+		// Only an object (or null, no servers yet) is merged into: any other value
+		// at the key is the file's data, never replaced by the servers.
+		switch trimmed := bytes.TrimSpace(raw); {
+		case bytes.Equal(trimmed, []byte("null")):
+		case trimmed[0] != '{':
+			return nil, res, fmt.Errorf("the value at key %q is not an object; refusing to replace it with MCP servers (fix or remove it by hand)", mcpKey)
+		default:
+			if err := json.Unmarshal(raw, &mcpObj); err != nil {
+				return nil, res, fmt.Errorf("decode existing %q object: %w", mcpKey, err)
+			}
 		}
 	}
 	for _, s := range newServers {
@@ -75,8 +83,12 @@ func mergeJSONDoc(flavor Flavor, fileData []byte, mcpKey string, newServers []Se
 			continue
 		}
 		native, drops := enc(s)
+		why, skip := unwritable(s, native, drops)
+		if !skip {
+			markDroppedOptions(s, drops)
+		}
 		res.Drops = append(res.Drops, drops...)
-		if why, skip := unwritable(s, native, drops); skip {
+		if skip {
 			res.Skipped = append(res.Skipped, SkippedServer{Name: s.Name, Reason: why})
 			continue
 		}

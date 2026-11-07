@@ -21,14 +21,9 @@ type copyReport11 struct {
 	MCP        struct {
 		Converted []string `json:"converted"`
 	} `json:"mcp"`
-	SecretWarnings []struct {
-		Server string `json:"server"`
-		Field  string `json:"field"`
-	} `json:"secret_warnings"`
-	OwnedSecretWarnings []string `json:"owned_secret_warnings"`
-	OwnedNotConverted   []string `json:"owned_not_converted"`
-	PluginsSkipped      []string `json:"plugins_skipped"`
-	SkippedPlugins      []struct {
+	SecretWarnings    []secretWarning `json:"secret_warnings"`
+	OwnedNotConverted []string        `json:"owned_not_converted"`
+	SkippedPlugins    []struct {
 		Name       string   `json:"name"`
 		Skills     []string `json:"skills"`
 		MCPServers []string `json:"mcp_servers"`
@@ -187,13 +182,20 @@ func TestCopySameHarnessOwnedSecretsAndCarried(t *testing.T) {
 	writeFile(t, filepath.Join(e.configDir("codex", "src"), "config.toml"), codexOwnedTOML)
 
 	rep := copyJSON(t, e, "codex/src", "codex/twin")
-	if !contains(rep.OwnedSecretWarnings, "config.toml: model_providers.corp.experimental_bearer_token") {
-		t.Errorf("missing owned-file secret warning: %v", rep.OwnedSecretWarnings)
-	}
-	for _, w := range rep.OwnedSecretWarnings {
-		if strings.Contains(w, "base_url") || strings.Contains(w, "mcp_servers") {
-			t.Errorf("unexpected owned warning %q (URLs are not secrets; MCP is reported per server)", w)
+	ownedHit := false
+	for _, w := range rep.SecretWarnings {
+		if w.Source != "owned" {
+			continue
 		}
+		if w.Entry == "config.toml" && w.Key == "model_providers.corp.experimental_bearer_token" {
+			ownedHit = true
+		}
+		if strings.Contains(w.Key, "base_url") || strings.Contains(w.Key, "mcp_servers") {
+			t.Errorf("unexpected owned warning %+v (URLs are not secrets; MCP is reported per server)", w)
+		}
+	}
+	if !ownedHit {
+		t.Errorf("missing owned-file secret warning: %+v", rep.SecretWarnings)
 	}
 	if !hasWarning(rep.SecretWarnings, "tool", "env[API_KEY]") {
 		t.Errorf("missing MCP secret warning: %+v", rep.SecretWarnings)
@@ -255,9 +257,11 @@ func TestCopyListsSkippedPlugins(t *testing.T) {
 	if p.Name != "superpowers@market" || strings.Join(p.Skills, ",") != "brainstorming,tdd" || strings.Join(p.MCPServers, ",") != "helper" {
 		t.Errorf("skipped plugin = %+v", p)
 	}
-	if len(rep.PluginsSkipped) != 1 || !strings.Contains(rep.PluginsSkipped[0], "superpowers@market") ||
-		!strings.Contains(rep.PluginsSkipped[0], "brainstorming") || !strings.Contains(rep.PluginsSkipped[0], "helper") {
-		t.Errorf("plugins_skipped text = %v", rep.PluginsSkipped)
+	// The text report names the plugin with its skills and MCP servers.
+	text := e.run(nil, "copy", "claude/work", "codex/cx2")
+	if !strings.Contains(text, "plugin superpowers@market not carried across harnesses") ||
+		!strings.Contains(text, "brainstorming") || !strings.Contains(text, "helper") {
+		t.Errorf("text report must describe the skipped plugin:\n%s", text)
 	}
 }
 

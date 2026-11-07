@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/cc-deck/aprofile/internal/harness"
 )
 
 // ErrNotFound is returned when a profile does not exist in the store.
@@ -154,50 +156,64 @@ func (s *Store) Remove(harness, name string) error {
 	return err
 }
 
-// List returns every profile in the store, sorted by (harness, name). Files that
-// fail to load are returned as LoadFailures so a single bad file does not hide the
-// rest (FR-006, FR-022).
-func (s *Store) List() ([]*Profile, []LoadFailure, error) {
+// Keys returns the (harness, name) of every profile file in the store, sorted by
+// harness and name, without loading the files: a file that fails to load still
+// counts. The wrapper-name clash checks of the CLI and of import use it (FR-002).
+func (s *Store) Keys() ([]harness.ProfileKey, error) {
 	root := filepath.Join(s.paths.ConfigDir, "profiles")
-	var profiles []*Profile
-	var failures []LoadFailure
-
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, nil
+			return nil, nil
 		}
-		return nil, nil, fmt.Errorf("read profiles dir %s: %w", root, err)
+		return nil, fmt.Errorf("read profiles dir %s: %w", root, err)
 	}
+	var keys []harness.ProfileKey
 	for _, he := range entries {
 		if !he.IsDir() {
 			continue
 		}
-		harness := he.Name()
-		hdir := filepath.Join(root, harness)
+		hdir := filepath.Join(root, he.Name())
 		files, err := os.ReadDir(hdir)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read %s: %w", hdir, err)
+			return nil, fmt.Errorf("read %s: %w", hdir, err)
 		}
 		for _, fe := range files {
 			if fe.IsDir() || filepath.Ext(fe.Name()) != ".yaml" {
 				continue
 			}
-			name := fe.Name()[:len(fe.Name())-len(".yaml")]
-			p, err := s.Load(harness, name)
-			if err != nil {
-				failures = append(failures, LoadFailure{Harness: harness, Name: name, Err: err})
-				continue
-			}
-			profiles = append(profiles, p)
+			keys = append(keys, harness.ProfileKey{Harness: he.Name(), Name: strings.TrimSuffix(fe.Name(), ".yaml")})
 		}
 	}
-	sort.Slice(profiles, func(i, j int) bool {
-		if profiles[i].Harness != profiles[j].Harness {
-			return profiles[i].Harness < profiles[j].Harness
+	// os.ReadDir sorts by file name; sort by (harness, name) explicitly so a name
+	// that sorts differently with its ".yaml" suffix keeps the documented order.
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Harness != keys[j].Harness {
+			return keys[i].Harness < keys[j].Harness
 		}
-		return profiles[i].Name < profiles[j].Name
+		return keys[i].Name < keys[j].Name
 	})
+	return keys, nil
+}
+
+// List returns every profile in the store, sorted by (harness, name). Files that
+// fail to load are returned as LoadFailures so a single bad file does not hide the
+// rest (FR-006, FR-022).
+func (s *Store) List() ([]*Profile, []LoadFailure, error) {
+	keys, err := s.Keys()
+	if err != nil {
+		return nil, nil, err
+	}
+	var profiles []*Profile
+	var failures []LoadFailure
+	for _, k := range keys {
+		p, err := s.Load(k.Harness, k.Name)
+		if err != nil {
+			failures = append(failures, LoadFailure{Harness: k.Harness, Name: k.Name, Err: err})
+			continue
+		}
+		profiles = append(profiles, p)
+	}
 	return profiles, failures, nil
 }
 

@@ -55,15 +55,15 @@ available non-interactively (FR-040); the TUI is a convenience layer over the sa
 
 | Command | Key flags | Behavior |
 |---------|-----------|----------|
-| `aprofile copy <h>/<n> <h>/<n>` | `--overwrite`, `--yes`, `--adopt`, `--auth`, `--auth-key`, `--label`, `--color`, `--icon` | Copy a profile. Same-harness carries all settings + owned layer verbatim (warns on secret-looking owned values); cross-harness converts MCP, drops auth/model/endpoint. Target gets empty credentials + state. `--overwrite` replaces only what the copy writes, backs up what it replaces under `<data dir>/backups/` and asks first; off a terminal it needs `--yes` (exit 3 without it); a target that fails to load is never overwritten. `--adopt` reuses a leftover config dir of a new target (FR-004). `--auth-key env:NAME\|file:/abs/path` supplies the reference a cross-harness target's auth kind needs (required when the kind sets a variable). A wrapper name another profile has is rejected. `--json` report. |
+| `aprofile copy <h>/<n> <h>/<n>` | `--overwrite`, `--yes`, `--adopt`, `--auth`, `--auth-key`, `--label`, `--color`, `--icon` | Copy a profile. Same-harness carries all settings + owned layer verbatim (warns on secret-looking owned values); cross-harness converts MCP, drops auth/model/endpoint. Target gets empty credentials + state. `--overwrite` replaces only what the copy writes, backs up what it replaces under `<data dir>/backups/` and asks first; off a terminal it needs `--yes` (exit 3 without it); a target that fails to load is never overwritten. `--adopt` reuses a leftover config dir of a new target (FR-004). `--auth-key env:NAME\|file:/abs/path` supplies the reference a cross-harness target's auth kind needs (required when the kind sets a variable). A wrapper name another profile has is rejected. A copy into a new target that fails before the profile is saved removes the config dir it created (never an adopted or existing one), so a retry needs no `--adopt`. MCP servers are read from and written to the key the definition's `mcp.location` names (`file#key`; the flavor's default key when it names none). `--json` report. |
 | `aprofile mcp list <h>/<n>` | `--json` | List a profile's MCP servers. |
-| `aprofile mcp copy <from> <to> [server...]` | `--overwrite`, `--json` | Convert named servers (or all; a name given twice counts once); leaves existing target servers unless `--overwrite`. |
+| `aprofile mcp copy <from> <to> [server...]` | `--overwrite`, `--json` | Convert named servers (or all; a name given twice counts once); leaves existing target servers unless `--overwrite`. Uses the same conversion and the same MCP report lines as `copy` (converted, replaced, skipped, dropped, written without a dropped option). A stdio server with an empty command is skipped (`command empty`), never written with `command: ""`. |
 
 ### Migration, UI, diagnostics (FR-043..FR-045)
 
 | Command | Key flags | Behavior |
 |---------|-----------|----------|
-| `aprofile import cc-deck` | `--dry-run`, `--overwrite`, `--overwrite-credentials`, `--share all\|content\|none`, `--source <dir>`, `--source-data <dir>`, `--json` | Create profiles from cc-deck config + credentials; never modifies cc-deck files. `--source` is the cc-deck config dir holding `config.yaml` and `--source-data` the cc-deck data dir holding the live harness config dirs (defaults: the `cc-deck` dir beside the aprofile config dir and data dir). `--share` sets the imported profiles' level (default: `default_share` in the settings, else `content`). `--overwrite-credentials` implies `--overwrite`. Skips existing `(harness,name)` and exits non-zero; skips a profile whose wrapper name another profile has, naming it, and exits non-zero (FR-002); reports wrapper-name collisions on PATH. |
+| `aprofile import cc-deck` | `--dry-run`, `--overwrite`, `--overwrite-credentials`, `--share all\|content\|none`, `--source <dir>`, `--source-data <dir>`, `--json` | Create profiles from cc-deck config + credentials; never modifies cc-deck files. `--source` is the cc-deck config dir holding `config.yaml` and `--source-data` the cc-deck data dir holding the live harness config dirs (defaults: the `cc-deck` dir beside the aprofile config dir and data dir). `--share` sets the imported profiles' level (default: `default_share` in the settings, else `content`). `--overwrite-credentials` implies `--overwrite`. Skips existing `(harness,name)` and exits non-zero; skips a profile whose wrapper name another profile has, naming it, and exits non-zero (FR-002); skips a profile whose cc-deck `backend` the harness definition's `backends` does not declare; lists, per profile, each credential file it copies (dry run: would copy) from outside cc-deck's own config and data dirs, path only; reports wrapper-name collisions on PATH. |
 | `aprofile ui` | (none) | Browse view with add/edit/copy/remove via forms (FR-043). |
 | `aprofile doctor` | `--json` | Run all checks in FR-044; each finding names the profile (if any) and a fix. |
 
@@ -152,7 +152,7 @@ Step `action` values are the change-plan kinds of feature 002's data model (`lin
 …), plus `report` for a reported condition, `needs-confirm` for a step `sync` skips because it
 replaces profile data, `patch` for a config patch that set keys of a file (FR-019; the note names
 the keys), and `write-config` for the exec hook's operation (mutating only when the hook answered
-`changed=true`; non-mutating and not called under `--dry-run`). A step `path` is relative to the profile config dir, except the step that
+`changed=true`; non-mutating and not called under `--dry-run`). `remove-temp` removes a stale aprofile temp entry and `restore` renames an entry back from the `-old` temp of an interrupted directory swap (both mutating). A step `path` is relative to the profile config dir, except the step that
 creates the config dir itself (absolute). With `--json`, stdout carries only the JSON document;
 problems are also printed to stderr, and `--relink` prompts go to stderr. The exit status is the
 same as without `--json`.
@@ -262,22 +262,26 @@ Both print the same report document; `mcp copy` fills only the MCP part.
     "converted": [ "fs" ],         // servers newly written ([] for a same-harness copy, see mcp_carried; never null)
     "replaced": [ "web" ],         // existing target servers overwritten (--overwrite)
     "skipped": [ { "name": "x", "reason": "…" } ],
-    "drops": [ { "server": "web", "field": "headers[X]", "reason": "literal-secret" } ]  // or "unrepresentable"
+    "drops": [ { "server": "web", "field": "headers[X]", "reason": "literal-secret" },  // or "unrepresentable"
+               { "server": "files", "field": "args[2]", "reason": "literal-secret",
+                 "option": "--token" } ]  // option: a whole --flag=value element was dropped and the
+                                          // server written without it; the flag name only, never the value
   },
   "skills_carried": false,
   "skills_report": [ "…" ],
   "dropped_settings": [ "auth" ],  // settings a cross-harness copy does not carry (FR-033b)
-  "plugins_skipped": [ "…" ],
-  "secret_warnings": [ { "server": "web", "field": "headers[X]" } ],  // same-harness, verbatim carry (FR-033a)
+  "secret_warnings": [             // values carried verbatim that look like secrets (FR-033a, R6)
+    { "source": "mcp", "server": "web", "field": "headers[X]" },              // same-harness: an MCP server field
+    { "source": "owned", "entry": "config.toml", "key": "model_providers.corp.token" },  // owned value outside the MCP servers
+    { "source": "settings", "entry": "settings.json", "key": "env.API_KEY" }  // a settings entry copied from the source
+  ],
   "mcp_carried": [ "fs", "web" ],  // same-harness: servers carried verbatim
-  "owned_secret_warnings": [ "<file>: <key path>" ],  // secret-looking owned values outside MCP servers
   "owned_not_converted": [ "<entry>", "<file>#<key>" ],  // cross-harness
   "skipped_plugins": [ { "name": "…", "skills": [ "…" ], "mcp_servers": [ "…" ] } ],
   "skills_in_target": [ "…" ], "skills_missing_in_target": [ "…" ], "skills_home_escapes": [ "…" ],
   // feature 002 (FR-007a):
   "share": "content",              // the target's level; "" for mcp copy
   "settings_carried": [ "…" ], "hook_sets_carried": [ "…" ], "hook_sets_left_out": [ "…" ],
-  "settings_warnings": [ "…" ],
   "backup": "/abs/backups/codex/work/<timestamp>"  // copy --overwrite: where the replaced data was
                                                    // backed up; omitted when nothing was replaced
 }
@@ -285,7 +289,13 @@ Both print the same report document; `mcp copy` fills only the MCP part.
 
 `format_version`, `source`, `target`, `mode`, `mcp.converted`, `skills_carried` and `share` are
 always present; every other field is omitted when empty. Field names in `drops` and warnings name
-the server and field, never the value.
+the server and field (or the entry and key path), never the value. Each `secret_warnings` entry
+has `source` (`mcp`, `owned` or `settings`); an `mcp` entry has `server` and `field`, an `owned` or
+`settings` entry has `entry` (the file, relative to the config dir) and `key` (the key path in it).
+Skipped plugins are reported structurally in `skipped_plugins` only; the sentence describing them
+(and the note that plugins are not carried when none was found) is text output only.
+A drop's `option` is set only for a whole `--flag=value` args element of a server that was still
+written; it holds the flag name, or `(name withheld)` when the flag name itself looks like a secret.
 
 ### `aprofile import cc-deck --json` (with or without `--dry-run`)
 
@@ -304,6 +314,7 @@ the server and field, never the value.
       "credentials_replaced": true, // real run with --overwrite-credentials only
       "backup_dir": "/abs/backups/claude/work/<timestamp>",  // real run, when something was backed up
       "primary_moved_from": [ "claude/old" ],  // profiles whose primary flag (would) move to this one
+      "external_credential_files": [ "/home/u/gcloud/adc.json" ],  // credential files copied (dry run: would be) from outside cc-deck's config and data dirs; paths only
       "warnings": [ "…" ]
     }
   ],
@@ -313,7 +324,10 @@ the server and field, never the value.
 
 Every action field after `status` is omitted when empty. A dry run reports the same statuses a
 real run would produce, except `failed`, which only a real run can report. `collisions` lists only
-profiles that are imported or overwritten. The exit status is non-zero when an action failed or
+profiles that are imported or overwritten. `external_credential_files` names each file cc-deck's
+config points at that import copies (or, in a dry run, would copy) from outside `source_dir` and
+`source_data_dir` (symlinks resolved); a file cc-deck holds its own copy of, a missing file, and
+one `--overwrite` keeps are not listed, nor is anything for a failed action. The exit status is non-zero when an action failed or
 was skipped because the profile already exists or another profile has its wrapper name (FR-045,
 FR-002); other skips (no harness definition, a cc-deck profile that cannot be read) are reported
 with their reason and do not change the exit status.

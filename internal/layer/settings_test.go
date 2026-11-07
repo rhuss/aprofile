@@ -136,3 +136,30 @@ func containsPrefix(list []string, prefix string) bool {
 	}
 	return false
 }
+
+// T093: Codex names the variable that holds its API key (env_key =
+// "OPENAI_API_KEY"); that value is an environment variable name, not a secret.
+// Real secret values under credential keys still warn (also name-shaped ones under
+// a key that does not name a variable, such as token = "MY_TOKEN"), and a
+// name-shaped value with a known secret prefix (AKIA...) still warns through the
+// prefix check.
+func TestSecretWarningsSkipEnvVarNames(t *testing.T) {
+	doc := `{"model_providers": {"openai": {"env_key": "OPENAI_API_KEY", "api_key": "abc123"}},
+	  "aws": {"access_key": "AKIAIOSFODNN7EXAMPLE"}, "auth": {"token": "MY_TOKEN"}}`
+	got := strings.Join(layer.SecretWarnings([]byte(doc)), ",")
+	if got != "auth.token,aws.access_key,model_providers.openai.api_key" {
+		t.Errorf("SecretWarnings = %q", got)
+	}
+}
+
+// T093 follow-up: the env-var-name exemption is tied to a key that names a
+// variable, so all-caps secrets under plain credential keys warn.
+func TestSecretWarningsAllCapsSecrets(t *testing.T) {
+	doc := `{"a":{"password":"HUNTER2"},"b":{"api_key":"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"},
+	  "c":{"token":"ABCDEF0123456789ABCDEF0123456789ABCDEF01"},"d":{"secret":"X9K2_PROD_KEY_2024"},
+	  "model_providers":{"openai":{"env_key":"OPENAI_API_KEY"}}}`
+	got := strings.Join(layer.SecretWarnings([]byte(doc)), ",")
+	if got != "a.password,b.api_key,c.token,d.secret" {
+		t.Errorf("SecretWarnings = %q", got)
+	}
+}

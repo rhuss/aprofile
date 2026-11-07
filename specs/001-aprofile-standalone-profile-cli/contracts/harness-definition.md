@@ -33,6 +33,15 @@ auth_clears:                    # optional, FR-007/FR-027: variables every auth 
   - CLAUDE_CODE_USE_VERTEX      #   (provider switches and their settings), except a kind
   - CLOUD_ML_REGION             #   that sets the variable itself
 
+backends:                       # optional, FR-045: model backends for `import cc-deck`
+  anthropic: {}                 #   a backend that sets no variables
+  vertex:
+    env:                        #   ordered; values may use {project} and {region}
+      CLAUDE_CODE_USE_VERTEX: "1"
+      ANTHROPIC_VERTEX_PROJECT_ID: "{project}"
+      CLOUD_ML_REGION: "{region}"
+    credentials_var: GOOGLE_APPLICATION_CREDENTIALS  # receives auth.credentials
+
 login_command:                  # optional, FR-039: how `aprofile login` runs the login flow
   args: [auth, login]           #   arguments after `binary`; [] starts the bare binary
   note: "..."                   #   optional hint printed before the launch
@@ -82,11 +91,32 @@ Rules:
   that sets the variable. A profile can still opt in with an extra variable (`--env`). An exec
   hook's `env` operation may not set them. Names must be valid identifiers and must not be a
   `config_env` variable, `model_var`, `endpoint_var` or an `APROFILE_*` variable.
+- `backends` (FR-045): maps a model backend name (cc-deck's `backend` field) to the environment it
+  implies. `aprofile import cc-deck` sets each `env` variable as a literal extra variable of the
+  imported profile, in the listed order, with `{project}` and `{region}` replaced by the cc-deck
+  profile's fields of the same name; a variable whose value expands to empty is left out. When
+  the profile has `auth.credentials`, `credentials_var` receives it (a file source becomes the
+  path of the imported copy, an env source an `env:` reference); a backend without
+  `credentials_var` ignores it with a warning. An empty cc-deck backend is the harness's default
+  and sets nothing. A cc-deck profile whose backend the definition does not declare is skipped
+  with a reason naming the backend and the declared ones (it is not imported against another
+  backend). Load rules: backend names match the profile name pattern; variable names (env keys
+  and `credentials_var`) are valid identifiers and are not an `APROFILE_*`, `config_env`,
+  `model_var`, `endpoint_var` or auth kind variable, nor listed twice; values are single lines
+  whose `{...}` placeholders are only `{project}` and `{region}`. A `harnesses.d` file merges
+  `backends` by name like any map, and `name: null` removes an inherited backend. Built-ins:
+  claude `anthropic`, `vertex`; codex `openai`; opencode `anthropic`, `openai` (cc-deck's
+  backends per harness); pi none.
 - `aprofile login` calls the exec hook's `login` operation when the hook declares it; otherwise,
   or when the hook exits 64 or is not installed, it execs `binary` with `login_command.args` and
   the profile's environment. A definition with neither fails with an error naming both (FR-039).
   Built-ins: claude `auth login`, codex `login`, opencode `auth login`, pi `[]` (pi signs in
   with `/login` inside a session).
+- `mcp.location` is `file#key` or `file`. Load rules: `file` is a relative path inside the
+  profile dir (not absolute, no `..` segment) and is not a `credentials` or `state` entry; when
+  `file` is a mixed entry, `key` is one of its `owned` keys or an undeclared key (a load error
+  names `mcp` otherwise). Writing servers refuses a value at the key that is not an object
+  (JSON) or table (TOML) instead of replacing it; a JSON `null` counts as no servers.
 - `config_patches` (FR-019): `sync` applies each patch in order after preparing the config dir.
   `file` is a relative path inside the profile dir ending in `.json` or `.toml`; `merge` is a
   non-empty map without null values (a load error names `config_patches` otherwise). A patch

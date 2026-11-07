@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/testutil"
 )
 
@@ -186,7 +188,16 @@ func TestLevelChangeRefusedWhileRunning(t *testing.T) {
 	}
 	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
 	time.Sleep(200 * time.Millisecond)
-	out, err := e.tryRun(nil, "edit", "claude/busy", "--share", "none", "--yes")
+	// The aprofile under test carries the test seam (testutil.BuildBinary, T092):
+	// ask it for the real process scan where this machine can read the helper's
+	// environment, and otherwise (a sandbox) force the helper's pid as the running
+	// answer, so the refusal path is exercised either way.
+	seam := "APROFILE_TEST_RUNNING=real"
+	if _, running, known := profile.RunningProcess(e.configDir("claude", "busy")); !known || !running {
+		t.Logf("process scan unavailable here (known=%v running=%v): forcing the running answer", known, running)
+		seam = "APROFILE_TEST_RUNNING=" + strconv.Itoa(cmd.Process.Pid)
+	}
+	out, err := e.tryRun([]string{seam}, "edit", "claude/busy", "--share", "none", "--yes")
 	if exitCodeOf(err) != 4 {
 		t.Fatalf("a running profile: exit %d, want 4\n%s", exitCodeOf(err), out)
 	}

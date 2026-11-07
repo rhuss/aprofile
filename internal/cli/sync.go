@@ -156,14 +156,24 @@ func runSync(cmd *cobra.Command, opts syncpkg.Options, yes, asJSON bool) error {
 		fmt.Fprintf(a.errOut, "aprofile: %s\n", p)
 	}
 
+	// FR-022 (T097): a run with problems is never "up to date"; the summary counts
+	// them (the problems themselves are listed above; --json carries the details).
+	problems := ""
+	if n := len(res.Problems); n > 0 {
+		problems = fmt.Sprintf(", %d %s (see above)", n, plural(n, "problem", "problems"))
+	}
 	if opts.DryRun {
 		if res.Changed() {
-			fmt.Fprintln(a.out, "(dry-run) changes listed above")
+			fmt.Fprintln(a.out, "(dry-run) changes listed above"+problems)
 		} else {
-			fmt.Fprintln(a.out, "(dry-run) no changes")
+			fmt.Fprintln(a.out, "(dry-run) no changes"+problems)
 		}
 	} else if !res.Changed() {
-		fmt.Fprintln(a.out, "already up to date (0 changes)")
+		if problems != "" {
+			fmt.Fprintln(a.out, "0 changes"+problems)
+		} else {
+			fmt.Fprintln(a.out, "already up to date (0 changes)")
+		}
 	}
 
 	return syncExit(res, opts, needConfirm)
@@ -187,4 +197,12 @@ func syncExit(res *syncpkg.Result, opts syncpkg.Options, needConfirm []string) e
 		return fmt.Errorf("could not put the bin dir on PATH: %s", why)
 	}
 	return nil
+}
+
+// plural picks the singular or plural noun for n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

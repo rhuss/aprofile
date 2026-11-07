@@ -21,6 +21,37 @@ func TestValidateColor(t *testing.T) {
 	}
 }
 
+// TestANSIColorCode covers T088/FR-042: profile keeps the one table of ANSI color
+// names and codes. ValidateColor accepts a name exactly when the table has a code
+// for it, so validation and rendering cannot drift apart.
+func TestANSIColorCode(t *testing.T) {
+	codes := map[string]string{
+		"black": "0", "red": "1", "green": "2", "yellow": "3",
+		"blue": "4", "magenta": "5", "cyan": "6", "white": "7",
+		"brightblack": "8", "brightred": "9", "brightgreen": "10", "brightyellow": "11",
+		"brightblue": "12", "brightmagenta": "13", "brightcyan": "14", "brightwhite": "15",
+		"gray": "8", "grey": "8",
+		"Red": "1", "BRIGHTCYAN": "14", "Grey": "8", // case insensitive
+	}
+	for name, want := range codes {
+		got, ok := profile.ANSIColorCode(name)
+		if !ok || got != want {
+			t.Errorf("ANSIColorCode(%q) = %q, %v; want %q, true", name, got, ok, want)
+		}
+		if err := profile.ValidateColor(name); err != nil {
+			t.Errorf("ValidateColor(%q) = %v, want nil for a name with a code", name, err)
+		}
+	}
+	for _, none := range []string{"", "purple", "#ff0000", "12", "bright"} {
+		if code, ok := profile.ANSIColorCode(none); ok {
+			t.Errorf("ANSIColorCode(%q) = %q, true; want no code", none, code)
+		}
+		if !strings.HasPrefix(none, "#") && none != "" && profile.ValidateColor(none) == nil {
+			t.Errorf("ValidateColor(%q) = nil for a name without a code", none)
+		}
+	}
+}
+
 func TestValidateIcon(t *testing.T) {
 	for _, ok := range []string{"", "W", "☁", "\U0001F680", "\U0001F468‍\U0001F4BB", "é"} {
 		if err := profile.ValidateIcon(ok); err != nil {

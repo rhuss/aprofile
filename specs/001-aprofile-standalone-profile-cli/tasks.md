@@ -299,3 +299,22 @@ Task: T017 Unit test internal/wrapper/render_test.go
 - [X] T081 Report undeclared top-level keys of mixed files in `sync` and `doctor` as unclassified (use or remove `layer.ClassifyKey`), or amend FR-013 to say undeclared keys are seeded per FR-013 (contradicts)
 - [X] T082 Make `rename` ask (or require `--force`) when the running check cannot tell, as `edit --share` does per FR-006a (partial)
 - [X] T083 Remove hygiene debt: dead `if` and `trimStart` alias (`sync/path.go`), double settings read (`config.go`/`cli/root.go`), unused hook fields, exports without non-test callers (`HookResult.Map`, `LoadFromBytes`, `SaveSettings`, `Paths.SettingsPath`, `tui.RenderBrowse`, `wrapper.Render`, `LoadBuiltins` outside testutil), unused `mcp.Server.Extra`, duplicated helpers across `cli/copy.go`, `importer` and `layer`, case-sensitive `.json` check (`layer/creds.go`), nondeterministic auth-ref pick (`cli/edit.go`), per-render re-sort (`tui/view.go`, `tui/browse.go`) per Constitution code quality (unrequested)
+
+## Phase 12: Review follow-ups
+
+Remaining Minor and Notable findings from the deep review (specs/001-aprofile-standalone-profile-cli/review-findings.md).
+
+- [X] T084 Parse the MCP `location` (`file#key`) in one place (`MCPLocation.File()`/`Key()`), use it in cli, layer and help, and have `mcp.ParseDoc`/`MergeInto` use the definition's key instead of a hardcoded key per flavor (or validate that they match at load) per FR-034, Principle I (Arch5)
+- [X] T085 Print replaced servers in the text report of a cross-harness `copy --overwrite`, and make `mcp copy` reuse the copy conversion path instead of duplicating it per FR-035 (Arch6)
+- [X] T086 Remove parallel fields from the copy `--json` report: keep the structured `skipped_plugins` (text sentence only in text output) and merge the three secret-warning lists into one list with a `source` field; update contracts/cli.md per FR-041 (Arch7)
+- [X] T087 Move the cc-deck backend to environment mapping from the importer's Go table into harness definition data (e.g. a `backends` block in claude.yaml) and have the importer look it up per FR-045, Principle I (Arch9)
+- [X] T088 Keep one ANSI color table in `profile` and have `tui` read codes from it per FR-042 (Arch10)
+- [X] T089 Share one helper for the set of stored profile keys between cli and importer per FR-002 (review)
+- [X] T090 Roll back a failed `copy` into a new target (remove the prepared config dir it created) so a retry does not need `--adopt` per FR-004 (Prod5)
+- [X] T091 Ignore aprofile's own `.aprofile-tmp-*` files in config-dir walks (never report them as unclassified) and have sync remove stale ones per FR-018 (Prod6)
+- [X] T092 Give integration tests a way to fix the running-process answer (test-only build tag or seam) so they do not depend on the sandbox's process scan per SC-009 (Codex P2)
+- [X] T093 Do not warn on settings values that are environment variable names (e.g. Codex `env_key = "OPENAI_API_KEY"`) under credential-looking keys per FR-033a (review)
+- [X] T094 Skip and report a stdio MCP server whose command is empty instead of writing `command: ""` per FR-035 (review)
+- [X] T095 Say in the copy report that a server was written without a dropped `--flag=value` option per FR-035 (Notable-2)
+- [X] T096 In `import cc-deck --dry-run`, list credential files that cc-deck names outside its own folders per FR-045 (Notable-1)
+- [X] T097 Count problems in sync's summary line instead of "0 changes" next to "completed with problems" per FR-022 (Notable-3)

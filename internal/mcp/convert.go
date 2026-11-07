@@ -37,42 +37,86 @@ func (r ConversionReport) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(r))
 }
 
-// ParseDoc decodes a harness's native MCP document (the whole config file's bytes)
-// into neutral servers, sorted by name. A missing MCP section yields no servers.
-func ParseDoc(flavor Flavor, fileData []byte) ([]Server, error) {
-	switch flavor {
-	case FlavorClaude:
-		return decodeJSONDoc(fileData, "mcpServers", decodeClaudeServer)
-	case FlavorPi:
-		return decodeJSONDoc(fileData, "mcpServers", decodePiServer)
+// Doc names where a harness keeps its MCP servers inside its config file: the schema
+// flavor and the key holding the servers (the part after '#' of the definition's mcp
+// location, FR-034). An empty Key is the flavor's default key (DefaultKey), so a
+// definition that names its key is honored and one that names none still works
+// (Principle I: the key is data, not code).
+type Doc struct {
+	Flavor Flavor
+	Key    string
+}
+
+// DefaultKey is the key a flavor's servers live under when a definition's location
+// names none.
+func DefaultKey(f Flavor) string {
+	switch f {
+	case FlavorClaude, FlavorPi:
+		return "mcpServers"
 	case FlavorOpenCode:
-		return decodeJSONDoc(fileData, "mcp", decodeOpenCodeServer)
+		return "mcp"
 	case FlavorCodex:
-		return decodeCodexDoc(fileData)
+		return "mcp_servers"
+	}
+	return ""
+}
+
+// ResolvedKey is the key the servers live under: Key, or the flavor's default.
+func (d Doc) ResolvedKey() string {
+	if d.Key != "" {
+		return d.Key
+	}
+	return DefaultKey(d.Flavor)
+}
+
+// Parse decodes a harness's native MCP document (the whole config file's bytes) into
+// neutral servers, sorted by name. A missing MCP section yields no servers.
+func (d Doc) Parse(fileData []byte) ([]Server, error) {
+	key := d.ResolvedKey()
+	switch d.Flavor {
+	case FlavorClaude:
+		return decodeJSONDoc(fileData, key, decodeClaudeServer)
+	case FlavorPi:
+		return decodeJSONDoc(fileData, key, decodePiServer)
+	case FlavorOpenCode:
+		return decodeJSONDoc(fileData, key, decodeOpenCodeServer)
+	case FlavorCodex:
+		return decodeCodexDoc(fileData, key)
 	default:
-		return nil, fmt.Errorf("unknown MCP flavor %q", flavor)
+		return nil, fmt.Errorf("unknown MCP flavor %q", d.Flavor)
 	}
 }
 
-// MergeInto converts servers into flavor and merges them into fileData (the target
+// Merge converts servers into the flavor and merges them into fileData (the target
 // config file, possibly empty), preserving every other key of the file and every
 // existing target server not named in servers. Existing target servers are carried
 // through verbatim, so a secret the harness wrote into one is never dropped; only the
 // servers written here are run through the secret and representability checks
 // (Constitution IV, FR-035). Returns the new file content and the report.
-func MergeInto(flavor Flavor, fileData []byte, servers []Server, overwrite bool) ([]byte, ConversionReport, error) {
-	switch flavor {
+func (d Doc) Merge(fileData []byte, servers []Server, overwrite bool) ([]byte, ConversionReport, error) {
+	key := d.ResolvedKey()
+	switch d.Flavor {
 	case FlavorClaude:
-		return mergeJSONDoc(FlavorClaude, fileData, "mcpServers", servers, encodeClaudeServer, overwrite)
+		return mergeJSONDoc(FlavorClaude, fileData, key, servers, encodeClaudeServer, overwrite)
 	case FlavorPi:
-		return mergeJSONDoc(FlavorPi, fileData, "mcpServers", servers, encodePiServer, overwrite)
+		return mergeJSONDoc(FlavorPi, fileData, key, servers, encodePiServer, overwrite)
 	case FlavorOpenCode:
-		return mergeJSONDoc(FlavorOpenCode, fileData, "mcp", servers, encodeOpenCodeServer, overwrite)
+		return mergeJSONDoc(FlavorOpenCode, fileData, key, servers, encodeOpenCodeServer, overwrite)
 	case FlavorCodex:
-		return mergeCodexDoc(fileData, servers, overwrite)
+		return mergeCodexDoc(fileData, key, servers, overwrite)
 	default:
-		return nil, ConversionReport{}, fmt.Errorf("unknown MCP flavor %q", flavor)
+		return nil, ConversionReport{}, fmt.Errorf("unknown MCP flavor %q", d.Flavor)
 	}
+}
+
+// ParseDoc is Doc.Parse under the flavor's default key.
+func ParseDoc(flavor Flavor, fileData []byte) ([]Server, error) {
+	return Doc{Flavor: flavor}.Parse(fileData)
+}
+
+// MergeInto is Doc.Merge under the flavor's default key.
+func MergeInto(flavor Flavor, fileData []byte, servers []Server, overwrite bool) ([]byte, ConversionReport, error) {
+	return Doc{Flavor: flavor}.Merge(fileData, servers, overwrite)
 }
 
 // SkipAll builds a report that marks every given server skipped with reason, used when
@@ -89,7 +133,13 @@ func SkipAll(servers []Server, reason string) ConversionReport {
 // url or unmodeled native value that is a literal matching a secret pattern. A same-harness copy carries these
 // verbatim and warns about each (FR-033a); no value is included in the warning.
 func SecretWarnings(flavor Flavor, fileData []byte) ([]SecretWarning, error) {
-	servers, err := ParseDoc(flavor, fileData)
+	return Doc{Flavor: flavor}.SecretWarnings(fileData)
+}
+
+// SecretWarnings is the package-level SecretWarnings for the servers under d's key.
+func (d Doc) SecretWarnings(fileData []byte) ([]SecretWarning, error) {
+	flavor := d.Flavor
+	servers, err := d.Parse(fileData)
 	if err != nil {
 		return nil, err
 	}

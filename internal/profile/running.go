@@ -11,6 +11,12 @@ type Process struct {
 // whose environment holds APROFILE_CONFIG_DIR=<configDir>), so a refusal can name
 // it. known is false when the process list cannot be read, so callers ask the user
 // instead of assuming the profile is stopped.
+//
+// Test binaries built with the aprofile_testseam tag may fix the answer through
+// APROFILE_TEST_RUNNING (testSeamRunning, T092); production builds cannot.
 func RunningProcess(configDir string) (proc Process, running, known bool) {
+	if p, r, k, ok := testSeamRunning(); ok {
+		return p, r, k
+	}
 	return scanProcesses(configDir)
 }

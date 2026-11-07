@@ -259,7 +259,7 @@ func (pl *planner) seedMixed(rule *harness.EntryRule, rel, path string) error {
 
 // holdsMCP reports whether the file at rel holds the harness's MCP servers.
 func (pl *planner) holdsMCP(rel string) bool {
-	return pl.def.MCP != nil && strings.HasPrefix(pl.def.MCP.Location, rel+"#")
+	return pl.def.MCP.File() != "" && pl.def.MCP.File() == rel
 }
 
 // seedOwned creates an absent owned file that holds the MCP servers as a copy of

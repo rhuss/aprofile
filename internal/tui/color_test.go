@@ -6,8 +6,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-
-	"github.com/cc-deck/aprofile/internal/profile"
 )
 
 // forceTrueColor makes lipgloss emit escapes regardless of where the test runs.
@@ -19,7 +17,8 @@ func forceTrueColor(t *testing.T) {
 }
 
 // TestTerminalColorNames covers T080/FR-042: every ANSI color name FR-001 accepts maps
-// to its ANSI code (lipgloss renders a bare name like "red" as no color at all).
+// to its ANSI code (lipgloss renders a bare name like "red" as no color at all). The
+// codes come from profile's one color table (T088), which profile tests directly.
 func TestTerminalColorNames(t *testing.T) {
 	cases := map[string]string{
 		"black": "0", "red": "1", "green": "2", "yellow": "3",
@@ -34,28 +33,6 @@ func TestTerminalColorNames(t *testing.T) {
 	for in, want := range cases {
 		if got := string(TerminalColor(in)); got != want {
 			t.Errorf("TerminalColor(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// TestTerminalColorCoversValidation keeps the mapping and FR-001 validation in step:
-// every name validation accepts maps to a code, and every mapped name validates.
-func TestTerminalColorCoversValidation(t *testing.T) {
-	for name := range ansiCodes {
-		if err := profile.ValidateColor(name); err != nil {
-			t.Errorf("mapped name %q fails validation: %v", name, err)
-		}
-	}
-	for _, name := range []string{
-		"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "gray", "grey",
-		"brightblack", "brightred", "brightgreen", "brightyellow", "brightblue",
-		"brightmagenta", "brightcyan", "brightwhite",
-	} {
-		if profile.ValidateColor(name) != nil {
-			t.Fatalf("validation no longer accepts %q; update this list", name)
-		}
-		if TerminalColor(name) == "" {
-			t.Errorf("valid color %q has no ANSI code", name)
 		}
 	}
 }

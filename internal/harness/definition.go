@@ -198,6 +198,10 @@ type Definition struct {
 	SharePolicy      SharePolicy       `yaml:"share_policy" json:"share_policy,omitempty"`
 	Hooks            *HookLocation     `yaml:"hooks" json:"hooks,omitempty"`
 	HomeEscapes      []HomeEscape      `yaml:"home_escapes" json:"home_escapes,omitempty"`
+	// Backends maps a model backend name (cc-deck's `backend` field, e.g. vertex) to
+	// the environment it implies. `aprofile import cc-deck` reads it (FR-045); a
+	// backend the definition does not declare cannot be imported.
+	Backends map[string]Backend `yaml:"backends" json:"backends,omitempty"`
 
 	// Source records, per field, where the effective value came from:
 	// "builtin" or an absolute file path. Populated by Load's override-merge; for a
@@ -515,6 +519,75 @@ func (d *Definition) HasCapability(cap string) bool {
 		}
 	}
 	return false
+}
+
+// Backend declares the environment one model backend implies (FR-045). Env values
+// may name the placeholders in BackendPlaceholders; CredentialsVar, when set, is the
+// variable that receives the backend's credentials file (a path or a reference).
+type Backend struct {
+	Env            BackendEnv `yaml:"env" json:"env,omitempty"`
+	CredentialsVar string     `yaml:"credentials_var" json:"credentials_var,omitempty"`
+}
+
+// BackendPlaceholders are the placeholders a backend env value may use, written as
+// {name}. Import fills them from the cc-deck profile's fields of the same name.
+var BackendPlaceholders = []string{"project", "region"}
+
+// Expand returns the backend's variables with every {placeholder} replaced by its
+// value in values (a missing one by ""). A variable whose value expands to empty is
+// left out, as cc-deck's wrapper does.
+func (b Backend) Expand(values map[string]string) BackendEnv {
+	pairs := make([]string, 0, 2*len(BackendPlaceholders))
+	for _, ph := range BackendPlaceholders {
+		pairs = append(pairs, "{"+ph+"}", values[ph])
+	}
+	r := strings.NewReplacer(pairs...)
+	var out BackendEnv
+	for _, e := range b.Env {
+		if v := r.Replace(e.Value); v != "" {
+			out = append(out, BackendEnvVar{Name: e.Name, Value: v})
+		}
+	}
+	return out
+}
+
+// BackendEnvVar is one variable a backend sets.
+type BackendEnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// BackendEnv is an ordered list of backend variables, written as a YAML mapping
+// whose key order is kept.
+type BackendEnv []BackendEnvVar
+
+// UnmarshalYAML decodes a YAML mapping into an ordered BackendEnv.
+func (b *BackendEnv) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return newFieldError("backends", "env must be a mapping of variable to value")
+	}
+	var out BackendEnv
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		k, v := value.Content[i], value.Content[i+1]
+		if v.Kind != yaml.ScalarNode {
+			return newFieldError("backends", fmt.Sprintf("env %q must be a string value", k.Value))
+		}
+		out = append(out, BackendEnvVar{Name: k.Value, Value: v.Value})
+	}
+	*b = out
+	return nil
+}
+
+// MarshalYAML encodes BackendEnv back to a mapping, preserving order.
+func (b BackendEnv) MarshalYAML() (any, error) {
+	n := &yaml.Node{Kind: yaml.MappingNode}
+	for _, e := range b {
+		n.Content = append(n.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: e.Name},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: e.Value, Style: yaml.DoubleQuotedStyle},
+		)
+	}
+	return n, nil
 }
 
 // ConfigEnvEntry is one variable->path redirect.

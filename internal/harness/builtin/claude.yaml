@@ -71,6 +71,20 @@ auth_clears:
 login_command:
   args: [auth, login]
 
+# Model backends and the environment each implies, as cc-deck's wrapper sets them
+# (cc-deck internal/profile/claude.go Render). `aprofile import cc-deck` maps a
+# profile's `backend` through this block (FR-045); {project} and {region} come from
+# the cc-deck profile, and a variable whose value expands to empty is left out.
+# credentials_var receives the profile's auth.credentials file.
+backends:
+  anthropic: {}
+  vertex:
+    env:
+      CLAUDE_CODE_USE_VERTEX: "1"
+      ANTHROPIC_VERTEX_PROJECT_ID: "{project}"
+      CLOUD_ML_REGION: "{region}"
+    credentials_var: GOOGLE_APPLICATION_CREDENTIALS
+
 classification:
   # Entries verified on disk with Claude Code 2.1.318 on 2026-11-04
   # (specs/002-profile-isolation-levels/research.md R1). There is no catch-all:

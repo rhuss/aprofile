@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,32 +22,34 @@ import (
 
 // copyReportJSON is the --json schema for copy (FR-041), the full ConversionReport
 // (data-model): MCP conversion plus skills, plugins, dropped settings and the
-// same-harness secret warnings (FR-033a).
+// secret warnings of everything carried verbatim (FR-033a).
 type copyReportJSON struct {
 	FormatVersion   int                  `json:"format_version"`
 	Source          string               `json:"source"`
 	Target          string               `json:"target"`
-	Mode            string               `json:"mode"` // same-harness | cross-harness
+	Mode            string               `json:"mode"` // same-harness | cross-harness | mcp-copy
 	MCP             mcp.ConversionReport `json:"mcp"`
 	SkillsCarried   bool                 `json:"skills_carried"`
 	SkillsReport    []string             `json:"skills_report,omitempty"`
 	DroppedSettings []string             `json:"dropped_settings,omitempty"`
-	PluginsSkipped  []string             `json:"plugins_skipped,omitempty"`
-	SecretWarnings  []mcp.SecretWarning  `json:"secret_warnings,omitempty"`
+	// PluginsSkipped is the text form of SkippedPlugins (plus a sentence when the
+	// source has a plugin mechanism but no plugin was found); text output only.
+	PluginsSkipped []string `json:"-"`
+	// SecretWarnings lists every value carried verbatim that looks like a secret:
+	// MCP server fields, other owned values and copied settings, each with its source.
+	SecretWarnings []copySecretWarning `json:"secret_warnings,omitempty"`
 	// Phase 11 (T072, T078).
-	MCPCarried          []string        `json:"mcp_carried,omitempty"`           // same-harness: servers carried verbatim
-	OwnedSecretWarnings []string        `json:"owned_secret_warnings,omitempty"` // "<file>: <key path>" outside the MCP servers
-	OwnedNotConverted   []string        `json:"owned_not_converted,omitempty"`   // cross-harness: "<entry>" or "<file>#<key>"
-	SkippedPlugins      []skippedPlugin `json:"skipped_plugins,omitempty"`
-	SkillsInTarget      []string        `json:"skills_in_target,omitempty"`
-	SkillsMissing       []string        `json:"skills_missing_in_target,omitempty"`
-	SkillsHomeEscapes   []string        `json:"skills_home_escapes,omitempty"`
+	MCPCarried        []string        `json:"mcp_carried,omitempty"`         // same-harness: servers carried verbatim
+	OwnedNotConverted []string        `json:"owned_not_converted,omitempty"` // cross-harness: "<entry>" or "<file>#<key>"
+	SkippedPlugins    []skippedPlugin `json:"skipped_plugins,omitempty"`
+	SkillsInTarget    []string        `json:"skills_in_target,omitempty"`
+	SkillsMissing     []string        `json:"skills_missing_in_target,omitempty"`
+	SkillsHomeEscapes []string        `json:"skills_home_escapes,omitempty"`
 	// Feature 002 (FR-007a).
-	Share            string   `json:"share"`
-	SettingsCarried  []string `json:"settings_carried,omitempty"`
-	HookSetsCarried  []string `json:"hook_sets_carried,omitempty"`
-	HookSetsLeftOut  []string `json:"hook_sets_left_out,omitempty"`
-	SettingsWarnings []string `json:"settings_warnings,omitempty"`
+	Share           string   `json:"share"`
+	SettingsCarried []string `json:"settings_carried,omitempty"`
+	HookSetsCarried []string `json:"hook_sets_carried,omitempty"`
+	HookSetsLeftOut []string `json:"hook_sets_left_out,omitempty"`
 	// Backup is the directory the replaced data of an existing target was copied to
 	// before an --overwrite copy (empty for a new target).
 	Backup string `json:"backup,omitempty"`
@@ -115,7 +118,7 @@ func newCopyCmd() *cobra.Command {
 	return cmd
 }
 
-func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
+func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error) {
 	a, err := newApp(cmd)
 	if err != nil {
 		return err
@@ -253,6 +256,21 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		}
 	}
 
+	// From here on the copy writes. A new target's config dir that this copy creates
+	// is removed again if the copy fails before the profile is saved, so a retry
+	// needs no --adopt (FR-004). A dir that existed (adopted) or belongs to an
+	// existing target is never removed.
+	createsDir := !targetExists && !layer.PathExists(dstConfigDir)
+	saved := false
+	defer func() {
+		if err == nil || saved || !createsDir {
+			return
+		}
+		if rmErr := os.RemoveAll(dstConfigDir); rmErr != nil {
+			err = fmt.Errorf("%w (removing the config dir %s this copy created also failed: %v)", err, dstConfigDir, rmErr)
+		}
+	}()
+
 	// When source and target both have their own settings, the target's settings
 	// start as a copy of the source's (hook location excluded). This runs before the
 	// config dir is prepared, so preparation copies from the default setup only what
@@ -263,7 +281,7 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 			return err
 		}
 		report.SettingsCarried = names
-		report.SettingsWarnings = warnings
+		report.SecretWarnings = append(report.SecretWarnings, warnings...)
 	}
 
 	// Prepare the target config dir for its level: empty credentials + state, owned
@@ -280,8 +298,10 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		if err != nil {
 			return err
 		}
-		report.SecretWarnings = warnings
-		report.OwnedSecretWarnings = ownedSecretWarnings(dstDef, dstConfigDir)
+		for _, w := range warnings {
+			report.SecretWarnings = append(report.SecretWarnings, copySecretWarning{Source: warnSourceMCP, Server: w.Server, Field: w.Field})
+		}
+		report.SecretWarnings = append(report.SecretWarnings, ownedSecretWarnings(dstDef, dstConfigDir)...)
 		// The whole owned layer (including the MCP file) is carried verbatim, not
 		// converted: the servers are reported as carried.
 		if names, err := mcpServerNames(dstDef, dstConfigDir); err == nil {
@@ -321,6 +341,7 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 	if err := a.store.Save(target); err != nil {
 		return err
 	}
+	saved = true
 
 	if f.asJSON {
 		return writeJSON(a.out, report)
@@ -429,15 +450,13 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 		}
 	}
 	// Warn on owned MCP values matching a secret pattern (FR-033a).
-	if def.MCP != nil {
-		if rel, ok := mcpFileRel(def); ok {
-			data, err := os.ReadFile(filepath.Join(dstDir, rel))
-			switch {
-			case err == nil:
-				return mcp.SecretWarnings(mcp.Flavor(def.MCP.Flavor), data)
-			case !errors.Is(err, os.ErrNotExist):
-				return nil, err
-			}
+	if rel, ok := mcpFileRel(def); ok {
+		data, err := os.ReadFile(filepath.Join(dstDir, rel))
+		switch {
+		case err == nil:
+			return mcpDoc(def).SecretWarnings(data)
+		case !errors.Is(err, os.ErrNotExist):
+			return nil, err
 		}
 	}
 	return nil, nil
@@ -445,31 +464,31 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 
 // convertMCP converts the source MCP into the target's native format (FR-034/FR-035).
 func convertMCP(srcDef, dstDef *harness.Definition, srcDir, dstDir string, overwrite bool) (mcp.ConversionReport, error) {
-	if srcDef.MCP == nil {
-		return mcp.ConversionReport{}, nil
-	}
-	srcRel, _ := mcpFileRel(srcDef)
-	srcData, err := os.ReadFile(filepath.Join(srcDir, srcRel))
+	servers, err := readMCPServersIn(srcDef, srcDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return mcp.ConversionReport{}, nil
-		}
 		return mcp.ConversionReport{}, err
 	}
-	servers, err := mcp.ParseDoc(mcp.Flavor(srcDef.MCP.Flavor), srcData)
-	if err != nil {
-		return mcp.ConversionReport{}, fmt.Errorf("parse source MCP: %w", err)
+	return convertServers(dstDef, dstDir, servers, overwrite)
+}
+
+// convertServers converts the given (already selected) servers into the target's
+// MCP file under dstDir and reports the result (FR-034, FR-035); copy and mcp copy
+// both write through it. A target without the mcp capability gets every server
+// reported skipped; with no servers nothing is written.
+func convertServers(dstDef *harness.Definition, dstDir string, servers []mcp.Server, overwrite bool) (mcp.ConversionReport, error) {
+	if len(servers) == 0 {
+		return mcp.ConversionReport{}, nil
 	}
-	if dstDef.MCP == nil || !dstDef.HasCapability("mcp") {
+	dstRel, ok := mcpFileRel(dstDef)
+	if !ok || !dstDef.HasCapability("mcp") {
 		return mcp.SkipAll(servers, "target harness has no mcp capability"), nil
 	}
-	dstRel, _ := mcpFileRel(dstDef)
 	dstPath := filepath.Join(dstDir, dstRel)
 	existing, err := os.ReadFile(dstPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return mcp.ConversionReport{}, err
 	}
-	out, rep, err := mcp.MergeInto(mcp.Flavor(dstDef.MCP.Flavor), existing, servers, overwrite)
+	out, rep, err := mcpDoc(dstDef).Merge(existing, servers, overwrite)
 	if err != nil {
 		return mcp.ConversionReport{}, err
 	}
@@ -477,6 +496,63 @@ func convertMCP(srcDef, dstDef *harness.Definition, srcDir, dstDir string, overw
 		return mcp.ConversionReport{}, err
 	}
 	return rep, nil
+}
+
+// readMCPServersIn reads and parses the MCP servers of the profile config dir dir. A
+// harness without MCP support or an absent MCP file yields no servers.
+func readMCPServersIn(def *harness.Definition, dir string) ([]mcp.Server, error) {
+	rel, ok := mcpFileRel(def)
+	if !ok {
+		return nil, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, rel))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	servers, err := mcpDoc(def).Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse MCP servers in %s: %w", filepath.Join(dir, rel), err)
+	}
+	return servers, nil
+}
+
+// mcpDoc is where def keeps its MCP servers inside its MCP file: the flavor and the
+// key its location names (FR-034, Principle I).
+func mcpDoc(def *harness.Definition) mcp.Doc {
+	if def.MCP == nil {
+		return mcp.Doc{}
+	}
+	return mcp.Doc{Flavor: mcp.Flavor(def.MCP.Flavor), Key: def.MCP.Key()}
+}
+
+// printMCPReport prints the MCP part of a copy or mcp copy report (one printer for
+// both). A server written without a dropped `--flag=value` option is named with the
+// flag only, never its value (FR-035).
+func printMCPReport(w io.Writer, r mcp.ConversionReport) {
+	if len(r.Converted) > 0 {
+		fmt.Fprintf(w, "  MCP servers converted: %s\n", strings.Join(r.Converted, ", "))
+	}
+	if len(r.Replaced) > 0 {
+		fmt.Fprintf(w, "  MCP servers replaced: %s\n", strings.Join(r.Replaced, ", "))
+	}
+	for _, s := range r.Skipped {
+		fmt.Fprintf(w, "  MCP server skipped: %s (%s)\n", s.Name, s.Reason)
+	}
+	for _, d := range r.Drops {
+		fmt.Fprintf(w, "  MCP dropped: %s %s (%s)\n", d.Server, d.Field, d.Reason)
+	}
+	for _, d := range r.Drops {
+		switch {
+		case d.Option == "":
+		case strings.HasPrefix(d.Option, "-"):
+			fmt.Fprintf(w, "  MCP server written without a dropped option: %s (%s %s=…)\n", d.Server, d.Field, d.Option)
+		default: // the flag name itself looks like a secret and is withheld
+			fmt.Fprintf(w, "  MCP server written without a dropped option: %s (%s, option name withheld)\n", d.Server, d.Field)
+		}
+	}
 }
 
 // ownedFileMode returns the mode to write an owned or MCP file with: an existing
@@ -524,8 +600,9 @@ func carrySkills(srcDef, dstDef *harness.Definition, level profile.Share, srcDir
 // carrySettings copies the source's own settings entries into an absent target
 // entry, leaving out the hook location key (FR-007a). It returns the copied entry
 // names and per-key secret warnings (research R6).
-func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []string, error) {
-	var names, warnings []string
+func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []copySecretWarning, error) {
+	var names []string
+	var warnings []copySecretWarning
 	for _, rule := range def.Classification {
 		if rule.Layer != harness.LayerSettings || rule.IsGlob() {
 			continue
@@ -554,7 +631,7 @@ func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []
 			}
 		}
 		for _, k := range layer.SecretWarnings(data) {
-			warnings = append(warnings, rule.Path()+": "+k)
+			warnings = append(warnings, copySecretWarning{Source: warnSourceSettings, Entry: rule.Path(), Key: k})
 		}
 		if err := config.WriteFileAtomic(d, data, fi.Mode().Perm()); err != nil {
 			return nil, nil, err
@@ -622,15 +699,7 @@ func printCopyReport(a *app, r copyReportJSON) {
 	if len(r.MCPCarried) > 0 {
 		fmt.Fprintf(a.out, "  MCP servers carried: %s\n", strings.Join(r.MCPCarried, ", "))
 	}
-	if len(r.MCP.Converted) > 0 {
-		fmt.Fprintf(a.out, "  MCP servers converted: %s\n", strings.Join(r.MCP.Converted, ", "))
-	}
-	for _, s := range r.MCP.Skipped {
-		fmt.Fprintf(a.out, "  MCP server skipped: %s (%s)\n", s.Name, s.Reason)
-	}
-	for _, d := range r.MCP.Drops {
-		fmt.Fprintf(a.out, "  MCP dropped: %s %s (%s)\n", d.Server, d.Field, d.Reason)
-	}
+	printMCPReport(a.out, r.MCP)
 	if len(r.DroppedSettings) > 0 {
 		fmt.Fprintf(a.out, "  dropped settings: %s\n", strings.Join(r.DroppedSettings, ", "))
 	}
@@ -662,14 +731,15 @@ func printCopyReport(a *app, r copyReportJSON) {
 	for _, h := range r.HookSetsLeftOut {
 		fmt.Fprintf(a.out, "  hook set left out: %s\n", h)
 	}
-	for _, w := range r.SettingsWarnings {
-		fmt.Fprintf(a.errOut, "aprofile: warning: settings value %s looks like a secret and was copied verbatim\n", w)
-	}
 	for _, w := range r.SecretWarnings {
-		fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s %s looks like a secret and was duplicated verbatim\n", w.Server, w.Field)
-	}
-	for _, w := range r.OwnedSecretWarnings {
-		fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s looks like a secret and was duplicated verbatim\n", w)
+		switch w.Source {
+		case warnSourceSettings:
+			fmt.Fprintf(a.errOut, "aprofile: warning: settings value %s: %s looks like a secret and was copied verbatim\n", w.Entry, w.Key)
+		case warnSourceMCP:
+			fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s %s looks like a secret and was duplicated verbatim\n", w.Server, w.Field)
+		default:
+			fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s: %s looks like a secret and was duplicated verbatim\n", w.Entry, w.Key)
+		}
 	}
 }
 
@@ -749,25 +819,16 @@ func cloneExtra(in []profile.ExtraEnvVar) []profile.ExtraEnvVar {
 	return append([]profile.ExtraEnvVar(nil), in...)
 }
 
-// mcpFileRel returns the MCP file path (before the '#key' suffix) relative to the
-// profile config dir.
+// mcpFileRel returns the MCP file path (the location's file, without its '#key')
+// relative to the profile config dir.
 func mcpFileRel(def *harness.Definition) (string, bool) {
-	if def.MCP == nil || def.MCP.Location == "" {
-		return "", false
-	}
-	loc := def.MCP.Location
-	if i := strings.IndexByte(loc, '#'); i >= 0 {
-		loc = loc[:i]
-	}
-	return filepath.FromSlash(loc), loc != ""
+	file := def.MCP.File()
+	return filepath.FromSlash(file), file != ""
 }
 
 // mcpServerNames lists the server names in a profile's MCP file (used to report a
 // same-harness verbatim carry).
 func mcpServerNames(def *harness.Definition, configDir string) ([]string, error) {
-	if def.MCP == nil {
-		return nil, nil
-	}
 	rel, ok := mcpFileRel(def)
 	if !ok {
 		return nil, nil
@@ -776,7 +837,7 @@ func mcpServerNames(def *harness.Definition, configDir string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	servers, err := mcp.ParseDoc(mcp.Flavor(def.MCP.Flavor), data)
+	servers, err := mcpDoc(def).Parse(data)
 	if err != nil {
 		return nil, err
 	}

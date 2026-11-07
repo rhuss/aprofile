@@ -28,7 +28,8 @@ import (
 //	profiles:
 //	  claude:
 //	    work:
-//	      backend: vertex                  # anthropic | vertex | openai (default per harness)
+//	      backend: vertex                  # anthropic | vertex | openai (default per harness),
+//	                                       # mapped through the definition's backends
 //	      project: ...                     # vertex only
 //	      region: ...                      # vertex only
 //	      model: ...
@@ -147,8 +148,9 @@ func ccCredCopy(sourceDir, harnessName, name, field string) string {
 	return filepath.Join(sourceDir, "profiles", harnessName, name, field)
 }
 
-// --- mapping data (Constitution I: keyed by cc-deck's own field and backend
-// names, never by harness name) ---
+// --- mapping data (Constitution I: keyed by cc-deck's own field names, never by
+// harness name; the backend to environment mapping is definition data, the
+// definition's `backends` block) ---
 
 // Credential fields of cc-deck's auth block. A key-bearing field maps to the
 // aprofile auth kind of the same meaning, which each harness definition declares
@@ -166,44 +168,6 @@ const (
 var keyAuthKinds = []struct{ field, kind string }{
 	{fieldOAuthToken, "oauth-token"},
 	{fieldAPIKey, "api-key"},
-}
-
-// ccBackend is the environment a cc-deck backend implies. Values may name the
-// profile's {project} or {region}; an entry whose value expands to empty is left
-// out, as cc-deck's renderer does.
-type ccBackend struct {
-	env [][2]string
-	// credentialsVar receives auth.credentials: a file source becomes the path of
-	// the imported copy, an env source a reference.
-	credentialsVar string
-}
-
-// ccBackends maps cc-deck's backend names (empty = the harness's default) to the
-// environment cc-deck's wrapper sets for them (internal/profile/claude.go Render).
-// cc-deck offers vertex for Claude Code only, so its variables are Claude Code's.
-var ccBackends = map[string]ccBackend{
-	"":          {},
-	"anthropic": {},
-	"openai":    {},
-	"vertex": {
-		env: [][2]string{
-			{"CLAUDE_CODE_USE_VERTEX", "1"},
-			{"ANTHROPIC_VERTEX_PROJECT_ID", "{project}"},
-			{"CLOUD_ML_REGION", "{region}"},
-		},
-		credentialsVar: "GOOGLE_APPLICATION_CREDENTIALS",
-	},
-}
-
-func (b ccBackend) expand(p ccProfile) [][2]string {
-	var out [][2]string
-	for _, kv := range b.env {
-		v := strings.NewReplacer("{project}", p.Project, "{region}", p.Region).Replace(kv[1])
-		if v != "" {
-			out = append(out, [2]string{kv[0], v})
-		}
-	}
-	return out
 }
 
 // ccPalette and ccDeriveColor reproduce cc-deck's name-derived profile color

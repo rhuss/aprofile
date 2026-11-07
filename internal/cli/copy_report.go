@@ -22,16 +22,33 @@ import (
 // definitions' data (classification, mcp location, plugin store, skills location,
 // home escapes); nothing branches on a harness name (Principle I).
 
-// mcpKeyOf returns the MCP file (relative, slash form) and the key inside it.
+// copySecretWarning is one value a copy carried verbatim that looks like a secret
+// (FR-033a, research R6); the value itself is never included. Source says where it
+// is: "mcp" (an MCP server field: Server and Field), "owned" (an owned value outside
+// the MCP servers: Entry is the file relative to the config dir, Key the key path in
+// it) or "settings" (a settings entry copied from the source: Entry and Key).
+type copySecretWarning struct {
+	Source string `json:"source"`
+	Server string `json:"server,omitempty"`
+	Field  string `json:"field,omitempty"`
+	Entry  string `json:"entry,omitempty"`
+	Key    string `json:"key,omitempty"`
+}
+
+// Sources of a copySecretWarning.
+const (
+	warnSourceMCP      = "mcp"
+	warnSourceOwned    = "owned"
+	warnSourceSettings = "settings"
+)
+
+// mcpKeyOf returns the MCP file (relative, slash form) and the key inside it that
+// holds the servers (the flavor's default when the location names none).
 func mcpKeyOf(def *harness.Definition) (file, key string) {
-	if def.MCP == nil || def.MCP.Location == "" {
+	if def.MCP.File() == "" {
 		return "", ""
 	}
-	loc := def.MCP.Location
-	if i := strings.IndexByte(loc, '#'); i >= 0 {
-		return loc[:i], loc[i+1:]
-	}
-	return loc, ""
+	return def.MCP.File(), mcpDoc(def).ResolvedKey()
 }
 
 // decodeStructured decodes a JSON or TOML document into generic values. It reports
@@ -52,12 +69,13 @@ func decodeStructured(rel string, data []byte) (map[string]any, bool) {
 
 // ownedSecretWarnings scans every owned-layer value outside the MCP servers (whole
 // owned files and the owned keys of mixed files) for values matching a secret
-// pattern (the FR-028 prefix or length check) and returns "<file>: <key path>" for
-// each. The MCP servers are reported per server and field by mcp.SecretWarnings, so
-// their key is skipped here. No value is ever included (FR-033a).
-func ownedSecretWarnings(def *harness.Definition, dir string) []string {
+// pattern (the FR-028 prefix or length check) and returns one "owned" warning per
+// file and key path, sorted. The MCP servers are reported per server and field by
+// mcp.SecretWarnings, so their key is skipped here. No value is ever included
+// (FR-033a).
+func ownedSecretWarnings(def *harness.Definition, dir string) []copySecretWarning {
 	mcpFile, mcpKey := mcpKeyOf(def)
-	var out []string
+	var out []copySecretWarning
 	scanFile := func(rel string, only []string) {
 		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
 		if err != nil {
@@ -82,7 +100,7 @@ func ownedSecretWarnings(def *harness.Definition, dir string) []string {
 			}
 		}
 		for _, h := range hits {
-			out = append(out, rel+": "+h)
+			out = append(out, copySecretWarning{Source: warnSourceOwned, Entry: rel, Key: h})
 		}
 	}
 	for _, rule := range def.Classification {
@@ -120,7 +138,12 @@ func ownedSecretWarnings(def *harness.Definition, dir string) []string {
 			}
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Entry != out[j].Entry {
+			return out[i].Entry < out[j].Entry
+		}
+		return out[i].Key < out[j].Key
+	})
 	return out
 }
 

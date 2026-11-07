@@ -24,15 +24,35 @@ var (
 	buildCache = map[string]string{}
 )
 
-// BuildBinary builds the Go package at importPath into a temp directory and
-// returns the absolute path to the resulting executable. Results are cached per
-// import path + output name. It fails the test on build error.
+// TestSeamTag is the build tag of the test seams compiled into test binaries only:
+// a binary built with it answers profile.RunningProcess from APROFILE_TEST_RUNNING
+// (none, unknown, a pid, or real for the real process scan; unset means none), so
+// integration tests do not depend on whether the sandbox can read other processes'
+// environments (T092). Production builds never carry it.
+const TestSeamTag = "aprofile_testseam"
+
+// BuildBinary builds the Go package at importPath, with the TestSeamTag test seams,
+// into a temp directory and returns the absolute path to the resulting executable.
+// Results are cached per import path + output name. It fails the test on build
+// error.
 //
 // outName is the executable's file name (e.g. "claude" so a wrapper that execs
 // the "claude" binary finds the stub, or "aprofile" for the CLI).
 func BuildBinary(t testing.TB, importPath, outName string) string {
 	t.Helper()
-	key := importPath + "\x00" + outName
+	return build(t, importPath, outName, TestSeamTag)
+}
+
+// BuildProductionBinary builds the Go package at importPath exactly as a release
+// does, without the test seams, for tests that check the seams are absent.
+func BuildProductionBinary(t testing.TB, importPath, outName string) string {
+	t.Helper()
+	return build(t, importPath, outName, "")
+}
+
+func build(t testing.TB, importPath, outName, tags string) string {
+	t.Helper()
+	key := importPath + "\x00" + outName + "\x00" + tags
 	buildMu.Lock()
 	defer buildMu.Unlock()
 	if p, ok := buildCache[key]; ok {
@@ -45,7 +65,11 @@ func BuildBinary(t testing.TB, importPath, outName string) string {
 	}
 	out := filepath.Join(dir, outName)
 
-	cmd := exec.Command("go", "build", "-o", out, importPath)
+	args := []string{"build", "-o", out}
+	if tags != "" {
+		args = append(args, "-tags", tags)
+	}
+	cmd := exec.Command("go", append(args, importPath)...)
 	cmd.Dir = moduleRoot(t)
 	cmd.Env = origEnv
 	if combined, err := cmd.CombinedOutput(); err != nil {

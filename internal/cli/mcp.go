@@ -1,14 +1,10 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/mcp"
 )
@@ -157,62 +153,21 @@ func runMCPCopy(cmd *cobra.Command, fromRef, toRef string, names []string, overw
 	}
 
 	report := copyReportJSON{FormatVersion: schemaVersion, Source: fh + "/" + fn, Target: th + "/" + tn, Mode: "mcp-copy"}
-
-	if toDef.MCP == nil || !toDef.HasCapability("mcp") {
-		report.MCP = mcp.SkipAll(selected, "target harness has no mcp capability")
-	} else {
-		dstRel, _ := mcpFileRel(toDef)
-		dstPath := filepath.Join(a.paths.ProfileConfigDir(th, tn), dstRel)
-		existing, err := os.ReadFile(dstPath)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		out, rep, err := mcp.MergeInto(mcp.Flavor(toDef.MCP.Flavor), existing, selected, overwrite)
-		if err != nil {
-			return err
-		}
-		if err := config.WriteFileAtomic(dstPath, out, ownedFileMode(dstPath)); err != nil {
-			return err
-		}
-		report.MCP = rep
+	if report.MCP, err = convertServers(toDef, a.paths.ProfileConfigDir(th, tn), selected, overwrite); err != nil {
+		return err
 	}
 
 	if asJSON {
 		return writeJSON(a.out, report)
 	}
 	fmt.Fprintf(a.out, "mcp copy %s -> %s\n", report.Source, report.Target)
-	if len(report.MCP.Converted) > 0 {
-		fmt.Fprintf(a.out, "  converted: %v\n", report.MCP.Converted)
-	}
-	if len(report.MCP.Replaced) > 0 {
-		fmt.Fprintf(a.out, "  replaced: %v\n", report.MCP.Replaced)
-	}
-	for _, s := range report.MCP.Skipped {
-		fmt.Fprintf(a.out, "  skipped: %s (%s)\n", s.Name, s.Reason)
-	}
-	for _, d := range report.MCP.Drops {
-		fmt.Fprintf(a.out, "  dropped: %s %s (%s)\n", d.Server, d.Field, d.Reason)
-	}
+	printMCPReport(a.out, report.MCP)
 	return nil
 }
 
 // readMCPServers reads and parses a profile's MCP servers from its config dir.
 func readMCPServers(a *app, def *harness.Definition, h, n string) ([]mcp.Server, error) {
-	if def.MCP == nil {
-		return nil, nil
-	}
-	rel, ok := mcpFileRel(def)
-	if !ok {
-		return nil, nil
-	}
-	data, err := os.ReadFile(filepath.Join(a.paths.ProfileConfigDir(h, n), rel))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return mcp.ParseDoc(mcp.Flavor(def.MCP.Flavor), data)
+	return readMCPServersIn(def, a.paths.ProfileConfigDir(h, n))
 }
 
 // selectServers filters servers by the requested names, erroring on an unknown name.

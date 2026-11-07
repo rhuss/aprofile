@@ -105,9 +105,10 @@ var settingsSecretOptions = secret.Options{PrefixOnly: true, SkipReferences: tru
 
 // SecretWarnings returns the key paths of string values that look like secrets: a
 // value with a known secret prefix (secret.LooksLikeLiteralSecret with
-// settingsSecretOptions), or a literal (not a reference) value under a
-// credential-like key name (secret.LooksLikeSecretKey). Values are never included
-// (Principle IV, research R6).
+// settingsSecretOptions), or a literal value under a credential-like key name
+// (secret.SecretUnderCredentialKey: references and environment variable names such
+// as Codex's env_key = "OPENAI_API_KEY" are not literals). Values are never
+// included (Principle IV, research R6).
 func SecretWarnings(doc []byte) []string {
 	var v any
 	if err := json.Unmarshal(doc, &v); err != nil {
@@ -129,8 +130,7 @@ func SecretWarnings(doc []byte) []string {
 			if t == "" {
 				return
 			}
-			literal := !secret.IsReferenceOnly(t)
-			if secret.LooksLikeLiteralSecret(t, settingsSecretOptions) || (literal && secret.LooksLikeSecretKey(key)) {
+			if secret.LooksLikeLiteralSecret(t, settingsSecretOptions) || secret.SecretUnderCredentialKey(key, t) {
 				out = append(out, path)
 			}
 		}

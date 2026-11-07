@@ -35,6 +35,11 @@ auth_kinds:
 login_command:
   args: [auth, login]
 
+# cc-deck's backends for OpenCode (FR-045): neither sets extra variables.
+backends:
+  anthropic: {}
+  openai: {}
+
 # OpenCode's default setup is spread over the XDG directories; each profile-relative
 # prefix maps to its own default location.
 default_locations:

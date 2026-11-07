@@ -41,7 +41,7 @@ func encodeCodexServer(s Server) (map[string]any, []Drop) {
 			if name, def, ok := singleRef(v); ok {
 				envHeaders[k] = name
 				if def != nil {
-					drops = append(drops, Drop{s.Name, field + ".default", ReasonUnrepresentable})
+					drops = append(drops, Drop{Server: s.Name, Field: field + ".default", Reason: ReasonUnrepresentable})
 				}
 				continue
 			}
@@ -61,7 +61,7 @@ func encodeCodexServer(s Server) (map[string]any, []Drop) {
 			if r, err := secret.ParseReference(s.Auth); err == nil && r.Kind == secret.KindEnv {
 				native["bearer_token_env_var"] = r.Value
 			} else {
-				drops = append(drops, Drop{s.Name, "auth", ReasonUnrepresentable})
+				drops = append(drops, Drop{Server: s.Name, Field: "auth", Reason: ReasonUnrepresentable})
 			}
 		}
 	} else {
@@ -84,7 +84,7 @@ func encodeCodexServer(s Server) (map[string]any, []Drop) {
 			if name, def, ok := singleRef(v); ok && name == k {
 				envVars = append(envVars, k)
 				if def != nil {
-					drops = append(drops, Drop{s.Name, field + ".default", ReasonUnrepresentable})
+					drops = append(drops, Drop{Server: s.Name, Field: field + ".default", Reason: ReasonUnrepresentable})
 				}
 				continue
 			}
@@ -174,15 +174,16 @@ func decodeCodexServer(name string, n map[string]any) Server {
 	return s
 }
 
-// decodeCodexDoc extracts neutral servers from config.toml's [mcp_servers] table.
-func decodeCodexDoc(fileData []byte) ([]Server, error) {
+// decodeCodexDoc extracts neutral servers from config.toml's table named key
+// ([mcp_servers] by default).
+func decodeCodexDoc(fileData []byte, key string) ([]Server, error) {
 	top := map[string]any{}
 	if len(bytes.TrimSpace(fileData)) > 0 {
 		if err := toml.Unmarshal(fileData, &top); err != nil {
 			return nil, fmt.Errorf("decode config.toml: %w", err)
 		}
 	}
-	servers, _ := top["mcp_servers"].(map[string]any)
+	servers, _ := top[key].(map[string]any)
 	var out []Server
 	for _, name := range sortedAnyKeys(servers) {
 		native, _ := servers[name].(map[string]any)
@@ -191,11 +192,11 @@ func decodeCodexDoc(fileData []byte) ([]Server, error) {
 	return out, nil
 }
 
-// mergeCodexDoc merges newServers into config.toml's [mcp_servers] table, preserving
+// mergeCodexDoc merges newServers into config.toml's table named key, preserving
 // every other key of the file and every existing server not in newServers. Existing
 // servers are kept as their decoded tables (never re-encoded), so a secret Codex wrote
 // into one is never dropped here.
-func mergeCodexDoc(fileData []byte, newServers []Server, overwrite bool) ([]byte, ConversionReport, error) {
+func mergeCodexDoc(fileData []byte, key string, newServers []Server, overwrite bool) ([]byte, ConversionReport, error) {
 	var res ConversionReport
 	top := map[string]any{}
 	if len(bytes.TrimSpace(fileData)) > 0 {
@@ -203,9 +204,13 @@ func mergeCodexDoc(fileData []byte, newServers []Server, overwrite bool) ([]byte
 			return nil, res, fmt.Errorf("decode config.toml: %w", err)
 		}
 	}
-	servers, _ := top["mcp_servers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
+	servers := map[string]any{}
+	if v, ok := top[key]; ok {
+		t, isTable := v.(map[string]any)
+		if !isTable {
+			return nil, res, fmt.Errorf("the value at key %q of config.toml is not a table; refusing to replace it with MCP servers (fix or remove it by hand)", key)
+		}
+		servers = t
 	}
 	for _, s := range newServers {
 		if why, skip := skipDisabled(FlavorCodex, s); skip {
@@ -222,8 +227,12 @@ func mergeCodexDoc(fileData []byte, newServers []Server, overwrite bool) ([]byte
 			continue
 		}
 		native, drops := encodeCodexServer(s)
+		why, skip := unwritable(s, native, drops)
+		if !skip {
+			markDroppedOptions(s, drops)
+		}
 		res.Drops = append(res.Drops, drops...)
-		if why, skip := unwritable(s, native, drops); skip {
+		if skip {
 			res.Skipped = append(res.Skipped, SkippedServer{Name: s.Name, Reason: why})
 			continue
 		}
@@ -234,7 +243,7 @@ func mergeCodexDoc(fileData []byte, newServers []Server, overwrite bool) ([]byte
 			res.Converted = append(res.Converted, s.Name)
 		}
 	}
-	top["mcp_servers"] = servers
+	top[key] = servers
 	out, err := toml.Marshal(top)
 	if err != nil {
 		return nil, res, fmt.Errorf("encode config.toml: %w", err)

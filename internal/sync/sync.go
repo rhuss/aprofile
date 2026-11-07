@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
@@ -251,6 +252,34 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 
 		configDir := paths.ProfileConfigDir(p.Harness, p.Name)
 		pp.ConfigDir.Path = configDir
+		// T091 (FR-018): an interrupted atomic write leaves aprofile's own temp
+		// entries behind. They are never profile entries: restore an entry an
+		// interrupted swap left only in its "-old" temp, and remove the stale temps
+		// (a younger one may belong to a write in progress). Each is a change of the
+		// run (a planned one under --dry-run); one that fails is a problem.
+		temps, terr := layer.RemoveStaleTemps(def, configDir, time.Now().Add(-layer.StaleTempAge), opts.DryRun)
+		tempChange := func(action, path, why string) {
+			pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: action, Path: path, Note: why, Mutating: true})
+			res.Changes = append(res.Changes, fmt.Sprintf("config-dir %s: %s %s (%s)", p.ID(), action, path, why))
+			res.ConfigDirChanges++
+		}
+		renamed := "renamed"
+		if opts.DryRun {
+			renamed = "would rename"
+		}
+		for _, r := range temps.Restored {
+			tempChange(ActionRestoreEntry, r.Entry, "from "+r.Temp)
+			note(p.ID(), fmt.Sprintf("config-dir %s: an interrupted aprofile swap left %s only in %s; %s it back", p.ID(), r.Entry, r.Temp, renamed))
+		}
+		for _, rel := range temps.Removed {
+			tempChange(ActionRemoveTemp, rel, "stale temp entry left by an interrupted aprofile write")
+		}
+		for _, ferr := range temps.Failed {
+			problem(p.ID(), fmt.Sprintf("config-dir %s: %v", p.ID(), ferr))
+		}
+		if terr != nil {
+			problem(p.ID(), fmt.Sprintf("config-dir %s: look for stale temp entries: %v", p.ID(), terr))
+		}
 		prep := layer.PrepareOptions{DryRun: opts.DryRun, FixLinks: opts.FixLinks, Relink: opts.Relink}
 		if opts.Relink {
 			id := p.ID()
@@ -457,9 +486,11 @@ func stepPath(s layer.Step, fallback string) string {
 
 // Step actions sync adds to the change-plan kinds of the config-dir steps.
 const (
-	ActionPatch       = "patch"        // a config patch set keys of a file (FR-019)
-	ActionWriteConfig = "write-config" // the exec hook's write-config operation (FR-011)
-	ActionReport      = "report"       // a reported condition that changed nothing
+	ActionPatch        = "patch"        // a config patch set keys of a file (FR-019)
+	ActionWriteConfig  = "write-config" // the exec hook's write-config operation (FR-011)
+	ActionReport       = "report"       // a reported condition that changed nothing
+	ActionRemoveTemp   = "remove-temp"  // a stale aprofile temp entry removed (T091)
+	ActionRestoreEntry = "restore"      // an entry renamed back from an interrupted swap's temp
 )
 
 // syncPatches applies the definition's config patches to one profile and records

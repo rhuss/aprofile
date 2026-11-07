@@ -385,18 +385,18 @@ func decodeValue(v string, syn *refSyntax, mapValue bool) string {
 func encodeValue(server, field, v string, syn *refSyntax, mapValue bool, secretCheck func(string) bool) (string, bool, []Drop) {
 	parts, ok := neutralParts(v, mapValue)
 	if !ok {
-		return "", false, []Drop{{server, field, ReasonUnrepresentable}}
+		return "", false, []Drop{{Server: server, Field: field, Reason: ReasonUnrepresentable}}
 	}
 	for _, p := range parts {
 		switch {
 		case p.cmd && secret.HasSecretPrefix(p.lit),
 			p.isLit() && secretCheck != nil && secretCheck(p.lit):
-			return "", false, []Drop{{server, field, ReasonLiteralSecret}}
+			return "", false, []Drop{{Server: server, Field: field, Reason: ReasonLiteralSecret}}
 		}
 	}
 	if syn == nil {
 		if !allLit(parts) {
-			return "", false, []Drop{{server, field, ReasonUnrepresentable}}
+			return "", false, []Drop{{Server: server, Field: field, Reason: ReasonUnrepresentable}}
 		}
 		return joinLits(parts), true, nil
 	}
@@ -409,11 +409,11 @@ func encodeValue(server, field, v string, syn *refSyntax, mapValue bool, secretC
 		want = stripDefaults(parts)
 	}
 	if !sameParts(syn.parse(out), want) {
-		return "", false, []Drop{{server, field, ReasonUnrepresentable}}
+		return "", false, []Drop{{Server: server, Field: field, Reason: ReasonUnrepresentable}}
 	}
 	var drops []Drop
 	if lost {
-		drops = append(drops, Drop{server, field + ".default", ReasonUnrepresentable})
+		drops = append(drops, Drop{Server: server, Field: field + ".default", Reason: ReasonUnrepresentable})
 	}
 	return out, true, drops
 }
@@ -476,7 +476,7 @@ func foldAuth(s Server, c repCaps) (Server, []Drop) {
 			s.Headers = copyWithout(s.Headers, k)
 			s.Auth = "env:" + name
 			if def != nil {
-				drops = append(drops, Drop{s.Name, fmt.Sprintf("headers[%s].default", k), ReasonUnrepresentable})
+				drops = append(drops, Drop{Server: s.Name, Field: fmt.Sprintf("headers[%s].default", k), Reason: ReasonUnrepresentable})
 			}
 			break
 		}

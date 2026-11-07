@@ -145,3 +145,46 @@ func LooksLikeSecretKey(key string) bool {
 	}
 	return false
 }
+
+// envVarNameRE is the conventional environment variable name: upper case letters,
+// digits and underscores, not starting with a digit.
+var envVarNameRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+// maxEnvVarNameLen bounds how long a value judged to be a variable name may be.
+const maxEnvVarNameLen = 64
+
+// LooksLikeEnvVarName reports whether v reads as a conventional environment
+// variable name: an upper case identifier (^[A-Z_][A-Z0-9_]*$) that holds an
+// underscore, is at most 64 characters long and carries no known secret prefix.
+// The underscore keeps all-caps secrets such as "HUNTER2" or a base32 TOTP seed
+// out; the prefix check keeps "AKIA_..." out.
+func LooksLikeEnvVarName(v string) bool {
+	return len(v) <= maxEnvVarNameLen && strings.Contains(v, "_") &&
+		envVarNameRE.MatchString(v) && CheckPrefix(v) == nil
+}
+
+// KeyNamesEnvVar reports whether a key's name says its value is the name of an
+// environment variable rather than a secret: the key contains "env" (Codex
+// env_key, api_key_env, bearer_token_env_var, envKey) or ends in "_var" / "Var".
+func KeyNamesEnvVar(key string) bool {
+	k := strings.ToLower(key)
+	return strings.Contains(k, "env") || strings.HasSuffix(k, "_var") || strings.HasSuffix(key, "Var")
+}
+
+// SecretUnderCredentialKey is the credential-key rule of FR-033a: a non-empty
+// literal value under a key whose name looks like a credential
+// (LooksLikeSecretKey). References (env:/file:, $NAME, ${NAME}) are not literals
+// here, and neither is an environment variable name (LooksLikeEnvVarName) under a
+// key that names a variable (KeyNamesEnvVar, such as Codex
+// `env_key = "OPENAI_API_KEY"`). Both conditions are required, so an all-caps
+// secret under password, token, api_key or secret still counts. It does not apply
+// the prefix check; callers combine it with LooksLikeLiteralSecret.
+func SecretUnderCredentialKey(key, value string) bool {
+	if value == "" || IsReferenceOnly(value) {
+		return false
+	}
+	if KeyNamesEnvVar(key) && LooksLikeEnvVarName(value) {
+		return false
+	}
+	return LooksLikeSecretKey(key)
+}

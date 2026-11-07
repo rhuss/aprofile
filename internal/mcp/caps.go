@@ -3,6 +3,9 @@ package mcp
 import (
 	"fmt"
 	"regexp"
+	"strings"
+
+	"github.com/cc-deck/aprofile/internal/secret"
 )
 
 // repCaps is one flavor's representability matrix for the optional neutral fields
@@ -78,7 +81,9 @@ var flavorCaps = map[Flavor]repCaps{
 // (per c) cannot express. working_dir is only meaningful for stdio servers.
 func unrepresentableDrops(s Server, c repCaps) []Drop {
 	var d []Drop
-	add := func(field string) { d = append(d, Drop{Server: s.Name, Field: field, Reason: ReasonUnrepresentable}) }
+	add := func(field string) {
+		d = append(d, Drop{Server: s.Name, Field: field, Reason: ReasonUnrepresentable})
+	}
 	if s.WorkingDir != "" && !c.workingDir {
 		add("working_dir")
 	}
@@ -165,7 +170,8 @@ func unwritableName(flavor Flavor, s Server) (string, bool) {
 // unwritable reports why an encoded server must not be written at all: a remote
 // server whose url was dropped (Codex would read the table back as an empty stdio
 // server, pi as a server without an endpoint), a stdio server whose command was
-// dropped, or a stdio server that lost a positional args element (see
+// dropped or is empty (the harness would get `command: ""`, FR-035), or a stdio
+// server that lost a positional args element (see
 // argPositionLost). drops are the encoder's drops for s. The field drops stay in the
 // report; the server is listed as skipped.
 func unwritable(s Server, native map[string]any, drops []Drop) (string, bool) {
@@ -175,8 +181,12 @@ func unwritable(s Server, native map[string]any, drops []Drop) (string, bool) {
 		}
 		return "", false
 	}
-	if _, ok := native["command"]; !ok {
+	cmd, ok := native["command"]
+	if !ok {
 		return "command not representable in target", true
+	}
+	if commandEmpty(cmd) {
+		return "command empty", true
 	}
 	if i, lost := argPositionLost(s, drops); lost {
 		return fmt.Sprintf("args[%d] dropped; writing the rest would shift the arguments after it", i), true
@@ -212,4 +222,48 @@ var flagValueRE = regexp.MustCompile(`^--?[A-Za-z0-9][A-Za-z0-9_.-]*=`)
 func flagValueArg(a string) bool {
 	parts, ok := neutralParts(a, false)
 	return ok && len(parts) > 0 && parts[0].isLit() && flagValueRE.MatchString(parts[0].lit)
+}
+
+// commandEmpty reports whether an encoded native command is empty: a blank string, or
+// a command array (OpenCode) whose executable is blank.
+func commandEmpty(cmd any) bool {
+	switch c := cmd.(type) {
+	case string:
+		return strings.TrimSpace(c) == ""
+	case []string:
+		return len(c) == 0 || strings.TrimSpace(c[0]) == ""
+	}
+	return false
+}
+
+// optionWithheld stands in for a dropped option's flag name that itself looks like a
+// secret, so the report never prints it.
+const optionWithheld = "(name withheld)"
+
+// markDroppedOptions sets Drop.Option on every drop of a written server that removed
+// a whole `--flag=value` args element, so the report can say the server was written
+// without that option (FR-035). Only the flag name is recorded, never the value.
+func markDroppedOptions(s Server, drops []Drop) {
+	for i, a := range s.Args {
+		if !flagValueArg(a) {
+			continue
+		}
+		field := fmt.Sprintf("args[%d]", i)
+		for j := range drops {
+			if drops[j].Server == s.Name && drops[j].Field == field {
+				drops[j].Option = flagName(a)
+			}
+		}
+	}
+}
+
+// flagName returns the flag of a `--flag=value` args element, or optionWithheld when
+// the flag name itself looks like a secret.
+func flagName(a string) string {
+	parts, _ := neutralParts(a, false)
+	name, _, _ := strings.Cut(parts[0].lit, "=")
+	if secret.LooksLikeLiteralSecret(name, secret.Options{AllowPaths: true}) {
+		return optionWithheld
+	}
+	return name
 }

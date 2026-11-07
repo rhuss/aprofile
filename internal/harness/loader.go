@@ -385,6 +385,9 @@ func validate(d *Definition) (field, msg string) {
 			return "hooks", fmt.Sprintf("location %q must be a relative path within the profile dir", d.Hooks.Location)
 		}
 	}
+	if msg := validateMCPLocation(d); msg != "" {
+		return "mcp", msg
+	}
 	for _, he := range d.HomeEscapes {
 		if he.Path == "" {
 			return "home_escapes", "every escape needs a path"
@@ -395,7 +398,115 @@ func validate(d *Definition) (field, msg string) {
 			return "default_locations", fmt.Sprintf("prefix %q must be a relative path within the profile dir", prefix)
 		}
 	}
+	if msg := validateBackends(d); msg != "" {
+		return "backends", msg
+	}
 	return "", ""
+}
+
+// validateMCPLocation checks the mcp location ("file#key"): sync, mcp copy and
+// import join the file onto the profile config dir and write it, so it must be a
+// relative path inside that dir (entryPathSafe). The file must not be a
+// credentials or state entry, and a key inside a mixed file must be owned there or
+// undeclared: writing servers into a credentials, state or settings key (Claude's
+// oauthAccount) would replace that data. It returns "" when valid or absent.
+func validateMCPLocation(d *Definition) string {
+	if d.MCP == nil {
+		return ""
+	}
+	file, key := d.MCP.File(), d.MCP.Key()
+	if file == "" || !entryPathSafe(file) {
+		return fmt.Sprintf("location %q: the file must be a relative path within the profile dir (no %q segment, not absolute)", d.MCP.Location, "..")
+	}
+	for _, r := range d.Classification {
+		if r.IsGlob() || r.Path() != file {
+			continue
+		}
+		switch r.Layer {
+		case LayerCredentials, LayerState:
+			return fmt.Sprintf("location %q: %s is a %s entry; MCP servers must live in an owned entry", d.MCP.Location, file, r.Layer)
+		case LayerMixed:
+			if kl, ok := r.Keys[key]; ok && key != "" && kl != LayerOwned {
+				return fmt.Sprintf("location %q: key %q of mixed file %s is a %s key; the MCP key must be owned or undeclared", d.MCP.Location, key, file, kl)
+			}
+		}
+	}
+	return ""
+}
+
+// placeholderRE finds the {name} placeholders of a backend env value.
+var placeholderRE = regexp.MustCompile(`\{[^{}]*\}`)
+
+// validateBackends checks the backends block (FR-045): backend names are plain
+// names; every variable is a valid identifier the wrapper does not own otherwise
+// (config_env, model/endpoint, auth kind and APROFILE_ variables); values are single
+// lines whose placeholders are all in BackendPlaceholders. It returns "" when valid.
+func validateBackends(d *Definition) string {
+	owned := map[string]string{}
+	for _, e := range d.ConfigEnv {
+		owned[e.Var] = "a config_env redirect"
+	}
+	for _, v := range d.AllAuthVars() {
+		owned[v] = "an auth kind variable"
+	}
+	for _, v := range []string{d.ModelVar, d.EndpointVar} {
+		if v != "" {
+			owned[v] = "the model or endpoint variable"
+		}
+	}
+	checkVar := func(backend, v string) string {
+		switch {
+		case !secret.ValidEnvVarName(v):
+			return fmt.Sprintf("backend %q: variable %q must match [A-Za-z_][A-Za-z0-9_]*", backend, v)
+		case strings.HasPrefix(v, "APROFILE_"):
+			return fmt.Sprintf("backend %q: variable %q is an aprofile contract variable", backend, v)
+		case owned[v] != "":
+			return fmt.Sprintf("backend %q: variable %q is %s", backend, v, owned[v])
+		}
+		return ""
+	}
+	allowed := map[string]bool{}
+	for _, ph := range BackendPlaceholders {
+		allowed["{"+ph+"}"] = true
+	}
+	names := make([]string, 0, len(d.Backends))
+	for n := range d.Backends {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		b := d.Backends[name]
+		if !NameValid(name) {
+			return fmt.Sprintf("backend name %q must match ^[a-z][a-z0-9-]{0,62}[a-z0-9]$", name)
+		}
+		seen := map[string]bool{}
+		for _, e := range b.Env {
+			if msg := checkVar(name, e.Name); msg != "" {
+				return msg
+			}
+			if seen[e.Name] {
+				return fmt.Sprintf("backend %q: variable %q is listed twice", name, e.Name)
+			}
+			seen[e.Name] = true
+			if strings.ContainsAny(e.Value, "\x00\n\r") {
+				return fmt.Sprintf("backend %q: value of %q must be a single line", name, e.Name)
+			}
+			for _, ph := range placeholderRE.FindAllString(e.Value, -1) {
+				if !allowed[ph] {
+					return fmt.Sprintf("backend %q: value of %q uses placeholder %s; allowed: {%s}", name, e.Name, ph, strings.Join(BackendPlaceholders, "}, {"))
+				}
+			}
+		}
+		if b.CredentialsVar != "" {
+			if msg := checkVar(name, b.CredentialsVar); msg != "" {
+				return msg
+			}
+			if seen[b.CredentialsVar] {
+				return fmt.Sprintf("backend %q: credentials_var %q is also set by env", name, b.CredentialsVar)
+			}
+		}
+	}
+	return ""
 }
 
 // validateConfigPatch checks one config_patches entry (FR-019): the file is a
@@ -495,6 +606,7 @@ var allFieldNames = []string{
 	"model_var", "endpoint_var", "auth_kinds", "auth_clears", "default_auth_kind", "login_command", "classification",
 	"config_patches", "mcp", "skills_location", "plugin_mechanism", "omarchy_provider",
 	"capabilities", "exec_hook", "default_locations", "share_policy", "hooks", "home_escapes",
+	"backends",
 }
 
 func asFieldError(err error) (fieldError, bool) {

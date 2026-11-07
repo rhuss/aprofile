@@ -32,7 +32,7 @@ func encodeInlineMap(server, fieldKind string, m map[string]string, syn, keySyn 
 	var drops []Drop
 	for _, k := range sortedKeys(m) {
 		if !literalKey(k, keySyn) {
-			drops = append(drops, Drop{server, fmt.Sprintf("%s[%s]", fieldKind, k), ReasonUnrepresentable})
+			drops = append(drops, Drop{Server: server, Field: fmt.Sprintf("%s[%s]", fieldKind, k), Reason: ReasonUnrepresentable})
 			continue
 		}
 		v, ok, d := encodeValue(server, fmt.Sprintf("%s[%s]", fieldKind, k), m[k], syn, true, isSecretLiteral)

@@ -44,12 +44,19 @@ type copyReport struct {
 			Reason string `json:"reason"`
 		} `json:"drops"`
 	} `json:"mcp"`
-	DroppedSettings []string `json:"dropped_settings"`
-	PluginsSkipped  []string `json:"plugins_skipped"`
-	SecretWarnings  []struct {
-		Server string `json:"server"`
-		Field  string `json:"field"`
-	} `json:"secret_warnings"`
+	DroppedSettings []string        `json:"dropped_settings"`
+	SecretWarnings  []secretWarning `json:"secret_warnings"`
+}
+
+// secretWarning is one entry of the copy report's secret_warnings: an MCP server
+// field (source "mcp"), an owned value or a copied setting (source "owned" or
+// "settings", by entry and key path).
+type secretWarning struct {
+	Source string `json:"source"`
+	Server string `json:"server"`
+	Field  string `json:"field"`
+	Entry  string `json:"entry"`
+	Key    string `json:"key"`
 }
 
 // TestScenario5SameHarnessCopy covers quickstart Scenario 5 (same-harness): the owned
@@ -163,9 +170,9 @@ func TestScenario5CrossHarnessCopy(t *testing.T) {
 			t.Errorf("dropped_settings missing %q: %v", want, rep.DroppedSettings)
 		}
 	}
-	// Plugins not carried (FR-036).
-	if len(rep.PluginsSkipped) == 0 {
-		t.Error("expected plugins to be reported as skipped across harnesses")
+	// Plugins not carried (FR-036): the text report says so.
+	if text := e.run(nil, "copy", "claude/work", "codex/work2"); !strings.Contains(text, "plugins are not carried across harnesses") {
+		t.Errorf("expected plugins to be reported as skipped across harnesses:\n%s", text)
 	}
 	// Cross-harness target takes the Codex default auth kind, not Claude's.
 	showOut, _, err := e.tryRunSplit(nil, "show", "codex/work", "--json")
@@ -230,12 +237,9 @@ func assertNoCanary(t *testing.T, root string) {
 	})
 }
 
-func hasWarning(ws []struct {
-	Server string `json:"server"`
-	Field  string `json:"field"`
-}, server, field string) bool {
+func hasWarning(ws []secretWarning, server, field string) bool {
 	for _, w := range ws {
-		if w.Server == server && w.Field == field {
+		if w.Source == "mcp" && w.Server == server && w.Field == field {
 			return true
 		}
 	}

@@ -108,7 +108,7 @@ func harnessDifferences(d *harness.Definition) []string {
 				out = append(out, fmt.Sprintf("%s is never linked, at any level: it holds %s (owned keys); at all and content it starts as a copy of the default setup's (credentials and state keys left out), at none it starts minimal", r.Path(), strings.Join(owned, ", ")))
 			}
 		case harness.LayerOwned:
-			if d.MCP != nil && strings.HasPrefix(d.MCP.Location, r.Path()+"#") {
+			if d.MCP.File() != "" && d.MCP.File() == r.Path() {
 				out = append(out, fmt.Sprintf("%s is private at every level, all included: it holds the MCP servers; at all and content it starts as a copy of the default setup's, at none it starts absent", r.Path()))
 			}
 		}

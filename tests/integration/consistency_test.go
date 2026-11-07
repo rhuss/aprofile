@@ -75,7 +75,7 @@ func TestMCPCopyDedupesServerNames(t *testing.T) {
 	writeFile(t, filepath.Join(e.configDir("claude", "src"), ".claude.json"),
 		`{"mcpServers":{"gh":{"command":"mcp-gh"},"web":{"type":"http","url":"https://mcp.example.com"}}}`)
 	out := e.run(nil, "mcp", "copy", "claude/src", "claude/dst", "gh", "gh", "--overwrite")
-	if !strings.Contains(out, "converted: [gh]") || strings.Contains(out, "replaced") {
+	if !strings.Contains(out, "MCP servers converted: gh\n") || strings.Contains(out, "replaced") {
 		t.Fatalf("gh should be converted once and not replaced:\n%s", out)
 	}
 }

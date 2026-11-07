@@ -76,8 +76,16 @@ type walkedEntry struct {
 
 // walk lists the entries under root (profile-relative names prefixed with
 // prefix), descending only into real container directories. Classified entries
-// are not descended into: their contents belong to them.
+// are not descended into: their contents belong to them. aprofile's own temp names
+// (IsTempName, left by an interrupted atomic write) are skipped: they are never
+// entries of the profile (T091).
 func walk(def *harness.Definition, root, prefix string) ([]walkedEntry, error) {
+	return walkWithTemps(def, root, prefix, nil)
+}
+
+// walkWithTemps is walk that also collects the profile-relative names of the temp
+// entries it skips into temps (when not nil), from the same directories walk reads.
+func walkWithTemps(def *harness.Definition, root, prefix string, temps *[]string) ([]walkedEntry, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -91,6 +99,12 @@ func walk(def *harness.Definition, root, prefix string) ([]walkedEntry, error) {
 		if prefix != "" {
 			rel = prefix + "/" + e.Name()
 		}
+		if IsTempName(e.Name()) {
+			if temps != nil {
+				*temps = append(*temps, rel)
+			}
+			continue
+		}
 		path := filepath.Join(root, e.Name())
 		we := walkedEntry{Rel: rel, Result: Classify(def, rel)}
 		if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
@@ -98,7 +112,7 @@ func walk(def *harness.Definition, root, prefix string) ([]walkedEntry, error) {
 			we.Target, _ = os.Readlink(path)
 		}
 		if we.Result.Unclassified && !we.Link && e.IsDir() && isContainer(def, rel) {
-			sub, err := walk(def, path, rel)
+			sub, err := walkWithTemps(def, path, rel, temps)
 			if err != nil {
 				return nil, err
 			}

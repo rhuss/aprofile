@@ -60,6 +60,11 @@ type Drop struct {
 	Server string `json:"server"`
 	Field  string `json:"field"`  // e.g. "env[FOO]", "working_dir", "headers[X-Key]", "enabled"
 	Reason string `json:"reason"` // ReasonUnrepresentable | ReasonLiteralSecret
+	// Option names the flag of a whole `--flag=value` args element that was dropped
+	// while the server was still written without it (never the value; a flag name
+	// that itself looks like a secret is withheld as optionWithheld). Empty for every
+	// other drop.
+	Option string `json:"option,omitempty"`
 }
 
 const (

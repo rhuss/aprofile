@@ -16,6 +16,8 @@ import (
 // config dir no process uses is not.
 func TestRunningDetectsChildProcess(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "profiles", "claude", "work")
+	// Under the aprofile_testseam tag the seam would answer; ask for the real scan.
+	t.Setenv("APROFILE_TEST_RUNNING", "real")
 	// Re-run this test binary as the child: macOS hides the environment of Apple
 	// platform binaries such as /bin/sleep, but not of other programs (harnesses).
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperSleep$")

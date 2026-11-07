@@ -70,7 +70,10 @@ type importActionJSON struct {
 	CredentialsReplaced bool     `json:"credentials_replaced,omitempty"`
 	BackupDir           string   `json:"backup_dir,omitempty"`
 	PrimaryMovedFrom    []string `json:"primary_moved_from,omitempty"`
-	Warnings            []string `json:"warnings,omitempty"`
+	// ExternalCredentialFiles: credential files read from outside cc-deck's own
+	// config and data folders (paths only; FR-045).
+	ExternalCredentialFiles []string `json:"external_credential_files,omitempty"`
+	Warnings                []string `json:"warnings,omitempty"`
 }
 
 type importCollisionJSON struct {
@@ -125,13 +128,14 @@ func runImportCCDeck(cmd *cobra.Command, args importArgs) error {
 			Actions: []importActionJSON{}}
 		for _, act := range res.Actions {
 			out.Actions = append(out.Actions, importActionJSON{
-				ID:                  act.ID,
-				Status:              act.Status,
-				Reason:              act.Reason,
-				CredentialsReplaced: act.CredentialsReplaced,
-				BackupDir:           act.BackupDir,
-				PrimaryMovedFrom:    act.PrimaryMovedFrom,
-				Warnings:            act.Warnings,
+				ID:                      act.ID,
+				Status:                  act.Status,
+				Reason:                  act.Reason,
+				CredentialsReplaced:     act.CredentialsReplaced,
+				BackupDir:               act.BackupDir,
+				PrimaryMovedFrom:        act.PrimaryMovedFrom,
+				ExternalCredentialFiles: act.ExternalCredentialFiles,
+				Warnings:                act.Warnings,
 			})
 		}
 		out.Collisions = collisions
@@ -203,6 +207,13 @@ func printImportReport(a *app, res *importer.Result, collisions []importCollisio
 				verb = "would move"
 			}
 			fmt.Fprintf(a.out, "           %s primary flag from %s to %s\n", verb, from, act.ID)
+		}
+		for _, path := range act.ExternalCredentialFiles {
+			verb := "copied"
+			if dryRun {
+				verb = "would copy"
+			}
+			fmt.Fprintf(a.out, "           %s credential file from outside cc-deck's folders: %s\n", verb, path)
 		}
 		for _, wmsg := range act.Warnings {
 			fmt.Fprintf(a.out, "           warning: %s\n", wmsg)
