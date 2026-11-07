@@ -11,3 +11,4 @@
 
 - [Get started](user/getting-started.md)
 - [Compare share levels](user/share-levels.md)
+- [Manage profiles](user/manage-profiles.md)

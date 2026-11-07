@@ -15,3 +15,7 @@ rules:
   require: ["`all`", "`content`", "`none`", "credentials", "runtime state"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Choose a level$", "^## What each level shares$", "^## Limits to know$"]
+- glob: docs/user/manage-profiles.md
+  require: ["aprofile list", "aprofile show", "aprofile edit", "aprofile copy", "aprofile sync", "hook-sets", "mcp copy"]
+  forbid: ["\\u2013|\\u2014"]
+  require_order: ["^## Inspect profiles$", "^## Change profiles$", "^## Copy profile data$", "^## Manage hooks and MCP servers$"]
