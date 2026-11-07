@@ -27,24 +27,10 @@ type ProfileRow struct {
 	WrapperStatus string // synced | stale | missing | unknown
 }
 
-// RenderBrowse renders the browse view without a cursor, suitable for a snapshot or a
-// non-interactive dump. See renderBrowse for the behavior; the color argument follows
-// FR-042 (the caller passes false when stdout is not a TTY or NO_COLOR is set, and the
-// output is then plain text with no escape codes).
-func RenderBrowse(rows []ProfileRow, color bool) string {
-	return renderBrowse(rows, -1, color)
-}
-
-// renderBrowse groups rows by harness and renders each profile with its icon, label
-// (in its color when color is enabled), a primary marker and its wrapper sync status
-// (FR-043, FR-042). A non-negative cursor highlights that row (used by the interactive
-// browse model). It is a pure function of its inputs so it is table-testable.
-func renderBrowse(rows []ProfileRow, cursor int, color bool) string {
-	if len(rows) == 0 {
-		return "no profiles yet (add one with 'a' or: aprofile add <harness> <name>)\n"
-	}
-
-	// Stable order: by harness, then name, matching the CLI list command.
+// sortRows returns a copy of rows in display order: by harness, then name, matching
+// the CLI list command. The browse model sorts once when it receives its rows, so
+// rendering and selection on every keypress need no re-sort.
+func sortRows(rows []ProfileRow) []ProfileRow {
 	ordered := append([]ProfileRow(nil), rows...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].Harness != ordered[j].Harness {
@@ -52,6 +38,20 @@ func renderBrowse(rows []ProfileRow, cursor int, color bool) string {
 		}
 		return ordered[i].Name < ordered[j].Name
 	})
+	return ordered
+}
+
+// renderBrowse groups rows by harness and renders each profile with its icon, label
+// (in its color when color is enabled), a primary marker and its wrapper sync status
+// (FR-043, FR-042). ordered must already be in display order (sortRows). A non-negative
+// cursor highlights that row (used by the interactive browse model); the color
+// argument follows FR-042 (false when stdout is not a TTY or NO_COLOR is set gives
+// plain text with no escape codes). It is a pure function of its inputs so it is
+// table-testable.
+func renderBrowse(ordered []ProfileRow, cursor int, color bool) string {
+	if len(ordered) == 0 {
+		return "no profiles yet (add one with 'a' or: aprofile add <harness> <name>)\n"
+	}
 
 	var b strings.Builder
 	lastHarness := ""
@@ -78,7 +78,7 @@ func renderBrowse(rows []ProfileRow, cursor int, color bool) string {
 			text = r.Icon + " " + label
 		}
 		if color && r.Color != "" {
-			text = lipgloss.NewStyle().Foreground(lipgloss.Color(r.Color)).Render(text)
+			text = lipgloss.NewStyle().Foreground(TerminalColor(r.Color)).Render(text)
 		}
 
 		primary := ""

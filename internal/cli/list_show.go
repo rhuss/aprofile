@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -50,6 +53,9 @@ type profileJSON struct {
 type listJSON struct {
 	FormatVersion int           `json:"format_version"`
 	Profiles      []profileJSON `json:"profiles"`
+	// LeftoverWrappers names the aprofile wrappers in the bin dir that belong to no
+	// profile (left by remove or rename until the next sync, FR-006b).
+	LeftoverWrappers []string `json:"leftover_wrappers"`
 }
 
 func newListCmd() *cobra.Command {
@@ -76,11 +82,17 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 		return err
 	}
 
+	leftovers := a.leftoverWrappers(profiles, failures)
+
+	var reasons statusReasons
 	if asJSON {
-		out := listJSON{FormatVersion: schemaVersion}
+		out := listJSON{FormatVersion: schemaVersion, Profiles: []profileJSON{}, LeftoverWrappers: leftovers}
 		for _, p := range profiles {
-			out.Profiles = append(out.Profiles, a.profileToJSON(p))
+			pj, serr := a.profileToJSONErr(p)
+			reasons.add(p.Harness, serr)
+			out.Profiles = append(out.Profiles, pj)
 		}
+		reasons.print(a)
 		return writeJSON(a.out, out)
 	}
 
@@ -94,17 +106,46 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 			lastHarness = p.Harness
 		}
 		def, _ := a.set.Get(p.Harness)
-		status := a.wrapperStatus(p, def)
+		status, serr := a.wrapperStatusErr(p, def)
+		reasons.add(p.Harness, serr)
 		primary := ""
 		if p.Primary {
 			primary = " (primary)"
 		}
 		fmt.Fprintf(a.out, "  %s%s  [%s] share: %s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon), primary, status, p.ShareLevel())
 	}
+	switch len(leftovers) {
+	case 0:
+	case 1:
+		fmt.Fprintf(a.out, "1 leftover wrapper from a removed or renamed profile: %s (run: aprofile sync)\n", leftovers[0])
+	default:
+		fmt.Fprintf(a.out, "%d leftover wrappers from removed or renamed profiles: %s (run: aprofile sync)\n", len(leftovers), strings.Join(leftovers, ", "))
+	}
+	reasons.print(a)
 	for _, f := range failures {
 		fmt.Fprintf(a.errOut, "aprofile: profile %s failed to load: %v\n", f.ID(), f.Err)
 	}
 	return nil
+}
+
+// leftoverWrappers lists the aprofile wrappers in the bin dir that belong to no
+// profile (FR-006b), never nil. An unreadable bin dir is reported on stderr.
+func (a *app) leftoverWrappers(profiles []*profile.Profile, failures []profile.LoadFailure) []string {
+	keys := make([]harness.ProfileKey, 0, len(profiles)+len(failures))
+	for _, p := range profiles {
+		keys = append(keys, harness.ProfileKey{Harness: p.Harness, Name: p.Name})
+	}
+	for _, f := range failures {
+		keys = append(keys, harness.ProfileKey{Harness: f.Harness, Name: f.Name})
+	}
+	names, err := wrapper.LeftoversFor(a.paths.BinDir, a.set, keys)
+	if err != nil {
+		fmt.Fprintf(a.errOut, "aprofile: cannot check the bin dir for leftover wrappers: %v\n", err)
+	}
+	if names == nil {
+		names = []string{}
+	}
+	return names
 }
 
 func newShowCmd() *cobra.Command {
@@ -121,15 +162,21 @@ func newShowCmd() *cobra.Command {
 	return cmd
 }
 
-// showJSON is show's --json schema: the list schema plus the per-entry treatment
-// (FR-015, data-model.md Entry treatment).
+// showJSON is show's --json schema: format_version, the list schema's profile
+// fields, plus the per-entry treatment (FR-015, FR-041, data-model.md Entry
+// treatment).
 type showJSON struct {
+	FormatVersion int `json:"format_version"`
 	profileJSON
+	Credentials              credentialsJSON        `json:"credentials"`
 	Entries                  []layer.EntryTreatment `json:"entries"`
 	HookSets                 []hookSetJSON          `json:"hook_sets"`
 	SettingsDiffer           bool                   `json:"settings_differ"`
 	HomeEscapes              []harness.HomeEscape   `json:"home_escapes"`
 	UnborrowedDefaultEntries []string               `json:"unborrowed_default_entries"`
+	// Problems lists where the profile does not fit its harness definition (FR-006):
+	// an undeclared auth kind, or a model or endpoint the harness has no variable for.
+	Problems []string `json:"problems"`
 }
 
 type hookSetJSON struct {
@@ -150,9 +197,22 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	sj := showJSON{profileJSON: a.profileToJSON(p), HookSets: []hookSetJSON{}, HomeEscapes: []harness.HomeEscape{}, UnborrowedDefaultEntries: []string{}}
 	def, _ := a.set.Get(h)
+	// The env hook (wrapper status) and the auth-status hook run concurrently, so a
+	// hanging hook costs show one timeout, not two (FR-011).
+	creds := make(chan credentialsJSON, 1)
+	go func() { creds <- a.credentialStatus(p, def, true) }()
+	pj, statusErr := a.profileToJSONErr(p)
+	sj := showJSON{FormatVersion: schemaVersion, profileJSON: pj, HookSets: []hookSetJSON{}, HomeEscapes: []harness.HomeEscape{}, UnborrowedDefaultEntries: []string{},
+		Problems: []string{}}
+	sj.Credentials = <-creds
+	sj.HasCredentials = sj.Credentials.Present
+	fit := map[string]wrapper.FitIssue{}
 	if def != nil {
+		for _, fi := range wrapper.FitIssues(p, def) {
+			fit[fi.Field] = fi
+			sj.Problems = append(sj.Problems, fi.Message+"; fix: "+fi.Fix)
+		}
 		entries, err := layer.Treatments(def, p, "", sj.ConfigDir)
 		if err != nil {
 			return err
@@ -184,10 +244,12 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 		sj.Entries = []layer.EntryTreatment{}
 	}
 
+	if statusErr != nil {
+		fmt.Fprintf(a.errOut, "aprofile: wrapper status is unknown: %v\n", statusErr)
+	}
 	if asJSON {
 		return writeJSON(a.out, sj)
 	}
-	pj := sj.profileJSON
 	fmt.Fprintf(a.out, "%s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon))
 	fmt.Fprintf(a.out, "  harness:        %s\n", p.Harness)
 	fmt.Fprintf(a.out, "  name:           %s\n", p.Name)
@@ -196,13 +258,21 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 		fmt.Fprintf(a.out, "                  (no level stored: profiles from before share levels are all; consider: aprofile edit %s --share content --dry-run)\n", p.ID())
 	}
 	fmt.Fprintf(a.out, "  primary:        %v\n", p.Primary)
-	fmt.Fprintf(a.out, "  auth kind:      %s\n", p.AuthKind)
-	fmt.Fprintf(a.out, "  credentials:    %s\n", presentStr(pj.HasCredentials))
-	if p.Model != "" {
-		fmt.Fprintf(a.out, "  model:          %s\n", p.Model)
+	authLine := p.AuthKind
+	if fi, ok := fit["auth_kind"]; ok {
+		authLine += " (" + fi.Detail + "; fix: " + fi.Fix + ")"
 	}
-	if p.Endpoint != "" {
-		fmt.Fprintf(a.out, "  endpoint:       %s\n", p.Endpoint)
+	fmt.Fprintf(a.out, "  auth kind:      %s\n", authLine)
+	printCredentials(a, sj.Credentials)
+	for _, f := range []struct{ field, value string }{{"model", p.Model}, {"endpoint", p.Endpoint}} {
+		if f.value == "" {
+			continue
+		}
+		line := f.value
+		if fi, ok := fit[f.field]; ok {
+			line += " (" + fi.Detail + "; fix: " + fi.Fix + ")"
+		}
+		fmt.Fprintf(a.out, "  %-15s %s\n", f.field+":", line)
 	}
 	fmt.Fprintf(a.out, "  config dir:     %s\n", pj.ConfigDir)
 	fmt.Fprintf(a.out, "  wrapper:        %s [%s]\n", pj.WrapperPath, pj.WrapperStatus)
@@ -277,8 +347,15 @@ func printEntries(a *app, entries []layer.EntryTreatment) {
 
 // profileToJSON builds the secret-free JSON representation of a profile.
 func (a *app) profileToJSON(p *profile.Profile) profileJSON {
+	pj, _ := a.profileToJSONErr(p)
+	return pj
+}
+
+// profileToJSONErr is profileToJSON with the reason an unknown wrapper status has.
+func (a *app) profileToJSONErr(p *profile.Profile) (profileJSON, error) {
 	def, _ := a.set.Get(p.Harness)
 	configDir := a.paths.ProfileConfigDir(p.Harness, p.Name)
+	status, statusErr := a.wrapperStatusErr(p, def)
 	pj := profileJSON{
 		Harness:       p.Harness,
 		Name:          p.Name,
@@ -290,7 +367,7 @@ func (a *app) profileToJSON(p *profile.Profile) profileJSON {
 		Model:         p.Model,
 		Endpoint:      p.Endpoint,
 		HerdrAgent:    p.HerdrAgent,
-		WrapperStatus: a.wrapperStatus(p, def),
+		WrapperStatus: status,
 		ConfigDir:     configDir,
 
 		Share:            string(p.ShareLevel()),
@@ -298,8 +375,10 @@ func (a *app) profileToJSON(p *profile.Profile) profileJSON {
 		ShareImplicit:    p.ShareImplicit,
 	}
 	if def != nil {
-		pj.HasCredentials = layer.HasCredentials(def, configDir)
-		pj.WrapperPath = filepath.Join(a.paths.BinDir, def.WrapperPrefix+"-"+p.Name)
+		// list does not call the auth-status hook (one hook call per profile would slow
+		// it down); show does, and may report present where list does not.
+		pj.HasCredentials = a.credentialStatus(p, def, false).Present
+		pj.WrapperPath = filepath.Join(a.paths.BinDir, def.WrapperName(p.Name))
 	}
 	if len(p.AuthRefs) > 0 {
 		pj.AuthRefs = map[string]string{}
@@ -317,45 +396,191 @@ func (a *app) profileToJSON(p *profile.Profile) profileJSON {
 		}
 		pj.ExtraEnv = append(pj.ExtraEnv, ej)
 	}
-	return pj
+	return pj, statusErr
 }
 
 // wrapperStatus reports whether a profile's on-disk wrapper matches what sync
-// would render (FR-006b): synced | stale | missing.
+// would render (FR-006b): synced | stale | missing, or unknown when that cannot be
+// told (no definition, or the exec hook's env operation failed).
 func (a *app) wrapperStatus(p *profile.Profile, def *harness.Definition) string {
-	if def == nil {
-		return "unknown"
-	}
-	path := filepath.Join(a.paths.BinDir, def.WrapperPrefix+"-"+p.Name)
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		return "missing"
-	}
-	configDir := a.paths.ProfileConfigDir(p.Harness, p.Name)
-	hookEnv, err := harness.RunEnvHook(def, harness.HookContext{
-		Harness:   p.Harness,
-		Profile:   p.Name,
-		ConfigDir: configDir,
-		AuthKind:  p.AuthKind,
-		Model:     p.Model,
-		Endpoint:  p.Endpoint,
-	})
-	if err != nil {
-		return "unknown"
-	}
-	want, err := wrapper.RenderWith(p, def, configDir, wrapper.RenderOptions{HookEnv: hookEnv})
-	if err != nil {
-		return "unknown"
-	}
-	if string(existing) == want {
-		return "synced"
-	}
-	return "stale"
+	status, _ := a.wrapperStatusErr(p, def)
+	return status
 }
 
-func presentStr(present bool) string {
-	if present {
-		return "present"
+// wrapperStatusErr is wrapperStatus with the reason an unknown status has (nil for
+// a missing definition, which list reports on its own).
+func (a *app) wrapperStatusErr(p *profile.Profile, def *harness.Definition) (string, error) {
+	if def == nil {
+		return "unknown", nil
 	}
-	return "none"
+	existing, err := os.ReadFile(filepath.Join(a.paths.BinDir, def.WrapperName(p.Name)))
+	if err != nil {
+		return "missing", nil
+	}
+	want, err := wrapper.Expected(p, def, a.paths.ProfileConfigDir(p.Harness, p.Name))
+	if err != nil {
+		return "unknown", err
+	}
+	if string(existing) == want {
+		return "synced", nil
+	}
+	return "stale", nil
+}
+
+// statusReasons collects why wrapper statuses are unknown and prints the first
+// reason once per harness on stderr (M13: a failing exec hook would otherwise leave
+// every profile of the harness at "unknown" without a word).
+type statusReasons struct {
+	order []string
+	first map[string]error
+}
+
+func (r *statusReasons) add(harnessName string, err error) {
+	if err == nil {
+		return
+	}
+	if r.first == nil {
+		r.first = map[string]error{}
+	}
+	if _, seen := r.first[harnessName]; !seen {
+		r.first[harnessName] = err
+		r.order = append(r.order, harnessName)
+	}
+}
+
+func (r *statusReasons) print(a *app) {
+	for _, h := range r.order {
+		fmt.Fprintf(a.errOut, "aprofile: wrapper status of %s profiles is unknown: %v\n", h, r.first[h])
+	}
+}
+
+// Credential sources show reports (FR-039).
+const (
+	credSourceFiles      = "files"       // a credentials-layer file or key in the config dir
+	credSourceReferences = "references"  // every variable of the auth kind has a resolving reference
+	credSourceAuthStatus = "auth-status" // the exec hook's auth-status answered ok (Keychain logins)
+)
+
+// credentialsJSON is show's credential report (FR-039, T066). It never carries a
+// secret value: references are the reference text and whether it resolves now.
+type credentialsJSON struct {
+	Present    bool                `json:"present"`
+	Sources    []string            `json:"sources"`
+	References []credentialRefJSON `json:"references"`
+	AuthStatus *authStatusJSON     `json:"auth_status,omitempty"`
+}
+
+type credentialRefJSON struct {
+	Variable  string `json:"variable"`
+	Reference string `json:"reference"`
+	Resolves  bool   `json:"resolves"`
+	Problem   string `json:"problem,omitempty"` // why it does not resolve (never a value)
+}
+
+// authStatusJSON is the hook's auth-status answer: ok | missing | unknown from the
+// hook, or not-installed (the executable is not on PATH), unsupported (exit 64) or
+// error (the call failed; see error).
+type authStatusJSON struct {
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// credentialStatus reports whether a profile has credentials, from three sources:
+// credential files in the config dir, the auth kind's references (present when every
+// variable the kind sets has a reference that resolves now), and, with callHook, the
+// exec hook's auth-status operation, which covers logins kept in the macOS Keychain.
+// A failing hook never fails the caller; it is reported in AuthStatus.
+func (a *app) credentialStatus(p *profile.Profile, def *harness.Definition, callHook bool) credentialsJSON {
+	cj := credentialsJSON{Sources: []string{}, References: []credentialRefJSON{}}
+	if def == nil {
+		return cj
+	}
+	configDir := a.paths.ProfileConfigDir(p.Harness, p.Name)
+	if layer.HasCredentials(def, configDir) {
+		cj.Sources = append(cj.Sources, credSourceFiles)
+	}
+
+	var vars []string
+	if ak, ok := def.AuthKind(p.AuthKind); ok {
+		vars = ak.VarNames()
+	}
+	for v := range p.AuthRefs {
+		if !slices.Contains(vars, v) {
+			vars = append(vars, v)
+		}
+	}
+	sort.Strings(vars)
+	allResolve := len(vars) > 0
+	for _, v := range vars {
+		rj := credentialRefJSON{Variable: v}
+		ref, ok := p.AuthRefs[v]
+		if !ok {
+			rj.Problem = "no reference set"
+		} else {
+			rj.Reference = ref.Raw
+			if _, err := secret.Resolve(ref); err != nil {
+				rj.Problem = err.Error()
+			} else {
+				rj.Resolves = true
+			}
+		}
+		allResolve = allResolve && rj.Resolves
+		cj.References = append(cj.References, rj)
+	}
+	if allResolve {
+		cj.Sources = append(cj.Sources, credSourceReferences)
+	}
+
+	if callHook && def.HookDeclares("auth-status") {
+		st, err := harness.RunAuthStatusHook(def, harness.HookContext{
+			Harness: p.Harness, Profile: p.Name, ConfigDir: configDir, AuthKind: p.AuthKind,
+		})
+		as := &authStatusJSON{Status: st.Status, Detail: st.Detail}
+		switch {
+		case err != nil:
+			as.Status, as.Error = "error", err.Error()
+		case st.NotInstalled:
+			as.Status = "not-installed"
+			as.Detail = harness.HookExecutable(def.Name) + " is not on PATH"
+		case st.Status == "":
+			as.Status = "unsupported"
+		}
+		cj.AuthStatus = as
+		if as.Status == "ok" {
+			cj.Sources = append(cj.Sources, credSourceAuthStatus)
+		}
+	}
+	cj.Present = len(cj.Sources) > 0
+	return cj
+}
+
+// printCredentials prints show's credential lines: present or none with the
+// sources, each reference and whether it resolves, and the hook's auth-status.
+func printCredentials(a *app, c credentialsJSON) {
+	status := "none"
+	if c.Present {
+		status = "present (" + strings.Join(c.Sources, ", ") + ")"
+	}
+	fmt.Fprintf(a.out, "  credentials:    %s\n", status)
+	for _, r := range c.References {
+		switch {
+		case r.Resolves:
+			fmt.Fprintf(a.out, "                  %s: %s resolves\n", r.Variable, r.Reference)
+		case r.Reference == "":
+			fmt.Fprintf(a.out, "                  %s: %s\n", r.Variable, r.Problem)
+		default:
+			fmt.Fprintf(a.out, "                  %s: %s does not resolve (%s)\n", r.Variable, r.Reference, r.Problem)
+		}
+	}
+	if as := c.AuthStatus; as != nil {
+		line := "auth-status hook: " + as.Status
+		switch {
+		case as.Error != "":
+			line += " (" + as.Error + ")"
+		case as.Detail != "":
+			line += " (" + as.Detail + ")"
+		}
+		fmt.Fprintf(a.out, "                  %s\n", line)
+	}
 }

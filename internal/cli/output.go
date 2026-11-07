@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
-	"github.com/rivo/uniseg"
 	"github.com/spf13/cobra"
 
+	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/cc-deck/aprofile/internal/tui"
 )
 
 func cmdErr() io.Writer { return os.Stderr }
@@ -59,7 +59,16 @@ func styleLabel(w io.Writer, label, color, icon string) string {
 	if !colorEnabled(w) || color == "" {
 		return text
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(text)
+	return colorize(text, color)
+}
+
+// colorize renders text in a profile color. Named ANSI colors are mapped to their
+// codes first (tui.TerminalColor): lipgloss renders a bare name as no color (T080).
+func colorize(text, color string) string {
+	if color == "" {
+		return text
+	}
+	return lipgloss.NewStyle().Foreground(tui.TerminalColor(color)).Render(text)
 }
 
 // writeJSON encodes v as indented JSON to w.
@@ -70,54 +79,28 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// ansiColorNames are the named terminal colors FR-001 accepts.
-var ansiColorNames = map[string]bool{
-	"black": true, "red": true, "green": true, "yellow": true, "blue": true,
-	"magenta": true, "cyan": true, "white": true, "gray": true, "grey": true,
-	"brightblack": true, "brightred": true, "brightgreen": true, "brightyellow": true,
-	"brightblue": true, "brightmagenta": true, "brightcyan": true, "brightwhite": true,
-}
+// validateColor enforces FR-001 (an ANSI color name or #rrggbb; empty means no
+// color). It delegates to profile.ValidateColor so the store, CLI and TUI share one
+// rule.
+func validateColor(c string) error { return profile.ValidateColor(c) }
 
-var hexColorRE = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-
-// validateColor enforces FR-001: an ANSI color name or #rrggbb. Empty is allowed
-// (no color).
-func validateColor(c string) error {
-	if c == "" {
-		return nil
-	}
-	if strings.HasPrefix(c, "#") {
-		if !hexColorRE.MatchString(c) {
-			return fmt.Errorf("color %q must be #rrggbb", c)
-		}
-		return nil
-	}
-	if !ansiColorNames[strings.ToLower(c)] {
-		return fmt.Errorf("color %q is not an ANSI color name or #rrggbb", c)
-	}
-	return nil
-}
-
-// validateIcon enforces FR-001: a single Unicode grapheme. Empty is allowed.
-func validateIcon(icon string) error {
-	if icon == "" {
-		return nil
-	}
-	if uniseg.GraphemeClusterCount(icon) != 1 {
-		return fmt.Errorf("icon %q must be a single Unicode grapheme", icon)
-	}
-	return nil
-}
+// validateIcon enforces FR-001 (a single Unicode grapheme; empty means no icon) via
+// profile.ValidateIcon.
+func validateIcon(icon string) error { return profile.ValidateIcon(icon) }
 
 // validEnvName reports whether name is a valid environment variable name. It
 // delegates to secret.ValidEnvVarName so the store, loader and CLI share one rule.
 func validEnvName(name string) bool { return secret.ValidEnvVarName(name) }
 
-// parseProfileRef parses a "<harness>/<name>" reference.
+// parseProfileRef parses a "<harness>/<name>" reference. Both parts must be valid
+// names (validateProfileID), so a reference never smuggles a path into a join.
 func parseProfileRef(s string) (harness, name string, err error) {
 	parts := strings.SplitN(s, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("profile reference %q must be <harness>/<name>", s)
+	}
+	if err := validateProfileID(parts[0], parts[1]); err != nil {
+		return "", "", fmt.Errorf("profile reference %q: %w", s, err)
 	}
 	return parts[0], parts[1], nil
 }

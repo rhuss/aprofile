@@ -141,7 +141,7 @@ func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule
 		return et
 	}
 	treat := def.Treatment(rule.Layer, level)
-	srcExists := pathExists(src)
+	srcExists := PathExists(src)
 	cat := categoryNote(rule.Layer)
 	switch treat {
 	case harness.TreatLink:
@@ -220,7 +220,7 @@ func differsFromDefault(def *harness.Definition, rel, path, src string) bool {
 			return true
 		}
 	}
-	if isJSONExt(filepath.Ext(path)) {
+	if IsJSONExt(filepath.Ext(path)) {
 		pa, e1 := decodeAnyObject(pd)
 		da, e2 := decodeAnyObject(dd)
 		if e1 == nil && e2 == nil {

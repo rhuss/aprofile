@@ -167,23 +167,30 @@ type HomeEscape struct {
 
 // Definition is the full data record for one harness (FR-007).
 type Definition struct {
-	Name                  string          `yaml:"name" json:"name"`
-	Binary                string          `yaml:"binary" json:"binary"`
-	WrapperPrefix         string          `yaml:"wrapper_prefix" json:"wrapper_prefix"`
-	ConfigEnv             ConfigEnv       `yaml:"config_env" json:"config_env"`
-	DefaultConfigLocation string          `yaml:"default_config_location" json:"default_config_location,omitempty"`
-	ModelVar              string          `yaml:"model_var" json:"model_var,omitempty"`
-	EndpointVar           string          `yaml:"endpoint_var" json:"endpoint_var,omitempty"`
-	AuthKinds             []AuthKind      `yaml:"auth_kinds" json:"auth_kinds,omitempty"`
-	DefaultAuthKind       string          `yaml:"default_auth_kind" json:"default_auth_kind,omitempty"`
-	Classification        []EntryRule     `yaml:"classification" json:"classification,omitempty"`
-	ConfigPatches         []ConfigPatch   `yaml:"config_patches" json:"config_patches,omitempty"`
-	MCP                   *MCPLocation    `yaml:"mcp" json:"mcp,omitempty"`
-	SkillsLocation        *SkillsLocation `yaml:"skills_location" json:"skills_location,omitempty"`
-	PluginMechanism       string          `yaml:"plugin_mechanism" json:"plugin_mechanism,omitempty"`
-	OmarchyProvider       string          `yaml:"omarchy_provider" json:"omarchy_provider,omitempty"`
-	Capabilities          []string        `yaml:"capabilities" json:"capabilities,omitempty"`
-	ExecHook              *ExecHook       `yaml:"exec_hook" json:"exec_hook,omitempty"`
+	Name                  string     `yaml:"name" json:"name"`
+	Binary                string     `yaml:"binary" json:"binary"`
+	WrapperPrefix         string     `yaml:"wrapper_prefix" json:"wrapper_prefix"`
+	ConfigEnv             ConfigEnv  `yaml:"config_env" json:"config_env"`
+	DefaultConfigLocation string     `yaml:"default_config_location" json:"default_config_location,omitempty"`
+	ModelVar              string     `yaml:"model_var" json:"model_var,omitempty"`
+	EndpointVar           string     `yaml:"endpoint_var" json:"endpoint_var,omitempty"`
+	AuthKinds             []AuthKind `yaml:"auth_kinds" json:"auth_kinds,omitempty"`
+	// AuthClears lists environment variables that every auth kind clears unless the
+	// kind sets the variable itself: provider switches and their settings that must
+	// never leak from the caller's shell into a profile (FR-007, FR-027). The wrapper
+	// and login unset them together with every auth kind's variables, then set the
+	// selected kind's own; a hook's env operation may not set them.
+	AuthClears      []string        `yaml:"auth_clears" json:"auth_clears,omitempty"`
+	DefaultAuthKind string          `yaml:"default_auth_kind" json:"default_auth_kind,omitempty"`
+	LoginCommand    *LoginCommand   `yaml:"login_command" json:"login_command,omitempty"`
+	Classification  []EntryRule     `yaml:"classification" json:"classification,omitempty"`
+	ConfigPatches   []ConfigPatch   `yaml:"config_patches" json:"config_patches,omitempty"`
+	MCP             *MCPLocation    `yaml:"mcp" json:"mcp,omitempty"`
+	SkillsLocation  *SkillsLocation `yaml:"skills_location" json:"skills_location,omitempty"`
+	PluginMechanism string          `yaml:"plugin_mechanism" json:"plugin_mechanism,omitempty"`
+	OmarchyProvider string          `yaml:"omarchy_provider" json:"omarchy_provider,omitempty"`
+	Capabilities    []string        `yaml:"capabilities" json:"capabilities,omitempty"`
+	ExecHook        *ExecHook       `yaml:"exec_hook" json:"exec_hook,omitempty"`
 	// DefaultLocations maps a profile-relative prefix to its default-setup location,
 	// for harnesses whose config is spread over several directories (OpenCode's XDG
 	// set). An entry without a matching prefix lives under DefaultConfigLocation.
@@ -206,6 +213,15 @@ type AuthKind struct {
 	// marker is "ref" when the variable expects a secret reference; a kind with no
 	// vars (e.g. an interactive login) carries credentials in files/Keychain.
 	Vars map[string]string `yaml:"vars" json:"vars,omitempty"`
+}
+
+// LoginCommand declares how `aprofile login` runs the harness's own login flow
+// (FR-039): the binary is started with Args under the profile's environment. An
+// empty Args list starts the bare binary, for harnesses whose sign-in happens inside
+// a session; Note is printed before the launch to tell the user what to do.
+type LoginCommand struct {
+	Args []string `yaml:"args" json:"args"`
+	Note string   `yaml:"note,omitempty" json:"note,omitempty"`
 }
 
 // VarNames returns the environment variable names this auth kind sets, sorted for
@@ -323,7 +339,11 @@ func (d *Definition) DefaultPathUnder(home, rel string) string {
 
 // DefaultRoots returns the default-setup directories with the profile-relative
 // prefix each one corresponds to, sorted by prefix. Used to enumerate entries the
-// default setup holds (FR-001a).
+// default setup holds (FR-001a). A default_locations prefix may relocate a single
+// entry (Claude Code keeps .claude.json at ~/.claude.json, outside ~/.claude); the
+// entries no prefix covers then still live under default_config_location, which is
+// a root too, with the empty prefix. A definition whose prefixes cover every
+// classification rule (OpenCode's XDG set) gets no such root.
 func (d *Definition) DefaultRoots() []DefaultRoot {
 	var out []DefaultRoot
 	if len(d.DefaultLocations) == 0 {
@@ -333,7 +353,31 @@ func (d *Definition) DefaultRoots() []DefaultRoot {
 		out = append(out, DefaultRoot{Prefix: strings.TrimSuffix(prefix, "/"), Dir: ExpandHome(loc)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Prefix < out[j].Prefix })
+	if d.DefaultConfigLocation != "" && d.hasEntryOutsideDefaultLocations() {
+		out = append([]DefaultRoot{{Prefix: "", Dir: ExpandHome(d.DefaultConfigLocation)}}, out...)
+	}
 	return out
+}
+
+// hasEntryOutsideDefaultLocations reports whether a classification rule's entry lies
+// under none of the default_locations prefixes.
+func (d *Definition) hasEntryOutsideDefaultLocations() bool {
+	covered := func(entry string) bool {
+		e := strings.TrimSuffix(filepath.ToSlash(entry), "/")
+		for prefix := range d.DefaultLocations {
+			p := strings.TrimSuffix(filepath.ToSlash(prefix), "/")
+			if e == p || strings.HasPrefix(e, p+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, r := range d.Classification {
+		if !covered(r.Entry) {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultRoot pairs a default-setup directory with its profile-relative prefix.
@@ -431,6 +475,36 @@ func (d *Definition) AllAuthVars() []string {
 	}
 	sortStrings(out)
 	return out
+}
+
+// UnsetAuthVars returns every variable the wrapper and login clear before setting
+// the selected auth kind's own: all auth kinds' variables plus auth_clears, sorted
+// and de-duplicated. A clear that the selected kind sets is still unset first and
+// then set from the profile, so clears apply to every kind except the one that sets
+// the variable (FR-027).
+func (d *Definition) UnsetAuthVars() []string {
+	all := d.AllAuthVars()
+	seen := make(map[string]bool, len(all)+len(d.AuthClears))
+	for _, v := range all {
+		seen[v] = true
+	}
+	for _, v := range d.AuthClears {
+		if !seen[v] {
+			seen[v] = true
+			all = append(all, v)
+		}
+	}
+	sortStrings(all)
+	return all
+}
+
+// LoginArgv returns the argv of the declared login command (binary first), or nil
+// when the definition declares none (FR-039).
+func (d *Definition) LoginArgv() []string {
+	if d.LoginCommand == nil {
+		return nil
+	}
+	return append([]string{d.Binary}, d.LoginCommand.Args...)
 }
 
 // HasCapability reports whether the definition declares the given capability.

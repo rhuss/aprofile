@@ -37,10 +37,10 @@ The user-facing unit. One human-readable file per profile at
 | `harness` | string | Must name a loadable harness definition. Part of identity. |
 | `name` | string | `^[a-z][a-z0-9-]{0,62}[a-z0-9]$`. Part of identity. |
 | `label` | string | Human label; defaults to name. |
-| `color` | string | Terminal color (named or hex, per FR-001). |
-| `icon` | string | Short glyph/emoji (per FR-001). |
+| `color` | string | Terminal color (named or hex, per FR-001). Rejected on save and input; an invalid value in a hand-edited file is cleared on load with a warning. |
+| `icon` | string | Short glyph/emoji (per FR-001). Same load rule as `color`. |
 | `primary` | bool | At most one primary per harness; setting it moves the flag (FR-001). |
-| `auth_kind` | enum | One of the harness definition's declared auth kinds (FR-038). |
+| `auth_kind` | enum | One of the harness definition's declared auth kinds (FR-038). An undeclared kind still loads; `sync` reports the profile as failed and `doctor`/`show` report it (FR-006). |
 | `auth_refs` | map[string]Reference | Secret references for the auth kind; never literals (FR-028). |
 | `model` | string? | Optional; rendered as the harness's model variable, caller-overridable (FR-027). |
 | `endpoint` | string? | Optional; rendered as the harness's endpoint variable, caller-overridable. |
@@ -90,14 +90,14 @@ merged (FR-009); `harness show` marks which fields were overridden.
 | `binary` | string | Executable name to exec. |
 | `wrapper_prefix` | string | Wrapper is `<wrapper_prefix>-<profile name>` (FR-022). |
 | `config_env` | ordered map[var]path | Environment variables that redirect the harness into the profile, each mapped to a path relative to the profile root (`.` = the root). One entry for Claude (`CLAUDE_CONFIG_DIR: .`) and Codex (`CODEX_HOME: .`); two for pi (`PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`); the XDG set for OpenCode (FR-020). `APROFILE_CONFIG_DIR` is always the profile root. See [research.md](./research.md). |
-| `default_config_location` | path | Where the harness's default setup lives (link source for shared). |
+| `default_config_location` | path | Where the harness's default setup lives (link source for shared; superseded by 002: link and copy source for content, settings, plugin store and hook location). |
 | `model_var` | string? | Env var carrying the model. |
 | `endpoint_var` | string? | Env var carrying the endpoint. |
 | `auth_kinds` | []AuthKind | Declared auth kinds with their variable/reference shape (FR-038). |
 | `classification` | []EntryRule | Per-entry layer rules; a structured file may be `mixed` with per-key layers (FR-013). |
 | `config_patches` | []ConfigPatch | Merge-only patches into existing files (FR-019). |
 | `mcp` | MCPLocation? | File path + schema flavor; absent when no `mcp` capability. |
-| `skills_location` | SkillsLocation? | Path + whether per-profile or shared (FR-021). |
+| `skills_location` | SkillsLocation? | Path + whether per-profile or shared (FR-021). Superseded by 002 (FR-008): `scope` is ignored, skills are content, and locations read relative to `$HOME` are `home_escapes`. |
 | `plugin_mechanism` | string? | How plugins are enabled (owned set); not carried across harnesses (FR-036). |
 | `omarchy_provider` | string? | Provider name for Omarchy export (FR-031). |
 | `capabilities` | set | At least `login`, `oauth-token`, `native-profiles`, `mcp` (FR-007). |
@@ -108,7 +108,7 @@ merged (FR-009); `harness show` marks which fields were overridden.
 | Field | Type | Values |
 |-------|------|--------|
 | `entry` | string/glob | Path within the config dir, or a structured file name. |
-| `layer` | enum | `credentials` \| `owned` \| `state` \| `shared` \| `mixed`. |
+| `layer` | enum | `credentials` \| `owned` \| `state` \| `shared` \| `mixed`. Superseded by 002 (FR-009): `shared` is replaced by `content`, `settings`, `plugin-store` and `hook-location`; a user file's `shared` still loads, read as `content`, and `doctor` reports it. |
 | `keys` | map[string]layer | Only for `mixed`: top-level key → layer. Keys not covered are reported as unclassified (FR-013, FR-018). |
 
 ### 2b. ExecHook
@@ -131,9 +131,17 @@ one layer (FR-013):
 | Shared | Symlink to default setup | n/a | Everything else classified shared (FR-017). |
 | Unclassified | Left in place, reported | No | Never linked/copied; reported by `sync`/`doctor` (FR-018). |
 
+> **Superseded by 002 (FR-008, FR-009)**: the Shared row is replaced by content, settings, plugin
+> store and hook location, whose treatment depends on the profile's share level
+> (`specs/002-profile-isolation-levels/data-model.md`). Skills moved from owned to content.
+
 **Mixed file**: a JSON/TOML file with a layer per top-level key. Always a real per-profile file.
 `copy`/`mcp copy` merge only its owned keys. Shared keys are seeded once from the default setup
 when the profile file is first created and never rewritten; `doctor` reports drift (FR-013).
+Since 002, seeding happens at `all` and `content` only (not at `none`, 002 FR-011) and copies
+every key except credentials and state keys and undeclared keys whose name looks like a
+credential; `doctor` reports seeded keys that differ from the default setup and undeclared keys
+as information.
 
 ## 4. Wrapper
 
@@ -158,7 +166,8 @@ RegistryEntry per profile: `harness`, `name`, `label`, `color`, `icon`, `auth_ki
 
 **Omarchy export** (opt-in, FR-031): per-provider accounts file
 `{accounts:[{id,label,home,primary}]}` with `id = aprofile:<harness>/<name>`; non-aprofile entries
-preserved, stale `aprofile:` entries removed.
+preserved, stale `aprofile:` entries removed. A harness without `omarchy_provider` has no
+Omarchy entries: its profiles are skipped with a note on stderr.
 
 ## 6. MCPServerRecord (neutral) and ConversionReport
 

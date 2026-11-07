@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/tui"
 )
 
@@ -116,7 +118,7 @@ func uiAdd(cmd *cobra.Command, a *app) error {
 	// must be adopted explicitly (FR-004) so a re-added profile never silently inherits a
 	// prior account's credentials and state; warn when the harness binary is missing.
 	configDir := a.paths.ProfileConfigDir(id.Harness, id.Name)
-	if dirExists(configDir) {
+	if layer.DirExists(configDir) {
 		return fmt.Errorf("a config dir already exists at %s without a profile; use `aprofile add %s %s --adopt` to reuse it", configDir, id.Harness, id.Name)
 	}
 	if _, err := exec.LookPath(def.Binary); err != nil {
@@ -167,7 +169,17 @@ func uiCopy(cmd *cobra.Command, a *app, sel *tui.ProfileRow) error {
 	if err != nil || !ok {
 		return err
 	}
-	return runCopy(cmd, v.Source, v.Target, copyFlagsFromForm(v))
+	return runCopy(cmd, v.Source, v.Target, uiCopyFlags(v))
+}
+
+// uiCopyFlags maps the copy form's values onto the copy flags through the command's
+// own mapping, then adds the auth key reference and adopt choice the form collects,
+// the same values the --auth-key and --adopt flags carry (Constitution VI).
+func uiCopyFlags(v tui.CopyValues) *copyFlags {
+	f := copyFlagsFromForm(v)
+	f.authKey = strings.TrimSpace(v.AuthKey)
+	f.adopt = v.Adopt
+	return f
 }
 
 // uiRemove confirms and removes the selected profile through the same remove operation

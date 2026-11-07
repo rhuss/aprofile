@@ -23,9 +23,14 @@ const (
 
 // Server is the harness-neutral MCP server record (the data-model's MCPServerRecord,
 // FR-034). Env and Headers values are each either a secret reference (`env:NAME` or
-// `file:/abs/path`, recognized with internal/secret) or a literal. Auth is a bearer
-// token reference. Extra carries per-harness fields no neutral field models, so a
-// same-flavor round-trip can preserve them.
+// `file:/abs/path`, recognized with internal/secret), a template holding embedded
+// env references or a default (`tmpl:Bearer ${env:NAME}`, see template.go) or a
+// literal, or (only from pi) a shell command `cmd:<text>` (pi's `!<text>`); Args, URL,
+// Command and WorkingDir values are a template or a literal. A literal that would be
+// read back as one of these forms is held as a template (neutralLiteral). Auth is a bearer token
+// reference. Timeout is the per-request timeout in seconds. Extra carries per-harness fields no neutral field models, keyed by
+// source flavor (see extra.go), so a same-flavor round-trip can preserve them and a
+// cross-flavor conversion reports each one as dropped.
 type Server struct {
 	Name        string            `json:"name"`
 	Transport   Transport         `json:"transport"`

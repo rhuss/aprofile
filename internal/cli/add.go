@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
 	"github.com/cc-deck/aprofile/internal/tui"
@@ -85,11 +86,16 @@ func runAdd(cmd *cobra.Command, harnessName, name string, f *profileFlags) error
 	if a.store.Exists(harnessName, name) {
 		return fmt.Errorf("profile %s/%s already exists", harnessName, name)
 	}
+	// FR-002: checked before the form opens, so the user is not asked for values of a
+	// profile that cannot be created.
+	if err := checkWrapperClash(a, harnessName, name, ""); err != nil {
+		return err
+	}
 
 	// FR-004: a leftover config dir for this (harness, name) without a profile must
 	// be adopted explicitly.
 	configDir := a.paths.ProfileConfigDir(harnessName, name)
-	if dirExists(configDir) && !f.adopt {
+	if layer.DirExists(configDir) && !f.adopt {
 		return fmt.Errorf("a config dir already exists at %s without a profile; pass --adopt to reuse it", configDir)
 	}
 
@@ -131,6 +137,11 @@ func runAdd(cmd *cobra.Command, harnessName, name string, f *profileFlags) error
 // form-entered profile is identical to the equivalent command (Constitution VI,
 // SC-008).
 func createProfileFromFlags(a *app, def *harness.Definition, harnessName, name string, f *profileFlags) error {
+	// FR-002: a wrapper name another profile has is rejected (the ui add path
+	// reaches here without runAdd's early check).
+	if err := checkWrapperClash(a, harnessName, name, ""); err != nil {
+		return err
+	}
 	p := &profile.Profile{
 		Harness:    harnessName,
 		Name:       name,
@@ -340,7 +351,8 @@ func applyValueFlags(p *profile.Profile, def *harness.Definition, f *profileFlag
 		} else if _, err := secret.ParseReference(val); err != nil {
 			return fmt.Errorf("--env %s: %w", name, err)
 		}
-		p.ExtraEnv = append(p.ExtraEnv, profile.ExtraEnvVar{Name: name, Value: val})
+		// A repeated NAME is stored once; the last value wins (FR-001).
+		upsertEnv(p, profile.ExtraEnvVar{Name: name, Value: val})
 	}
 	for _, kv := range f.envLiteral {
 		name, val, err := splitEnv(kv)
@@ -350,7 +362,7 @@ func applyValueFlags(p *profile.Profile, def *harness.Definition, f *profileFlag
 		if err := secret.ValidateValue(val, true); err != nil {
 			return fmt.Errorf("--env-literal %s: %w", name, err)
 		}
-		p.ExtraEnv = append(p.ExtraEnv, profile.ExtraEnvVar{Name: name, Value: val, Literal: true})
+		upsertEnv(p, profile.ExtraEnvVar{Name: name, Value: val, Literal: true})
 	}
 	return nil
 }
@@ -386,9 +398,4 @@ func clearOtherPrimaries(a *app, p *profile.Profile) error {
 		fmt.Fprintf(a.out, "moved primary flag from %s to %s\n", peer.ID(), p.ID())
 	}
 	return nil
-}
-
-func dirExists(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && fi.IsDir()
 }

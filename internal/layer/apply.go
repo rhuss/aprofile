@@ -91,7 +91,7 @@ func applyStep(s Step) error {
 			return fmt.Errorf("remove link %s: %w", s.Path, err)
 		}
 	case StepCopyOnce, StepCreate, StepSeedMixed:
-		if pathExists(s.Path) {
+		if PathExists(s.Path) {
 			return fmt.Errorf("%s %s: the entry already exists", s.Kind, s.Path)
 		}
 		if s.Data == nil && s.IsDir && s.Source != "" {

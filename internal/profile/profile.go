@@ -44,6 +44,9 @@ type Profile struct {
 	// ShareImplicit is true when the file did not store a share level and the
 	// profile was loaded as all (FR-033); show uses it for the upgrade hint.
 	ShareImplicit bool `yaml:"-"`
+	// LoadWarnings lists problems Load repaired instead of failing (an invalid color
+	// or icon is ignored); the next save writes the repaired profile.
+	LoadWarnings []string `yaml:"-"`
 }
 
 // Share is a profile's share level.
@@ -132,6 +135,13 @@ func (p *Profile) Validate() error {
 	}
 	if p.Harness == "" {
 		return fmt.Errorf("profile %s: harness is required", p.ID())
+	}
+	// FR-001 appearance checks run here so load, save and import all apply them.
+	if err := ValidateColor(p.Color); err != nil {
+		return fmt.Errorf("profile %s: %w", p.ID(), err)
+	}
+	if err := ValidateIcon(p.Icon); err != nil {
+		return fmt.Errorf("profile %s: %w", p.ID(), err)
 	}
 	if p.Share != "" && !p.Share.Valid() {
 		return fmt.Errorf("profile %s: share level %q must be all, content or none", p.ID(), p.Share)

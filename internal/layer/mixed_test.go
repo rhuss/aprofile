@@ -75,9 +75,9 @@ func TestMergeMixedOwnedRejectsNonJSON(t *testing.T) {
 	}
 }
 
-func TestMixedSharedDriftDetectsChange(t *testing.T) {
+func TestMixedSeededDriftDetectsChange(t *testing.T) {
 	rule := mixedRule()
-	drift, err := layer.MixedSharedDrift(rule,
+	drift, err := layer.MixedSeededDrift(rule,
 		[]byte(`{"sharedKey":"changed","ownedA":"x"}`),
 		[]byte(`{"sharedKey":"original","ownedA":"y"}`), ".json")
 	if err != nil {
@@ -88,7 +88,7 @@ func TestMixedSharedDriftDetectsChange(t *testing.T) {
 	}
 
 	// Key order differences in a value must NOT be reported as drift.
-	drift2, _ := layer.MixedSharedDrift(rule,
+	drift2, _ := layer.MixedSeededDrift(rule,
 		[]byte(`{"sharedKey":{"a":1,"b":2}}`),
 		[]byte(`{"sharedKey":{"b":2,"a":1}}`), ".json")
 	if len(drift2) != 0 {

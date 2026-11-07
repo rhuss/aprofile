@@ -222,6 +222,9 @@ func planSettingsPull(def *harness.Definition, configDir string, keys []string, 
 		if removed == nil {
 			removed = []string{}
 		}
+		if changed == nil {
+			changed = []string{}
+		}
 		report = append(report, settingsChangeJSON{Entry: rel, Kind: string(kind), Changed: changed, Removed: removed, Warnings: layer.SecretWarnings(defaultDoc)})
 		steps = append(steps, layer.Step{Kind: kind, Path: path, Entry: rel, Source: src, Data: data, Confirm: true,
 			Note: fmt.Sprintf("%d changed, %d removed; hooks untouched", len(changed), len(removed))})

@@ -26,11 +26,7 @@ type app struct {
 }
 
 func newApp(cmd *cobra.Command) (*app, error) {
-	paths, err := config.ResolvePaths()
-	if err != nil {
-		return nil, err
-	}
-	settings, err := config.LoadSettings(paths.ConfigDir)
+	paths, settings, err := config.Resolve()
 	if err != nil {
 		return nil, err
 	}
@@ -38,13 +34,18 @@ func newApp(cmd *cobra.Command) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+	errOut := cmd.ErrOrStderr()
+	store := profile.NewStore(paths)
+	// A profile that loads with a repaired field (an invalid color or icon is
+	// ignored) is reported once per command on stderr.
+	store.Warn = func(msg string) { fmt.Fprintf(errOut, "warning: %s\n", msg) }
 	return &app{
 		paths:    paths,
 		settings: settings,
 		set:      set,
-		store:    profile.NewStore(paths),
+		store:    store,
 		out:      cmd.OutOrStdout(),
-		errOut:   cmd.ErrOrStderr(),
+		errOut:   errOut,
 	}, nil
 }
 

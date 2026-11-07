@@ -43,12 +43,20 @@ const CodexHooksJSON = `{
 }
 `
 
+// ClaudeJSON is the fake default Claude Code .claude.json. SeedDefaultsAt places it
+// at ~/.claude.json (the claude definition's default_locations), where Claude Code
+// keeps it without CLAUDE_CONFIG_DIR. It holds keys of every layer: credentials
+// (oauthAccount, primaryApiKey), owned (mcpServers), state (userID, projects,
+// numStartups, tipsHistory) and preferences (autoUpdates, showSpinnerTree). The
+// credential and state values are canaries tests can search for.
+const ClaudeJSON = `{"oauthAccount":{"email":"me@example.com"},"primaryApiKey":"fixture-primary-key","userID":"fixture-user-id","mcpServers":{"fs":{"command":"mcp-fs"}},"projects":{"/x":{}},"numStartups":3,"tipsHistory":{"tip":1},"autoUpdates":false,"showSpinnerTree":true}`
+
 // DefaultEntries lists the fake default-setup entries per harness.
 var DefaultEntries = map[string]map[string]string{
 	"claude": {
 		".credentials.json":      `{"token":"default-account"}`,
 		".credentials.lock":      "",
-		".claude.json":           `{"oauthAccount":{"email":"me@example.com"},"mcpServers":{"fs":{"command":"mcp-fs"}},"projects":{"/x":{}},"numStartups":3}`,
+		".claude.json":           ClaudeJSON,
 		"projects/":              "",
 		"projects/p1/s.jsonl":    "{}",
 		"history.jsonl":          `{"display":"default prompt"}`,
@@ -175,7 +183,8 @@ func SeedDefaultsAt(t *testing.T, home, harnessName string) {
 }
 
 // DefaultDir returns where a harness's default setup lives under home (its
-// default_config_location, expanded).
+// default_config_location, expanded). Entries relocated by default_locations live
+// elsewhere (Claude's .claude.json at ~/.claude.json); use DefaultPathUnder for those.
 func DefaultDir(t *testing.T, home, harnessName string) string {
 	t.Helper()
 	set, _ := harness.LoadBuiltins()

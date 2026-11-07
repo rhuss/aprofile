@@ -29,6 +29,13 @@ auth_kinds:
   - name: login
     vars: {} # interactive login; credentials in agent/auth.json
 
+# pi has no login subcommand (pi 1.3.0: `pi auth` only prints or checks
+# credentials). Sign-in is the /login command inside a session (pi README), so
+# `aprofile login` starts the bare binary with the profile's environment (FR-039).
+login_command:
+  args: []
+  note: "pi has no login subcommand: run /login inside the session, then exit"
+
 classification:
   # Entries verified on disk with pi 1.3.0 on 2026-11-04
   # (specs/002-profile-isolation-levels/research.md R1).

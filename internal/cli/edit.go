@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -112,9 +113,15 @@ func formEditDefaults(p *profile.Profile) *profileFlags {
 		hookSets:        append([]string(nil), p.HookSets...),
 		excludeHookSets: append([]string(nil), p.ExcludeHookSets...),
 	}
-	for _, ref := range p.AuthRefs {
-		f.authKey = ref.Raw
-		break
+	// The form has one key field. Pre-fill the reference of the lexically first
+	// variable so the choice is stable when a profile holds several.
+	vars := make([]string, 0, len(p.AuthRefs))
+	for v := range p.AuthRefs {
+		vars = append(vars, v)
+	}
+	if len(vars) > 0 {
+		sort.Strings(vars)
+		f.authKey = p.AuthRefs[vars[0]].Raw
 	}
 	return f
 }
@@ -423,6 +430,7 @@ func applyAuthEdit(p *profile.Profile, def *harness.Definition, f *profileFlags,
 		return fmt.Errorf("harness %q has no auth kind %q", def.Name, kindName)
 	}
 	p.AuthKind = kindName
+	vars := kind.VarNames()
 	if changed("auth-key") {
 		if f.authKey == "" {
 			p.AuthRefs = nil
@@ -432,7 +440,6 @@ func applyAuthEdit(p *profile.Profile, def *harness.Definition, f *profileFlags,
 		if err != nil {
 			return fmt.Errorf("--auth-key: %w", err)
 		}
-		vars := kind.VarNames()
 		if len(vars) == 0 {
 			return fmt.Errorf("auth kind %q takes no key", kindName)
 		}
@@ -440,6 +447,22 @@ func applyAuthEdit(p *profile.Profile, def *harness.Definition, f *profileFlags,
 			return fmt.Errorf("auth kind %q sets multiple variables; set them with --env", kindName)
 		}
 		p.AuthRefs = map[string]secret.Reference{vars[0]: refObj}
+		return nil
+	}
+	// The kind changed without a key: keep only the references of variables the new
+	// kind sets, so a reference of the old kind never lingers in the profile (FR-001).
+	var kept map[string]secret.Reference
+	for _, v := range vars {
+		if ref, ok := p.AuthRefs[v]; ok {
+			if kept == nil {
+				kept = map[string]secret.Reference{}
+			}
+			kept[v] = ref
+		}
+	}
+	p.AuthRefs = kept
+	if len(vars) == 1 && len(kept) == 0 {
+		return fmt.Errorf("auth kind %q needs a key: pass --auth-key env:NAME (or file:/abs/path) together with --auth-kind", kindName)
 	}
 	return nil
 }
@@ -464,7 +487,7 @@ func newRenameCmd() *cobra.Command {
 			return runRename(cmd, args[0], args[1], force)
 		},
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "rename even if a harness started for this profile is running")
+	cmd.Flags().BoolVar(&force, "force", false, "rename even if a harness started for this profile is running, or when that cannot be checked")
 	return cmd
 }
 
@@ -487,23 +510,45 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 	if a.store.Exists(h, newName) {
 		return fmt.Errorf("profile %s/%s already exists", h, newName)
 	}
+	// FR-002: the new wrapper name must not be another profile's.
+	if err := checkWrapperClash(a, h, newName, p.ID()); err != nil {
+		return err
+	}
 
 	oldConfigDir := a.paths.ProfileConfigDir(h, n)
-	if _, running, _ := profileRunning(oldConfigDir); !force && running {
-		return fmt.Errorf("profile %s is in use by a running harness; stop it or pass --force", p.ID())
+	if !force {
+		proc, running, known := profileRunning(oldConfigDir)
+		if running {
+			return exitErrorf(ExitProfileRunning, "profile %s is in use by a running harness (pid %d %s); stop it or pass --force", p.ID(), proc.PID, proc.Name)
+		}
+		if !known {
+			// The platform cannot tell (FR-006a): ask, as a share level change does.
+			err := confirmOrYes(cmd, fmt.Sprintf("cannot tell whether profile %s is running; continue only if it is stopped?", p.ID()), false)
+			if err == errDeclined {
+				fmt.Fprintln(a.out, "aborted; nothing changed")
+				return nil
+			}
+			if err != nil {
+				return exitErrorf(ExitNeedsConfirmation, "cannot tell whether profile %s is running; stop it and re-run with --force (nothing changed)", p.ID())
+			}
+		}
 	}
 
 	newConfigDir := a.paths.ProfileConfigDir(h, newName)
 	oldRecord, newRecord := a.paths.ManagedHooksPath(h, n), a.paths.ManagedHooksPath(h, newName)
+	oldCreds, newCreds := a.paths.CredentialsDir(h, n), a.paths.CredentialsDir(h, newName)
+	// Checked before anything moves, so a refused rename changes nothing.
 	if _, err := os.Stat(newRecord); err == nil {
-		// Checked before anything moves, so a refused rename changes nothing.
 		return fmt.Errorf("a managed-hooks record already exists at %s; remove it if no profile uses it", newRecord)
 	}
+	if layer.DirExists(oldConfigDir) && layer.DirExists(newConfigDir) {
+		return fmt.Errorf("a config dir already exists at %s", newConfigDir)
+	}
+	if layer.DirExists(oldCreds) && layer.DirExists(newCreds) {
+		return fmt.Errorf("an imported credentials dir already exists at %s; remove it if no profile uses it", newCreds)
+	}
 	// Move the config dir if it exists.
-	if dirExists(oldConfigDir) {
-		if dirExists(newConfigDir) {
-			return fmt.Errorf("a config dir already exists at %s", newConfigDir)
-		}
+	if layer.DirExists(oldConfigDir) {
 		if err := os.MkdirAll(filepath.Dir(newConfigDir), 0o755); err != nil {
 			return err
 		}
@@ -516,6 +561,19 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 	if err := moveRecord(oldRecord, newRecord); err != nil {
 		return err
 	}
+	// The credential files import copied for this profile move with it, and the
+	// profile's references into that dir follow (FR-006a).
+	if layer.DirExists(oldCreds) {
+		if err := os.MkdirAll(filepath.Dir(newCreds), 0o700); err != nil {
+			return err
+		}
+		if err := os.Rename(oldCreds, newCreds); err != nil {
+			return fmt.Errorf("move imported credentials dir: %w", err)
+		}
+	}
+	if err := rewriteCredentialPaths(p, oldCreds, newCreds); err != nil {
+		return err
+	}
 	// Move the store file (write new, remove old).
 	p.Name = newName
 	if err := a.store.Save(p); err != nil {
@@ -524,7 +582,46 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 	if err := a.store.Remove(h, n); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "renamed %s/%s to %s/%s (run: aprofile sync)\n", h, n, h, newName)
+	fmt.Fprintf(a.out, "renamed %s/%s to %s/%s; %s (run: aprofile sync)\n", h, n, h, newName, oldWrapperNote(a, h, n))
+	return nil
+}
+
+// rewriteCredentialPaths points every reference and path value of p that lies in
+// the old imported credentials dir at the same file in the new one: file: auth
+// references, file: extra variables, and the plain path values import writes for a
+// path variable (for example a credentials-file variable). Other values are left
+// alone.
+func rewriteCredentialPaths(p *profile.Profile, oldDir, newDir string) error {
+	move := func(path string) (string, bool) {
+		rel, err := filepath.Rel(oldDir, filepath.Clean(path))
+		if err != nil || !filepath.IsAbs(path) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", false
+		}
+		return filepath.Join(newDir, rel), true
+	}
+	for v, ref := range p.AuthRefs {
+		if ref.Kind != secret.KindFile {
+			continue
+		}
+		if np, ok := move(ref.Value); ok {
+			nr, err := secret.ParseReference("file:" + np)
+			if err != nil {
+				return fmt.Errorf("rewrite %s reference: %w", v, err)
+			}
+			p.AuthRefs[v] = nr
+		}
+	}
+	for i, e := range p.ExtraEnv {
+		val, prefix := e.Value, ""
+		if strings.HasPrefix(val, "file:") {
+			val, prefix = strings.TrimPrefix(val, "file:"), "file:"
+		} else if secret.IsReference(val) {
+			continue
+		}
+		if np, ok := move(val); ok {
+			p.ExtraEnv[i].Value = prefix + np
+		}
+	}
 	return nil
 }
 
@@ -553,12 +650,15 @@ func newRemoveCmd() *cobra.Command {
 			return runRemove(cmd, args[0], args[1], purge, yes)
 		},
 	}
-	cmd.Flags().BoolVar(&purge, "purge", false, "also delete the profile's config dir (credentials and state)")
+	cmd.Flags().BoolVar(&purge, "purge", false, "also delete the profile's config dir (credentials and state) and its imported credential files")
 	cmd.Flags().BoolVar(&yes, "yes", false, "skip the confirmation prompt for --purge")
 	return cmd
 }
 
 func runRemove(cmd *cobra.Command, h, n string, purge, yes bool) error {
+	if err := validateProfileID(h, n); err != nil {
+		return err
+	}
 	a, err := newApp(cmd)
 	if err != nil {
 		return err
@@ -567,9 +667,14 @@ func runRemove(cmd *cobra.Command, h, n string, purge, yes bool) error {
 		return fmt.Errorf("profile %s/%s does not exist", h, n)
 	}
 	configDir := a.paths.ProfileConfigDir(h, n)
+	credsDir := a.paths.CredentialsDir(h, n)
 
 	if purge {
-		err := confirmOrYes(cmd, fmt.Sprintf("Delete config dir %s including credentials and state?", configDir), yes)
+		prompt := fmt.Sprintf("Delete config dir %s including credentials and state?", configDir)
+		if layer.DirExists(credsDir) {
+			prompt = fmt.Sprintf("Delete config dir %s including credentials and state, and the imported credential files in %s?", configDir, credsDir)
+		}
+		err := confirmOrYes(cmd, prompt, yes)
 		if err == errDeclined {
 			fmt.Fprintln(a.out, "aborted")
 			return nil
@@ -586,16 +691,30 @@ func runRemove(cmd *cobra.Command, h, n string, purge, yes bool) error {
 		if err := os.RemoveAll(configDir); err != nil {
 			return fmt.Errorf("purge config dir: %w", err)
 		}
+		// The credential files import copied for this profile (FR-004: deleted only
+		// with the confirmed purge).
+		if err := os.RemoveAll(credsDir); err != nil {
+			return fmt.Errorf("purge imported credentials dir: %w", err)
+		}
 		// The entries the record lists went with the config dir; a stale record
 		// would let a later profile of the same name claim the user's own groups.
 		if err := os.Remove(a.paths.ManagedHooksPath(h, n)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove managed-hooks record: %w", err)
 		}
-		fmt.Fprintf(a.out, "removed profile %s/%s and purged its config dir (run: aprofile sync)\n", h, n)
+		fmt.Fprintf(a.out, "removed profile %s/%s and purged its config dir; %s (run: aprofile sync)\n", h, n, oldWrapperNote(a, h, n))
 	} else {
-		fmt.Fprintf(a.out, "removed profile %s/%s; config dir retained at %s (run: aprofile sync)\n", h, n, configDir)
+		fmt.Fprintf(a.out, "removed profile %s/%s; config dir retained at %s; %s (run: aprofile sync)\n", h, n, configDir, oldWrapperNote(a, h, n))
 	}
 	return nil
+}
+
+// oldWrapperNote says that a removed or renamed profile's wrapper stays until the
+// next sync removes it (FR-006b: only sync writes or removes wrappers).
+func oldWrapperNote(a *app, h, n string) string {
+	if def, ok := a.set.Get(h); ok {
+		return fmt.Sprintf("its wrapper %s is removed by the next aprofile sync", def.WrapperName(n))
+	}
+	return "its old wrapper is removed by the next aprofile sync"
 }
 
 func confirm(cmd *cobra.Command, prompt string) bool {

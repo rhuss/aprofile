@@ -12,6 +12,12 @@ config_env:
   CLAUDE_CONFIG_DIR: "."
 
 default_config_location: "~/.claude"
+# Without CLAUDE_CONFIG_DIR, Claude Code keeps .claude.json next to its config dir
+# (~/.claude.json), not inside it; with CLAUDE_CONFIG_DIR it lives in the profile
+# root. Verified on disk with Claude Code 2.1.319 on 2026-11-06. Every other entry
+# lives under default_config_location.
+default_locations:
+  ".claude.json": "~/.claude.json"
 model_var: ANTHROPIC_MODEL
 endpoint_var: ANTHROPIC_BASE_URL
 omarchy_provider: anthropic
@@ -31,22 +37,184 @@ auth_kinds:
   - name: oauth-login
     vars: {} # interactive login; credentials land in the Keychain / .credentials.json
 
+# Provider switches and their settings that must never leak from the caller's
+# shell into a profile: an exported CLAUDE_CODE_USE_VERTEX=1 would otherwise send a
+# claude.ai-login profile to Vertex AI. Every auth kind clears them, except a kind
+# that sets one itself. Names verified against Claude Code 2.1.319 on 2026-11-06.
+# A profile that wants a cloud provider sets the switch with --env.
+auth_clears:
+  - CLAUDE_CODE_USE_VERTEX
+  - CLAUDE_CODE_USE_BEDROCK
+  - CLAUDE_CODE_USE_FOUNDRY
+  - CLAUDE_CODE_USE_MANTLE
+  - CLAUDE_CODE_USE_ANTHROPIC_AWS
+  - CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD
+  - CLAUDE_CODE_SKIP_VERTEX_AUTH
+  - CLAUDE_CODE_SKIP_BEDROCK_AUTH
+  - CLAUDE_CODE_SKIP_FOUNDRY_AUTH
+  - CLAUDE_CODE_SKIP_MANTLE_AUTH
+  - CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH
+  - CLAUDE_CODE_SKIP_ANTHROPIC_GOOGLE_CLOUD_AUTH
+  - ANTHROPIC_VERTEX_PROJECT_ID
+  - ANTHROPIC_VERTEX_BASE_URL
+  - CLOUD_ML_REGION
+  - ANTHROPIC_BEDROCK_BASE_URL
+  - ANTHROPIC_BEDROCK_MANTLE_BASE_URL
+  - AWS_BEARER_TOKEN_BEDROCK
+  - ANTHROPIC_FOUNDRY_RESOURCE
+  - ANTHROPIC_FOUNDRY_BASE_URL
+  - ANTHROPIC_FOUNDRY_API_KEY
+  - ANTHROPIC_FOUNDRY_AUTH_TOKEN
+
+# `aprofile login` runs `claude auth login` with the profile's environment, so the
+# OAuth credentials land in the profile's config dir (FR-039).
+login_command:
+  args: [auth, login]
+
 classification:
   # Entries verified on disk with Claude Code 2.1.318 on 2026-11-04
   # (specs/002-profile-isolation-levels/research.md R1). There is no catch-all:
   # an entry not listed here is reported, never linked (FR-001).
   - { entry: ".credentials.json", layer: credentials }
   - { entry: ".credentials.lock", layer: credentials }
-  # .claude.json is a mixed file: account keys are credentials, mcpServers is
-  # owned, project trust and start counts are state.
+  # .claude.json is a mixed file (FR-013). Key names verified in ~/.claude.json
+  # with Claude Code 2.1.319 on 2026-11-06 (names only; a few well-known names not
+  # present on that machine are added and marked "known").
+  #   credentials: account and API key data; never seeded and never copied by copy
+  #                or mcp copy. Only import cc-deck writes them, from cc-deck's file,
+  #                into a new profile or with --overwrite-credentials.
+  #   owned:       MCP servers, maintained per profile by aprofile.
+  #   state:       per-account, per-machine or per-session data: caches, counters,
+  #                IDs, timestamps, migration flags, tips and "seen" history,
+  #                onboarding progress. Private, never seeded. When unsure, state.
+  #   settings:    user preferences, seeded once at all and content.
+  # An undeclared key is seeded unless its name looks like a credential; doctor
+  # lists undeclared keys once per harness so they can be declared here.
   - entry: ".claude.json"
     layer: mixed
     keys:
+      # Credentials.
       oauthAccount: credentials
       account: credentials
+      primaryApiKey: credentials          # known
+      customApiKeyResponses: credentials  # known: approved API key fingerprints
+      # Owned.
       mcpServers: owned
+      # Preferences.
+      autoUpdates: settings
+      showSpinnerTree: settings
+      theme: settings                     # known
+      verbose: settings                   # known
+      editorMode: settings                # known
+      autoCompactEnabled: settings        # known
+      preferredNotifChannel: settings     # known
+      diffTool: settings                  # known
+      autoConnectIde: settings            # known
+      autoInstallIdeExtension: settings   # known
+      messageIdleNotifThresholdMs: settings # known
+      respectGitignore: settings          # known
+      todoFeatureEnabled: settings        # known
+      # State: projects, trust and repository paths.
       projects: state
+      githubRepoPaths: state
+      # State: identifiers and install facts.
+      userID: state
+      machineID: state
+      anonymousId: state                  # known
+      installMethod: state
+      firstStartTime: state
+      claudeCodeFirstTokenDate: state
+      deepLinkTerminal: state
+      # env may hold literal secrets: private, never seeded.
+      env: state                          # known
+      # State: caches.
+      additionalModelCostsCache: state
+      additionalModelOptionsCache: state
+      apiCreditLinkStatusCache: state
+      autoCompactWindowsCache: state
+      cachedArtifactRoster: state
+      cachedChromeExtensionInstalled: state
+      cachedExperimentData: state
+      cachedExperimentFeatures: state
+      cachedExtraUsageDisabledReason: state
+      cachedGrowthBookFeatures: state
+      cachedGrowthBookFeaturesAt: state
+      cachedUsageUtilization: state
+      cachedStatsigGates: state           # known
+      cachedDynamicConfigs: state         # known
+      clientDataCacheSlots: state
+      githubWebConnectionStatusCache: state
+      groveConfigCache: state
+      modelAccessCache: state
+      orgModelDefaultCache: state
+      passesEligibilityCache: state
+      s1mAccessCache: state               # known
+      replBridgePlaceholders: state
+      # State: usage counters and statistics.
       numStartups: state
+      btwUseCount: state
+      ideHintShownCount: state
+      lspRecommendationIgnoredCount: state
+      passesLastSeenRemaining: state
+      passesUpsellSeenCount: state
+      promoStartupSeenCount: state
+      promptQueueUseCount: state
+      pushNotifUpsellSeenCount: state
+      rcLongTurnNudgeSeenCount: state
+      rcLongTurnNudgeSeenKey: state
+      rcPermissionNudgeSeenCount: state
+      remoteControlUpsellSeenCount: state
+      subscriptionNoticeCount: state      # known
+      agentLastUsed: state
+      lastPlanModeUse: state
+      pluginUsage: state
+      pluginUsageLspGraceAppliedIds: state
+      skillUsage: state
+      toolUsage: state
+      # State: tips, notices, onboarding and "seen" history.
+      tipsHistory: state
+      tipsHistoryByCommand: state
+      tipLifetimeShownCounts: state
+      announcementImpressions: state
+      seenNotifications: state
+      feedbackSurveyState: state
+      hasCompletedOnboarding: state
+      lastOnboardingVersion: state
+      lastReleaseNotesSeen: state
+      lastClawdEntranceVersion: state
+      changelogLastFetched: state
+      closedIssuesLastChecked: state
+      effortCalloutDismissed: state
+      effortCalloutV2Dismissed: state
+      transcriptShareDismissed: state
+      groveChoiceSeenAt: state
+      additionalModelOptionsAnsweredAt: state
+      hasOpenedAgentsView: state
+      hasResetAutoModeOptInForDefaultOffer: state
+      hasSeenAutoModeEntryWarning: state
+      hasSeenAutoModeOutsideReadPrompt: state
+      hasSeenTasksHint: state
+      hasUsedBackslashReturn: state
+      hasUsedStash: state
+      hasVisitedPasses: state
+      hasAcknowledgedCostThreshold: state # known
+      hasAvailableSubscription: state     # known
+      hasIdeOnboardingBeenShown: state    # known
+      bypassPermissionsModeAccepted: state # known
+      shiftEnterKeyBindingInstalled: state # known
+      mcpNeedsAuthNoticed: state
+      claudeAiMcpEverConnected: state
+      autoModeEnvSetup: state
+      # State: migration and install flags.
+      migrationVersion: state
+      autoUpdatesProtectedForNative: state
+      officialMarketplaceAutoInstallAttempted: state
+      officialMarketplaceAutoInstalled: state
+      opusProMigrationComplete: state
+      sonnet1m45MigrationComplete: state
+      unpinFable5LaunchEffort: state
+      unpinOpus47LaunchEffort: state
+      unpinOpus48LaunchEffort: state
   # Runtime state: always private (FR-002).
   - { entry: "projects/", layer: state }
   - { entry: "history.jsonl", layer: state }

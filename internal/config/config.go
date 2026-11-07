@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 // appName is the sub-directory used under every XDG base dir.
 const appName = "aprofile"
+
+// settingsFile is the global settings file's name inside the config dir.
+const settingsFile = "settings.yaml"
 
 // Paths holds every resolved location aprofile uses. All fields are absolute.
 type Paths struct {
@@ -49,24 +53,62 @@ func (s *Settings) EffectiveDefaultShare() string {
 	return s.DefaultShare
 }
 
-// xdg returns the value of an XDG environment variable, or, when it is unset or
-// not absolute (the XDG spec says relative values must be ignored), falls back
-// to home/relFallback.
+// xdg returns the value of an XDG environment variable, or, when it is unset, not
+// absolute (the XDG spec says relative values must be ignored) or redirected into the
+// running profile's config dir (see redirectedIntoProfile), falls back to
+// home/relFallback.
 func xdg(envVar, home, relFallback string) string {
-	if v := os.Getenv(envVar); filepath.IsAbs(v) {
+	if v := os.Getenv(envVar); filepath.IsAbs(v) && !redirectedIntoProfile(v) {
 		return v
 	}
 	return filepath.Join(home, relFallback)
 }
 
+// XDGBase resolves one XDG base directory the way aprofile resolves its own dirs:
+// the variable's value when it is absolute and not redirected into the running
+// profile, else home/relFallback. Other packages that read an XDG variable for a
+// user-level location (not the harness's) use it so they follow the same rule.
+func XDGBase(envVar, home, relFallback string) string {
+	return xdg(envVar, home, relFallback)
+}
+
+// redirectedIntoProfile reports whether an XDG value points into the profile config
+// dir of the aprofile session it runs in (T076, FR-020). A wrapper that isolates its
+// harness through the XDG base directories (config_env naming XDG_* variables, as
+// OpenCode's does) exports those variables pointing inside the profile config dir,
+// which it also exports as APROFILE_CONFIG_DIR. aprofile run inside such a session
+// (by the user in the harness's shell, or by a hook) must still find its own config,
+// data and state, so a value equal to or below APROFILE_CONFIG_DIR is treated as
+// unset. The rule is generic: it looks at paths only, never at the harness name
+// (Principle I). A value outside the profile dir is honored as usual.
+func redirectedIntoProfile(v string) bool {
+	profileDir := os.Getenv("APROFILE_CONFIG_DIR")
+	if !filepath.IsAbs(profileDir) {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(profileDir), filepath.Clean(v))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 // ResolvePaths computes every location from the current environment. It applies
 // the standard XDG fallbacks (~/.config, ~/.local/share, ~/.local/state) on
-// both Linux and macOS (FR-046), then applies the bin-dir override from the
-// global settings file if one exists (FR-005).
+// both Linux and macOS (FR-046), ignoring XDG values a profile wrapper redirected
+// into its profile config dir (redirectedIntoProfile), then applies the bin-dir
+// override from the global settings file if one exists (FR-005).
 func ResolvePaths() (*Paths, error) {
+	p, _, err := Resolve()
+	return p, err
+}
+
+// Resolve is ResolvePaths that also returns the global settings it read, so a
+// caller needing both reads settings.yaml once.
+func Resolve() (*Paths, *Settings, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("resolve home directory: %w", err)
+		return nil, nil, fmt.Errorf("resolve home directory: %w", err)
 	}
 
 	configBase := xdg("XDG_CONFIG_HOME", home, filepath.Join(".config"))
@@ -84,17 +126,12 @@ func ResolvePaths() (*Paths, error) {
 
 	s, err := LoadSettings(p.ConfigDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if s.BinDir != "" {
 		p.BinDir = s.BinDir
 	}
-	return p, nil
-}
-
-// SettingsPath is the global settings file location.
-func (p *Paths) SettingsPath() string {
-	return filepath.Join(p.ConfigDir, "settings.yaml")
+	return p, s, nil
 }
 
 // HarnessesDir is the directory users drop harness definition overrides into.
@@ -141,6 +178,14 @@ func (p *Paths) BackupDir(harness, name, timestamp string) string {
 	return filepath.Join(p.BackupsDir, harness, name, timestamp)
 }
 
+// CredentialsDir holds the credential files `import cc-deck` copies for one
+// profile: <data dir>/credentials/<harness>/<name>/. It lies outside the profile
+// config dir so the harness never sees an unclassified entry; rename moves it and
+// remove --purge deletes it with the profile.
+func (p *Paths) CredentialsDir(harness, name string) string {
+	return filepath.Join(p.DataDir, "credentials", harness, name)
+}
+
 // HooksDir is the hook-set library: one <name>.yaml per set (FR-023).
 func (p *Paths) HooksDir() string {
 	return filepath.Join(p.ConfigDir, "hooks.d")
@@ -156,7 +201,7 @@ func (p *Paths) ManagedHooksPath(harness, name string) string {
 // LoadSettings reads the global settings file from configDir. A missing file is
 // not an error: it returns zero-valued Settings.
 func LoadSettings(configDir string) (*Settings, error) {
-	path := filepath.Join(configDir, "settings.yaml")
+	path := filepath.Join(configDir, settingsFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -173,17 +218,26 @@ func LoadSettings(configDir string) (*Settings, error) {
 	default:
 		return nil, fmt.Errorf("settings %s: default_share %q must be all, content or none", path, s.DefaultShare)
 	}
+	if err := validBinDir(s.BinDir); err != nil {
+		return nil, fmt.Errorf("settings %s: %w", path, err)
+	}
 	return &s, nil
 }
 
-// SaveSettings writes the global settings file atomically.
-func SaveSettings(configDir string, s *Settings) error {
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return fmt.Errorf("create config dir %s: %w", configDir, err)
+// validBinDir checks a configured bin_dir. The value is written into shell startup
+// files and is the directory wrappers land in, so it must be one absolute path on a
+// single line: a relative path would depend on the working directory, and a line
+// break or other control character could smuggle extra lines into an rc file.
+// Spaces and shell metacharacters are fine; writers quote the value.
+func validBinDir(dir string) error {
+	if dir == "" {
+		return nil
 	}
-	data, err := yaml.Marshal(s)
-	if err != nil {
-		return fmt.Errorf("encode settings: %w", err)
+	if strings.IndexFunc(dir, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		return fmt.Errorf("bin_dir %q must be a single line without control characters", dir)
 	}
-	return WriteFileAtomic(filepath.Join(configDir, "settings.yaml"), data, 0o644)
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("bin_dir %q must be an absolute path", dir)
+	}
+	return nil
 }

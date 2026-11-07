@@ -16,7 +16,7 @@ import (
 func HasCredentials(def *harness.Definition, configDir string) bool {
 	for i := range def.Classification {
 		rule := &def.Classification[i]
-		if isGlob(rule.Entry) {
+		if rule.IsGlob() {
 			continue
 		}
 		path := filepath.Join(configDir, filepath.FromSlash(normalize(rule.Entry)))
@@ -37,7 +37,7 @@ func HasCredentials(def *harness.Definition, configDir string) bool {
 // mixedHasCredentialKey reports whether a mixed JSON file contains a present,
 // non-null credential-layer key.
 func mixedHasCredentialKey(path string, rule *harness.EntryRule) bool {
-	if filepath.Ext(path) != ".json" {
+	if !IsJSONExt(filepath.Ext(path)) {
 		return false
 	}
 	data, err := os.ReadFile(path)

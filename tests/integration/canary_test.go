@@ -67,8 +67,8 @@ func TestScenario6CanarySweep(t *testing.T) {
 		{"registry", "path"},
 		{"sync", "--dry-run", "--json"},
 		{"import", "cc-deck", "--dry-run", "--json"},
-		{"copy", "claude/work", "claude/copytarget", "--overwrite", "--json"},
-		{"copy", "claude/work", "codex/cross", "--overwrite", "--json"},
+		{"copy", "claude/work", "claude/copytarget", "--overwrite", "--yes", "--json"},
+		{"copy", "claude/work", "codex/cross", "--overwrite", "--yes", "--json"},
 		{"mcp", "copy", "claude/work", "claude/other", "--json"},
 	}
 	for _, args := range jsonCommands {

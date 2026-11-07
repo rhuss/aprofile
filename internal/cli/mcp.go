@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,7 +75,7 @@ func runMCPList(cmd *cobra.Command, ref string, asJSON bool) error {
 		out := mcpListJSON{FormatVersion: schemaVersion, Profile: h + "/" + n, Servers: []mcpServerJSON{}}
 		for _, s := range servers {
 			out.Servers = append(out.Servers, mcpServerJSON{
-				Name: s.Name, Transport: string(s.Transport), Command: s.Command, URL: s.URL, Enabled: s.Enabled,
+				Name: s.Name, Transport: string(s.Transport), Command: mcp.DisplayValue(s.Command), URL: mcp.RedactURL(s.URL), Enabled: s.Enabled,
 			})
 		}
 		return writeJSON(a.out, out)
@@ -89,9 +90,11 @@ func runMCPList(cmd *cobra.Command, ref string, asJSON bool) error {
 		return nil
 	}
 	for _, s := range servers {
-		loc := s.Command
+		// A url can carry a secret in its userinfo, query, fragment or path; show it
+		// with those parts masked, as a conversion would drop them.
+		loc := mcp.DisplayValue(s.Command)
 		if s.IsRemote() {
-			loc = s.URL
+			loc = mcp.RedactURL(s.URL)
 		}
 		fmt.Fprintf(a.out, "  %s  [%s]  %s\n", s.Name, s.Transport, loc)
 	}
@@ -160,12 +163,15 @@ func runMCPCopy(cmd *cobra.Command, fromRef, toRef string, names []string, overw
 	} else {
 		dstRel, _ := mcpFileRel(toDef)
 		dstPath := filepath.Join(a.paths.ProfileConfigDir(th, tn), dstRel)
-		existing, _ := os.ReadFile(dstPath)
+		existing, err := os.ReadFile(dstPath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		out, rep, err := mcp.MergeInto(mcp.Flavor(toDef.MCP.Flavor), existing, selected, overwrite)
 		if err != nil {
 			return err
 		}
-		if err := config.WriteFileAtomic(dstPath, out, 0o644); err != nil {
+		if err := config.WriteFileAtomic(dstPath, out, ownedFileMode(dstPath)); err != nil {
 			return err
 		}
 		report.MCP = rep
@@ -210,7 +216,8 @@ func readMCPServers(a *app, def *harness.Definition, h, n string) ([]mcp.Server,
 }
 
 // selectServers filters servers by the requested names, erroring on an unknown name.
-// An empty names slice selects all servers.
+// An empty names slice selects all servers. A name given twice selects its server
+// once, so the report lists it once (FR-037).
 func selectServers(servers []mcp.Server, names []string) ([]mcp.Server, error) {
 	if len(names) == 0 {
 		return servers, nil
@@ -220,11 +227,16 @@ func selectServers(servers []mcp.Server, names []string) ([]mcp.Server, error) {
 		byName[s.Name] = s
 	}
 	var out []mcp.Server
+	seen := map[string]bool{}
 	for _, name := range names {
 		s, ok := byName[name]
 		if !ok {
 			return nil, fmt.Errorf("MCP server %q not found in the source profile", name)
 		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		out = append(out, s)
 	}
 	return out, nil

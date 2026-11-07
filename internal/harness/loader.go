@@ -121,6 +121,7 @@ func LoadBuiltins() (*Set, error) {
 		markSource(d, "builtin")
 		set.defs[d.Name] = d
 	}
+	checkPrefixClashes(set)
 	return set, nil
 }
 
@@ -137,6 +138,8 @@ func Load(harnessesDir string) (*Set, error) {
 		set.defs[d.Name] = d
 	}
 	overlayHarnessesDir(set, nodes, harnessesDir)
+	// Wrapper prefixes must be unique across the effective definitions (FR-002).
+	checkPrefixClashes(set)
 	return set, nil
 }
 
@@ -159,6 +162,7 @@ func LoadFromBytes(files map[string][]byte) *Set {
 		markSource(def, name)
 		set.defs[def.Name] = def
 	}
+	checkPrefixClashes(set)
 	return set
 }
 
@@ -287,6 +291,38 @@ func validate(d *Definition) (field, msg string) {
 			}
 		}
 	}
+	// auth_clears is unset after the config_env redirect and before the overridable
+	// model/endpoint values, so it must not name a variable the wrapper owns
+	// otherwise: clearing a redirect would break isolation, clearing the model or
+	// endpoint variable would make it silently non-overridable.
+	for _, v := range d.AuthClears {
+		if !secret.ValidEnvVarName(v) {
+			return "auth_clears", fmt.Sprintf("variable %q must match [A-Za-z_][A-Za-z0-9_]*", v)
+		}
+		if strings.HasPrefix(v, "APROFILE_") {
+			return "auth_clears", fmt.Sprintf("variable %q is an aprofile contract variable", v)
+		}
+		if v == d.ModelVar || v == d.EndpointVar {
+			return "auth_clears", fmt.Sprintf("variable %q is the model or endpoint variable", v)
+		}
+		for _, e := range d.ConfigEnv {
+			if e.Var == v {
+				return "auth_clears", fmt.Sprintf("variable %q is a config_env redirect", v)
+			}
+		}
+	}
+	// The registry export joins the provider into a file path (<dir>/<provider>.json),
+	// so it must be a plain name: no separator, no "..", nothing to escape the dir.
+	if d.OmarchyProvider != "" && !NameValid(d.OmarchyProvider) {
+		return "omarchy_provider", fmt.Sprintf("%q must match ^[a-z][a-z0-9-]{0,62}[a-z0-9]$", d.OmarchyProvider)
+	}
+	if d.LoginCommand != nil {
+		for _, a := range d.LoginCommand.Args {
+			if a == "" || strings.ContainsAny(a, "\x00\n\r") {
+				return "login_command", fmt.Sprintf("argument %q must be non-empty and single-line", a)
+			}
+		}
+	}
 	for _, r := range d.Classification {
 		if r.Entry == "" {
 			return "classification", "an entry rule is missing its entry"
@@ -310,6 +346,11 @@ func validate(d *Definition) (field, msg string) {
 					return "classification", fmt.Sprintf("mixed entry %q key %q has invalid layer %q", r.Entry, k, kl)
 				}
 			}
+		}
+	}
+	for i, cp := range d.ConfigPatches {
+		if field, msg := validateConfigPatch(cp); msg != "" {
+			return field, fmt.Sprintf("patch %d: %s", i+1, msg)
 		}
 	}
 	if d.DefaultAuthKind != "" {
@@ -357,6 +398,76 @@ func validate(d *Definition) (field, msg string) {
 	return "", ""
 }
 
+// validateConfigPatch checks one config_patches entry (FR-019): the file is a
+// relative path inside the profile dir with a .json or .toml extension, and the
+// merge is a non-empty map without null values (a patch only sets keys; it never
+// removes one, so null has no meaning).
+func validateConfigPatch(cp ConfigPatch) (field, msg string) {
+	const f = "config_patches"
+	if cp.File == "" {
+		return f, "file is required"
+	}
+	if !entryPathSafe(cp.File) {
+		return f, fmt.Sprintf("file %q must be a relative path within the profile dir (no %q segment, not absolute)", cp.File, "..")
+	}
+	if !ConfigPatchFormatSupported(cp.File) {
+		return f, fmt.Sprintf("file %q must be a .json or .toml file", cp.File)
+	}
+	if len(cp.Merge) == 0 {
+		return f, fmt.Sprintf("file %q: merge must set at least one key", cp.File)
+	}
+	if path := nullPatchValue(cp.Merge, ""); path != "" {
+		return f, fmt.Sprintf("file %q: key %q is null; a patch only sets keys", cp.File, path)
+	}
+	return "", ""
+}
+
+// ConfigPatchFormatSupported reports whether a patch target is a JSON or TOML file.
+func ConfigPatchFormatSupported(file string) bool {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".json", ".toml":
+		return true
+	}
+	return false
+}
+
+// nullPatchValue returns the dotted path of the first null value (or empty key) in
+// a patch, or "".
+func nullPatchValue(v any, prefix string) string {
+	switch t := v.(type) {
+	case nil:
+		if prefix == "" {
+			return "."
+		}
+		return prefix
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
+			if k == "" {
+				return p + "<empty key>"
+			}
+			if bad := nullPatchValue(t[k], p); bad != "" {
+				return bad
+			}
+		}
+	case []any:
+		for i, e := range t {
+			if bad := nullPatchValue(e, fmt.Sprintf("%s[%d]", prefix, i)); bad != "" {
+				return bad
+			}
+		}
+	}
+	return ""
+}
+
 func validTreatment(t string) bool {
 	switch t {
 	case TreatLink, TreatOwn, TreatCopyOnce, TreatMinimal, TreatManaged:
@@ -381,7 +492,7 @@ func markSource(d *Definition, origin string) {
 // allFieldNames lists the definition fields whose origin harness show reports.
 var allFieldNames = []string{
 	"name", "binary", "wrapper_prefix", "config_env", "default_config_location",
-	"model_var", "endpoint_var", "auth_kinds", "default_auth_kind", "classification",
+	"model_var", "endpoint_var", "auth_kinds", "auth_clears", "default_auth_kind", "login_command", "classification",
 	"config_patches", "mcp", "skills_location", "plugin_mechanism", "omarchy_provider",
 	"capabilities", "exec_hook", "default_locations", "share_policy", "hooks", "home_escapes",
 }

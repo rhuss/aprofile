@@ -2,12 +2,14 @@
 // structured findings. It implements the full FR-044 check set: bin dir on PATH,
 // wrapper shadowing, stale/missing wrappers, missing harness binaries, unclassified
 // entries, state/credentials/owned entries that are links, invalid definitions,
-// references that cannot be resolved (FR-028a), the hook auth-status result, and seeded
-// mixed-file keys that drifted from the default setup (FR-013). It contains no
+// references that cannot be resolved (FR-028a), declared exec hooks that are not
+// installed or fail, the hook auth-status result, and seeded mixed-file keys that
+// drifted from the default setup (FR-013). It contains no
 // harness-name branching: every decision comes from the definition data (Principle I).
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -81,7 +83,9 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 		findings = append(findings, Finding{Profile: f.ID(), Message: "profile failed to load: " + f.Err.Error(), Fix: "fix the profile file or remove it"})
 	}
 
+	findings = append(findings, leftoverFindings(paths.BinDir, set, profiles, failures)...)
 	findings = append(findings, definitionFindings(set, profiles)...)
+	findings = append(findings, missingHookFindings(set, profiles)...)
 	lib, libErrs := hooksets.LoadLibrary(paths.HooksDir())
 	for _, e := range libErrs {
 		findings = append(findings, Finding{Message: "invalid hook set: " + e.Error(), Fix: "correct the hook set file"})
@@ -94,7 +98,8 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 			continue
 		}
 		configDir := paths.ProfileConfigDir(p.Harness, p.Name)
-		findings = append(findings, isolationFindings(def, configDir, p.ID())...)
+		findings = append(findings, fitFindings(def, p)...)
+		findings = append(findings, isolationFindings(def, configDir, p.ID(), p.ShareLevel() != profile.ShareNone)...)
 		findings = append(findings, shareFindings(paths, def, p, lib, configDir)...)
 		findings = append(findings, binaryFindings(def, p.ID())...)
 		findings = append(findings, wrapperFindings(paths, def, p)...)
@@ -143,6 +148,32 @@ func definitionFindings(set *harness.Set, profiles []*profile.Profile) []Finding
 				Message: fmt.Sprintf("%s: default setup entries not borrowed by any profile because they are unclassified: %s", d.Name, strings.Join(unb, ", ")),
 				Fix:     fmt.Sprintf("aprofile harness classify %s <entry> --as content (or settings, state, ...)", d.Name)})
 		}
+		out = append(out, undeclaredKeyFindings(d)...)
+	}
+	return out
+}
+
+// undeclaredKeyFindings reports, once per harness and as information, the top-level
+// keys of a mixed file in the default setup that the definition does not declare
+// (FR-013). They are seeded into new profiles at all and content, except keys whose
+// name looks like a credential. Only key names are printed, never values.
+func undeclaredKeyFindings(d *harness.Definition) []Finding {
+	und, err := layer.UndeclaredDefaultKeys(d)
+	if err != nil {
+		return nil
+	}
+	var out []Finding
+	for _, u := range und {
+		var parts []string
+		if len(u.Seeded) > 0 {
+			parts = append(parts, "seeded into new profiles: "+strings.Join(u.Seeded, ", "))
+		}
+		if len(u.NotSeeded) > 0 {
+			parts = append(parts, "not seeded because the name looks like a credential: "+strings.Join(u.NotSeeded, ", "))
+		}
+		out = append(out, Finding{Severity: SeverityInfo,
+			Message: fmt.Sprintf("%s: keys of %s in the default setup are not declared in the definition (%s)", d.Name, u.Entry, strings.Join(parts, "; ")),
+			Fix:     fmt.Sprintf("declare each key under keys: of the %s rule in a harnesses.d override for %s (credentials or state keeps it private, settings seeds it)", u.Entry, d.Name)})
 	}
 	return out
 }
@@ -225,7 +256,7 @@ func isGlobMatch(def *harness.Definition, entry string) bool {
 // would not be found in new shells (FR-044).
 func pathFindings(binDir string) []Finding {
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if d != "" && sameDir(d, binDir) {
+		if d != "" && wrapper.SameDir(d, binDir) {
 			return nil
 		}
 	}
@@ -251,10 +282,11 @@ func binaryFindings(def *harness.Definition, id string) []Finding {
 // wrapperFindings reports a missing or stale wrapper and wrapper shadowing (FR-044,
 // FR-006b). It renders what sync would write (weaving in the exec-hook env output, as
 // sync does) and compares it to the on-disk wrapper, so "stale" here matches what sync
-// would regenerate.
+// would regenerate. A failing env operation is reported with the hook's error; a hook
+// that is not installed is reported once per harness by missingHookFindings.
 func wrapperFindings(paths *config.Paths, def *harness.Definition, p *profile.Profile) []Finding {
 	var out []Finding
-	wrapperName := def.WrapperPrefix + "-" + p.Name
+	wrapperName := def.WrapperName(p.Name)
 	path := filepath.Join(paths.BinDir, wrapperName)
 
 	existing, readErr := os.ReadFile(path)
@@ -263,11 +295,11 @@ func wrapperFindings(paths *config.Paths, def *harness.Definition, p *profile.Pr
 	}
 
 	// Shadowing: a same-named executable earlier on PATH than the bin dir wins (FR-044).
-	if resolved, lerr := exec.LookPath(wrapperName); lerr == nil && !sameDir(filepath.Dir(resolved), paths.BinDir) {
+	if shadow, ok := wrapper.ShadowedBy(paths.BinDir, wrapperName); ok {
 		out = append(out, Finding{
 			Profile: p.ID(),
-			Message: fmt.Sprintf("wrapper %q is shadowed by %s earlier on PATH", wrapperName, resolved),
-			Fix:     "remove the shadowing executable or put aprofile's bin dir first on PATH",
+			Message: wrapper.ShadowMessage(wrapperName, shadow),
+			Fix:     wrapper.ShadowFix,
 		})
 	}
 
@@ -275,18 +307,95 @@ func wrapperFindings(paths *config.Paths, def *harness.Definition, p *profile.Pr
 		return out
 	}
 
-	// Stale: render what sync would write and compare.
-	configDir := paths.ProfileConfigDir(p.Harness, p.Name)
-	hookEnv, herr := harness.RunEnvHook(def, harness.HookContext{
-		Harness: p.Harness, Profile: p.Name, ConfigDir: configDir,
-		AuthKind: p.AuthKind, Model: p.Model, Endpoint: p.Endpoint,
-	})
-	if herr != nil {
-		return out // the env-hook problem is surfaced by sync; do not double-report here
+	// A profile that does not fit its definition is not rendered by sync, so its
+	// wrapper is not stale in a way sync fixes; fitFindings names the fix.
+	if wrapper.AuthKindIssue(p, def) != nil {
+		return out
 	}
-	want, rerr := wrapper.RenderWith(p, def, configDir, wrapper.RenderOptions{HookEnv: hookEnv})
-	if rerr == nil && string(existing) != want {
+
+	// Stale: render what sync would write and compare.
+	want, err := wrapper.Expected(p, def, paths.ProfileConfigDir(p.Harness, p.Name))
+	switch {
+	case errors.Is(err, harness.ErrHookNotFound):
+		// reported once per harness by missingHookFindings
+	case err != nil:
+		out = append(out, Finding{Profile: p.ID(),
+			Message: fmt.Sprintf("cannot tell whether wrapper %q is stale: %v", wrapperName, err),
+			Fix:     hookFix(def, "env")})
+	case string(existing) != want:
 		out = append(out, Finding{Profile: p.ID(), Message: fmt.Sprintf("wrapper %q is stale", wrapperName), Fix: "run: aprofile sync"})
+	}
+	return out
+}
+
+// fitFindings reports, as problems, where a hand-edited profile does not fit its
+// definition (FR-006): an auth kind the definition does not declare (sync refuses
+// the profile) and a model or endpoint the harness has no variable for (the wrapper
+// drops it).
+func fitFindings(def *harness.Definition, p *profile.Profile) []Finding {
+	var out []Finding
+	for _, fi := range wrapper.FitIssues(p, def) {
+		out = append(out, Finding{Profile: p.ID(), Message: fi.Message, Fix: fi.Fix})
+	}
+	return out
+}
+
+// leftoverFindings reports every aprofile-marked wrapper in the bin dir that belongs
+// to no existing profile (FR-006b): remove and rename leave the old wrapper until
+// the next sync removes it. Files without the marker are never reported.
+func leftoverFindings(binDir string, set *harness.Set, profiles []*profile.Profile, failures []profile.LoadFailure) []Finding {
+	keys := make([]harness.ProfileKey, 0, len(profiles)+len(failures))
+	for _, p := range profiles {
+		keys = append(keys, harness.ProfileKey{Harness: p.Harness, Name: p.Name})
+	}
+	for _, f := range failures {
+		keys = append(keys, harness.ProfileKey{Harness: f.Harness, Name: f.Name})
+	}
+	names, err := wrapper.LeftoversFor(binDir, set, keys)
+	if err != nil {
+		return []Finding{{Message: fmt.Sprintf("cannot read bin dir %s: %v", binDir, err), Fix: "check the directory's permissions"}}
+	}
+	var out []Finding
+	for _, n := range names {
+		out = append(out, Finding{
+			Message: fmt.Sprintf("leftover wrapper %s in %s belongs to no profile (left by remove or rename)", n, binDir),
+			Fix:     "aprofile sync",
+		})
+	}
+	return out
+}
+
+// hookFix names how to look into a failing exec-hook operation.
+func hookFix(def *harness.Definition, op string) string {
+	bin := harness.HookExecutable(def.Name)
+	return fmt.Sprintf("check %s: run it by hand (printf 'harness=%s\\n' | %s %s), fix it, or remove %s from exec_hook.operations in a harnesses.d override",
+		bin, def.Name, bin, op, op)
+}
+
+// missingHookFindings reports, once per harness that has profiles, a declared exec
+// hook whose executable is not on PATH (FR-011, FR-044): sync cannot render the
+// wrapper (env), the wrapper refuses to start (pre-launch), the config is not
+// written (write-config), and show and doctor cannot tell the login state
+// (auth-status). A login falls back to login_command.
+func missingHookFindings(set *harness.Set, profiles []*profile.Profile) []Finding {
+	var out []Finding
+	seen := map[string]bool{}
+	for _, p := range profiles {
+		def, ok := set.Get(p.Harness)
+		if !ok || seen[def.Name] || def.ExecHook == nil || len(def.ExecHook.Operations) == 0 {
+			continue
+		}
+		seen[def.Name] = true
+		bin := harness.HookExecutable(def.Name)
+		if _, err := exec.LookPath(bin); err == nil {
+			continue
+		}
+		ops := def.ExecHook.Operations
+		out = append(out, Finding{
+			Message: fmt.Sprintf("%s: exec hook %s is not on PATH; the definition declares its operations %s",
+				def.Name, bin, strings.Join(ops, ", ")),
+			Fix: fmt.Sprintf("install %s on PATH, or remove the operations from exec_hook.operations in a harnesses.d override for %s", bin, def.Name),
+		})
 	}
 	return out
 }
@@ -327,13 +436,12 @@ func referenceFindings(p *profile.Profile) []Finding {
 
 // authStatusFindings reports the exec-hook auth-status result where the hook implements
 // it (FR-011, FR-044). status=ok yields no finding; missing/unknown and any hook failure
-// are reported.
+// are reported. A hook that is not installed is reported once per harness by
+// missingHookFindings.
 func authStatusFindings(def *harness.Definition, configDir string, p *profile.Profile) []Finding {
-	st, err := harness.RunAuthStatusHook(def, harness.HookContext{
-		Harness: p.Harness, Profile: p.Name, ConfigDir: configDir, AuthKind: p.AuthKind,
-	})
+	st, err := harness.RunAuthStatusHook(def, wrapper.HookContext(p, configDir))
 	if err != nil {
-		return []Finding{{Profile: p.ID(), Message: "auth-status hook failed: " + err.Error(), Fix: "check the aprofile-harness-" + p.Harness + " hook"}}
+		return []Finding{{Profile: p.ID(), Message: "auth-status hook failed: " + err.Error(), Fix: hookFix(def, "auth-status")}}
 	}
 	switch st.Status {
 	case "missing":
@@ -352,21 +460,11 @@ func detailSuffix(detail string) string {
 	return " (" + detail + ")"
 }
 
-// sameDir reports whether two paths denote the same directory after cleaning and
-// resolving to absolute form.
-func sameDir(a, b string) bool {
-	aa, err1 := filepath.Abs(a)
-	bb, err2 := filepath.Abs(b)
-	if err1 != nil || err2 != nil {
-		return filepath.Clean(a) == filepath.Clean(b)
-	}
-	return filepath.Clean(aa) == filepath.Clean(bb)
-}
-
 // isolationFindings reports the US2 isolation problems for one profile config dir:
-// unclassified entries, state/credentials entries that are links (leaks), and seeded
-// mixed-file shared keys that drifted from the default setup.
-func isolationFindings(def *harness.Definition, configDir, id string) []Finding {
+// unclassified entries, state/credentials entries that are links (leaks), and, for a
+// profile whose mixed files were seeded (share level all or content), seeded
+// mixed-file keys that drifted from the default setup.
+func isolationFindings(def *harness.Definition, configDir, id string, seeded bool) []Finding {
 	var out []Finding
 	defaultSetup := harness.ExpandHome(def.DefaultConfigLocation)
 
@@ -397,7 +495,9 @@ func isolationFindings(def *harness.Definition, configDir, id string) []Finding 
 					out = append(out, Finding{Profile: id, Message: fmt.Sprintf("mixed entry %q is a symlink -> %s (leaks across profiles)", rule.Entry, target), Fix: "run: aprofile sync --fix-links"})
 					continue
 				}
-				out = append(out, mixedDrift(def, rule, rel, entryPath, id)...)
+				if seeded {
+					out = append(out, mixedDrift(def, rule, rel, entryPath, id)...)
+				}
 				continue
 			}
 			// A state/owned/credentials entry must be a real per-profile entry; a
@@ -408,7 +508,7 @@ func isolationFindings(def *harness.Definition, configDir, id string) []Finding 
 			}
 			target, _ := os.Readlink(entryPath)
 			msg := fmt.Sprintf("%s entry %q is a symlink -> %s (leaks across profiles)", rule.Layer, rule.Entry, target)
-			if leaksToDefault(target, defaultSetup) {
+			if leaksToDefault(target, defaultSetup) || leaksToDefault(target, def.DefaultPath(rel)) {
 				msg = fmt.Sprintf("%s entry %q leaks to the shared default setup (%s)", rule.Layer, rule.Entry, target)
 			}
 			out = append(out, Finding{Profile: id, Message: msg, Fix: "run: aprofile sync --fix-links"})
@@ -418,15 +518,15 @@ func isolationFindings(def *harness.Definition, configDir, id string) []Finding 
 	return out
 }
 
-// mixedDrift reports, as information, seeded keys of a mixed file declared with
-// the slice one `shared` key layer that drifted from the default setup (FR-013).
+// mixedDrift reports, as information, every seeded key of a mixed file (not owned,
+// credentials or state) whose value differs from the default setup (FR-013, FR-044).
 func mixedDrift(def *harness.Definition, rule *harness.EntryRule, rel, entryPath, id string) []Finding {
 	profileFile, err1 := os.ReadFile(entryPath)
 	defaultFile, err2 := os.ReadFile(def.DefaultPath(rel))
 	if err1 != nil || err2 != nil {
 		return nil
 	}
-	drift, err := layer.MixedSharedDrift(rule, profileFile, defaultFile, strings.ToLower(filepath.Ext(rel)))
+	drift, err := layer.MixedSeededDrift(rule, profileFile, defaultFile, strings.ToLower(filepath.Ext(rel)))
 	if err != nil {
 		return nil
 	}

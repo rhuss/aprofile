@@ -61,13 +61,18 @@ type Identity struct {
 // CopyValues are the fields the copy form collects. Source and Target are
 // "<harness>/<name>" references; the CLI runs the same copy operation its command uses.
 type CopyValues struct {
-	Source    string
-	Target    string
-	Auth      string
+	Source string
+	Target string
+	Auth   string
+	// AuthKey is the secret reference for a cross-harness target's auth kind
+	// (env:NAME or file:/abs/path), the --auth-key flag; blank sets none.
+	AuthKey   string
 	Label     string
 	Color     string
 	Icon      string
 	Overwrite bool
+	// Adopt reuses a leftover config dir for a new target (FR-004), the --adopt flag.
+	Adopt bool
 	// Feature 002: share level ("" keeps the source's) and hook sets.
 	Share           string
 	HookSets        []string
@@ -185,10 +190,12 @@ func RunCopyForm(in io.Reader, out io.Writer, sources []string, initial CopyValu
 		huh.NewSelect[string]().Title("Source profile").Options(huh.NewOptions(sources...)...).Value(&v.Source),
 		huh.NewInput().Title("Target (<harness>/<name>)").Value(&v.Target),
 		huh.NewInput().Title("Auth kind for a cross-harness target (optional)").Value(&v.Auth),
+		huh.NewInput().Title("Auth key reference (env:NAME or file:/abs/path; optional)").Value(&v.AuthKey),
 		huh.NewInput().Title("Label override (optional)").Value(&v.Label),
 		huh.NewInput().Title("Color override (optional)").Value(&v.Color),
 		huh.NewInput().Title("Icon override (optional)").Value(&v.Icon),
 		huh.NewConfirm().Title("Overwrite the target if it exists?").Value(&v.Overwrite),
+		huh.NewConfirm().Title("Adopt an existing config dir left at the target's location?").Value(&v.Adopt),
 		huh.NewSelect[string]().Title("Share level of the target").
 			Options(levels...).
 			Value(&v.Share),

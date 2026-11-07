@@ -25,7 +25,7 @@ references, `--json`, exit codes, TTY handling, secret references) apply unchang
 | `aprofile edit <h>/<n>` | `--share`, `--hook-sets`, `--exclude-hook-sets`, `--dry-run`, `--yes` | A share change applies its config dir plan immediately (FR-017a); refused with exit 4 while the profile runs (FR-017). `--share` with the current level re-applies that level's plan (the completing command `sync` names for a hand-edited level). Where the running check cannot tell (an unsupported platform), the change asks first, or needs `--yes` off a terminal (exit 3 without it). Only `--share` stores a level in a profile that has none (FR-033). Hook-set changes are recorded and placed by the next `sync`. |
 | `aprofile copy <src> <dst>` | `--share`, `--hook-sets`, `--exclude-hook-sets` | Level defaults to the source's; settings and hook sets travel as FR-007a states. An existing target at another level is refused with exit 2, naming `edit --share`. |
 | `aprofile import cc-deck` | `--share` | Imported profiles get `--share` or the global default (FR-007). |
-| `aprofile show <h>/<n>` | (none) | Adds share level and description, per-entry treatment and reason, hook sets with reasons, settings-differ flag, `$HOME` escapes, unborrowed unclassified default entries (FR-015, FR-001a, FR-022). `--json` schema in data-model.md. |
+| `aprofile show <h>/<n>` | (none) | Adds share level and description, per-entry treatment and reason, hook sets with reasons, settings-differ flag, `$HOME` escapes, unborrowed unclassified default entries (FR-015, FR-001a, FR-022). `--json` schema in data-model.md; the document carries `format_version` (001 contracts/cli.md, JSON schemas). |
 | `aprofile list` | (none) | Adds a share column; `--json` adds `share`. |
 | `aprofile sync` | `--relink`, `--yes` | Safe mode for hand-edited levels (FR-017a); reports replaced links; `--relink` backs up and relinks (FR-021); places managed hook entries (FR-028). |
 | `aprofile doctor` | (none) | New checks (FR-020); each finding has `severity: problem\|info`. Exit status counts problems only. |
@@ -50,6 +50,55 @@ references, `--json`, exit codes, TTY handling, secret references) apply unchang
 | 2 | Operation not valid for the profile's share level (`settings pull` on `all`/`none`, hook set on `all`, `copy` onto an existing target at another level). |
 | 3 | Confirmation needed but not on a TTY and no `--yes`; nothing changed. |
 | 4 | Refused because the profile is running. |
+
+## JSON schemas (format_version 1)
+
+`aprofile settings pull <h>/<n> --json` (with or without `--dry-run`):
+
+```jsonc
+{
+  "format_version": 1,
+  "profile": "claude/work",
+  "mode": "merge",                 // merge | replace
+  "dry_run": true,
+  "changes": [                     // one per settings entry that changes or is skipped
+    {
+      "entry": "settings.json",
+      "kind": "merge-settings",    // merge-settings | replace-settings | skip
+      "changed": [ "permissions" ],// top-level keys changed ([] when none)
+      "removed": [ ],              // keys removed (--replace only; [] when none)
+      "secret_warnings": [ "…" ],  // secret-looking values pulled verbatim; omitted when none
+      "note": "…",                 // reason for a skip; omitted when none
+      "backup": "/abs/backups/…"   // real run, when the entry was backed up; omitted otherwise
+    }
+  ]
+}
+```
+
+`aprofile hook-sets list --json`:
+
+```jsonc
+{
+  "format_version": 1,
+  "sets": [ /* one hook-set object per set, as below, without "bodies" */ ],
+  "errors": [ "…" ]                // sets that failed to load; omitted when none
+}
+```
+
+`aprofile hook-sets show <name> --json` prints one hook-set object with `format_version`:
+
+```jsonc
+{
+  "format_version": 1,
+  "name": "jira",
+  "description": "…",              // omitted when empty
+  "every_profile": false,
+  "harnesses": [ "claude" ],       // harnesses the set has a body for
+  "file": "/abs/hooks.d/jira.yaml",
+  "profiles": [ { "profile": "claude/work", "reason": "named" } ],  // named | every-profile | excluded
+  "bodies": { "claude": { /* the set's body for that harness */ } } // show only
+}
+```
 
 ## Wrapper and registry (extends `registry-and-env.md`)
 

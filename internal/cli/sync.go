@@ -11,15 +11,70 @@ import (
 	syncpkg "github.com/cc-deck/aprofile/internal/sync"
 )
 
+// syncJSON is the `sync --json` schema (FR-041), documented in
+// specs/001-aprofile-standalone-profile-cli/contracts/cli.md. With --dry-run it is
+// the plan; without it, what the sync did.
+type syncJSON struct {
+	FormatVersion   int                   `json:"format_version"`
+	DryRun          bool                  `json:"dry_run"`
+	Changed         bool                  `json:"changed"`
+	Profiles        []syncpkg.ProfilePlan `json:"profiles"`
+	WrappersRemoved []string              `json:"wrappers_removed"`
+	Registry        syncRegistryJSON      `json:"registry"`
+	Path            syncPathJSON          `json:"path"`
+	Problems        []string              `json:"problems"`
+	Notes           []string              `json:"notes"`
+}
+
+type syncRegistryJSON struct {
+	Path    string   `json:"path"`
+	Changed bool     `json:"changed"`
+	Removed []string `json:"removed"`
+}
+
+type syncPathJSON struct {
+	Action      string `json:"action"`
+	RCFile      string `json:"rc_file,omitempty"`
+	Changed     bool   `json:"changed"`
+	NeedsManual bool   `json:"needs_manual"`
+	Reason      string `json:"reason,omitempty"`
+	Manual      string `json:"manual,omitempty"`
+}
+
+func syncReport(res *syncpkg.Result, dryRun bool) syncJSON {
+	nonNil := func(s []string) []string {
+		if s == nil {
+			return []string{}
+		}
+		return s
+	}
+	out := syncJSON{
+		FormatVersion:   schemaVersion,
+		DryRun:          dryRun,
+		Changed:         res.Changed(),
+		Profiles:        res.Profiles,
+		WrappersRemoved: nonNil(res.WrappersRemoved),
+		Registry:        syncRegistryJSON{Path: res.RegistryPath, Changed: res.RegistryChanged, Removed: nonNil(res.RegistryRemoved)},
+		Path: syncPathJSON{Action: res.Path.Action, RCFile: res.Path.RCFile, Changed: res.Path.Changed,
+			NeedsManual: res.Path.NeedsManual(), Reason: res.Path.Reason, Manual: res.Path.Manual},
+		Problems: nonNil(res.Problems),
+		Notes:    nonNil(res.Notes),
+	}
+	if out.Profiles == nil {
+		out.Profiles = []syncpkg.ProfilePlan{}
+	}
+	return out
+}
+
 func newSyncCmd() *cobra.Command {
 	var opts syncpkg.Options
-	var yes bool
+	var yes, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Write wrappers, prepare config dirs, write the registry, and manage PATH",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSync(cmd, opts, yes)
+			return runSync(cmd, opts, yes, asJSON)
 		},
 	}
 	fl := cmd.Flags()
@@ -29,13 +84,21 @@ func newSyncCmd() *cobra.Command {
 	fl.BoolVar(&opts.FixLinks, "fix-links", false, "replace a leaking state/credentials link with an empty private entry; earlier data stays in the default setup")
 	fl.BoolVar(&opts.Relink, "relink", false, "relink entries a harness replaced with a real file (backs the file up and asks first)")
 	fl.BoolVar(&yes, "yes", false, "with --relink: confirm without asking (required off a terminal)")
+	fl.BoolVar(&asJSON, "json", false, "emit the changes (with --dry-run: the planned changes) as machine-readable JSON")
 	return cmd
 }
 
-func runSync(cmd *cobra.Command, opts syncpkg.Options, yes bool) error {
+func runSync(cmd *cobra.Command, opts syncpkg.Options, yes, asJSON bool) error {
 	a, err := newApp(cmd)
 	if err != nil {
 		return err
+	}
+	jsonOut := a.out
+	if asJSON {
+		// Keep stdout clean JSON: relink prompts and plans go to stderr.
+		ac := *a
+		ac.out = a.errOut
+		a = &ac
 	}
 	var needConfirm []string
 	if opts.Relink {
@@ -62,6 +125,16 @@ func runSync(cmd *cobra.Command, opts syncpkg.Options, yes bool) error {
 		return err
 	}
 
+	if asJSON {
+		if err := writeJSON(jsonOut, syncReport(res, opts.DryRun)); err != nil {
+			return err
+		}
+		for _, p := range res.Problems {
+			fmt.Fprintf(a.errOut, "aprofile: %s\n", p)
+		}
+		return syncExit(res, opts, needConfirm)
+	}
+
 	for _, c := range res.Changes {
 		fmt.Fprintln(a.out, c)
 	}
@@ -71,6 +144,9 @@ func runSync(cmd *cobra.Command, opts syncpkg.Options, yes bool) error {
 	case "removed":
 		fmt.Fprintf(a.out, "PATH: removed aprofile's block from %s\n", res.Path.RCFile)
 	case "manual", "disabled":
+		if res.Path.Reason != "" {
+			fmt.Fprintf(a.errOut, "PATH: %s\n", res.Path.Reason)
+		}
 		fmt.Fprintf(a.errOut, "PATH: %s\n", res.Path.Manual)
 	}
 	for _, n := range res.Notes {
@@ -90,16 +166,25 @@ func runSync(cmd *cobra.Command, opts syncpkg.Options, yes bool) error {
 		fmt.Fprintln(a.out, "already up to date (0 changes)")
 	}
 
-	// Exit non-zero on load problems (FR-022), and on PATH failure only with
-	// --require-path (FR-024).
+	return syncExit(res, opts, needConfirm)
+}
+
+// syncExit maps a sync result to the exit status: non-zero on load problems
+// (FR-022), on a relink that needs confirmation, and, only with --require-path, on
+// every outcome that leaves the PATH setup to the user (FR-024).
+func syncExit(res *syncpkg.Result, opts syncpkg.Options, needConfirm []string) error {
 	if res.HasProblems() {
 		return fmt.Errorf("sync completed with problems (see above)")
 	}
 	if len(needConfirm) > 0 {
 		return exitErrorf(ExitNeedsConfirmation, "relink of %s needs confirmation; re-run with --relink --yes (the other sync changes were applied)", strings.Join(needConfirm, ", "))
 	}
-	if opts.RequirePath && res.Path.Err != nil {
-		return fmt.Errorf("could not put the bin dir on PATH: %v", res.Path.Err)
+	if opts.RequirePath && res.Path.NeedsManual() {
+		why := res.Path.Reason
+		if why == "" && res.Path.Err != nil {
+			why = res.Path.Err.Error()
+		}
+		return fmt.Errorf("could not put the bin dir on PATH: %s", why)
 	}
 	return nil
 }

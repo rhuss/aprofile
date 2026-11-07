@@ -22,7 +22,20 @@ import (
 // built-in (by name) or adds it as a new harness. Invalid files and duplicate names
 // are isolated in set.errors and do not stop the others (FR-012). A missing dir is a
 // no-op (built-ins only).
+//
+// A file that targets a harness but fails to load (invalid field, duplicate name,
+// or a file named <harness>.yaml that cannot even be parsed) marks that harness
+// failed: its built-in is removed from the set instead of being used without the
+// user's override. sync then leaves the harness's wrappers and registry entries
+// unchanged and exits non-zero (FR-022); the other harnesses are unaffected.
 func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir string) {
+	failed := map[string]bool{}
+	defer func() {
+		for name := range failed {
+			delete(set.defs, name)
+		}
+	}()
+
 	files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	if err != nil {
 		set.errors = append(set.errors, LoadError{File: dir, Msg: err.Error()})
@@ -47,11 +60,13 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 		node, terr := topMapping(data)
 		if terr != nil {
 			set.errors = append(set.errors, LoadError{File: f, Msg: terr.Error()})
+			failed[fileStem(f)] = true
 			continue
 		}
 		name, ferr := nameFromMapping(node)
 		if ferr != nil {
 			set.errors = append(set.errors, LoadError{File: f, Field: ferr.Field, Msg: ferr.Msg})
+			failed[fileStem(f)] = true
 			continue
 		}
 		parsed = append(parsed, parsedFile{file: f, node: node, name: name})
@@ -59,11 +74,12 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 	}
 
 	// Two user files with the same name are an error naming both files (FR-009);
-	// neither is applied so the built-in (if any) keeps working.
+	// neither is applied, and the harness is failed (not silently the built-in).
 	dup := map[string]bool{}
 	for name, fs := range nameFiles {
 		if len(fs) > 1 {
 			dup[name] = true
+			failed[name] = true
 			set.errors = append(set.errors, LoadError{
 				File:  fs[0],
 				Field: "name",
@@ -81,11 +97,13 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 			data, err := yaml.Marshal(bn)
 			if err != nil {
 				set.errors = append(set.errors, LoadError{File: pf.file, Msg: err.Error()})
+				failed[pf.name] = true
 				continue
 			}
 			def, lerr := parseDefinition(data, pf.file)
 			if lerr != nil {
 				set.errors = append(set.errors, *lerr)
+				failed[pf.name] = true
 				continue
 			}
 			setMergedSource(def, pf.file, overridden, ruleEntries)
@@ -106,6 +124,13 @@ func overlayHarnessesDir(set *Set, builtinNodes map[string]*yaml.Node, dir strin
 		markSource(def, pf.file)
 		set.defs[def.Name] = def
 	}
+}
+
+// fileStem is a definition file's name without directory and extension. When a
+// file cannot be parsed far enough to read its `name`, the stem is the best
+// indication of the harness it was meant for (claude.yaml -> claude).
+func fileStem(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 }
 
 // setMergedSource marks each effective field's origin: the overriding file for a

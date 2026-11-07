@@ -82,7 +82,8 @@ Entries not in the record are never touched (FR-028).
 | `reason` | plain-language sentence from a fixed catalog, e.g. "runtime state: always private" |
 | `status` | `ok`, `missing-link-target` (lazy: the default setup has none yet; `show` lists these apart from linked entries), `not-synced` (the next sync links or unlinks it), `link-replaced-by-file`, `leaking-link`, `differs-from-default`, `kept-from-upgrade` (a profile without a stored level keeps its own entry where `all` would link one; information, FR-033) |
 
-`show --json` adds to slice one's `profileJSON`: `share`, `share_description`, `entries[]` (above),
+`show --json` (top-level `format_version`, slice one's contracts/cli.md) adds to slice one's
+`profileJSON`: `share`, `share_description`, `entries[]` (above),
 `hook_sets[] {name, reason: named|every-profile|excluded|missing|failed-to-load}` (`missing`: a
 named set absent from the library; `failed-to-load`: a named set whose file exists but cannot be
 parsed), `settings_differ` (bool),

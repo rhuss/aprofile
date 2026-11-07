@@ -107,7 +107,7 @@ func PlanWith(def *harness.Definition, level profile.Share, home, configDir stri
 		home, _ = os.UserHomeDir()
 	}
 	pl := &planner{def: def, level: string(level), home: home, configDir: configDir, opts: opts}
-	if !dirExists(configDir) {
+	if !DirExists(configDir) {
 		pl.add(Step{Kind: StepMkdir, Path: configDir, IsDir: true, Note: "profile config dir"})
 	}
 	for i := range def.Classification {
@@ -218,7 +218,7 @@ func (pl *planner) planRule(rule *harness.EntryRule) error {
 			return nil
 		}
 		if !cur.exists {
-			return pl.seedMixed(rule, rel, path, src)
+			return pl.seedMixed(rule, rel, path)
 		}
 	case harness.LayerContent, harness.LayerSettings, harness.LayerPluginStore, harness.LayerHookLocation:
 		return pl.planBorrowable(rule, rel, path, src, cur)
@@ -245,25 +245,15 @@ func (pl *planner) leakingLink(rule *harness.EntryRule, rel, target string, isRu
 		Note: "replaced the leaking link with an empty private entry; the link target is unchanged and earlier data stays in the default setup"})
 }
 
-// seedMixed creates an absent mixed file: seeded once from the default setup
-// (credentials and state keys removed) at all and content, minimal at none
-// (FR-011: nothing is seeded at none, not even owned keys).
-func (pl *planner) seedMixed(rule *harness.EntryRule, rel, path, src string) error {
-	// A mixed file declares credentials keys the harness fills in later, so even the
-	// minimal one is private to the user (0600), like the seeded one.
-	if pl.level == harness.LevelNone {
-		pl.add(Step{Kind: StepSeedMixed, Path: path, Entry: rel, Data: minimalDoc(path), Mode: 0o600, Note: "minimal: nothing seeded at share level none"})
-		return nil
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		pl.add(Step{Kind: StepSeedMixed, Path: path, Entry: rel, Data: minimalDoc(path), Mode: 0o600, Note: "minimal: the default setup has none"})
-		return nil
-	}
-	// The seeded file keeps owned keys such as MCP servers, which can hold literal
-	// tokens: it is private to the user (0600).
-	pl.add(Step{Kind: StepSeedMixed, Path: path, Entry: rel, Source: src, Data: stripNonSeedKeys(data, rule, path), Mode: 0o600,
-		Note: "seeded once from the default setup (credentials and state keys excluded)"})
+// seedMixed creates an absent mixed file with SeedMixed's content: seeded once from
+// the default setup (credentials and state keys removed) at all and content,
+// minimal at none (FR-011: nothing is seeded at none, not even owned keys).
+func (pl *planner) seedMixed(rule *harness.EntryRule, rel, path string) error {
+	// A mixed file declares credentials keys the harness fills in later, and the
+	// seeded one keeps owned keys such as MCP servers, which can hold literal
+	// tokens: either way it is private to the user (0600).
+	s := SeedMixed(pl.def, rule, profile.Share(pl.level), pl.home)
+	pl.add(Step{Kind: StepSeedMixed, Path: path, Entry: rel, Source: s.Source, Data: s.Data, Mode: 0o600, Note: s.Note})
 	return nil
 }
 
@@ -289,7 +279,7 @@ func (pl *planner) seedOwned(rel, path, src string) error {
 	if err != nil {
 		return fmt.Errorf("read default setup %s: %w", src, err)
 	}
-	if isJSONExt(filepath.Ext(path)) {
+	if IsJSONExt(filepath.Ext(path)) {
 		if err := checkJSON(data, src); err != nil {
 			return err
 		}
@@ -321,7 +311,7 @@ func secretWarningsIn(path string, data []byte) []string {
 
 func (pl *planner) planBorrowable(rule *harness.EntryRule, rel, path, src string, cur current) error {
 	treat := pl.def.Treatment(rule.Layer, pl.level)
-	srcExists := pathExists(src)
+	srcExists := PathExists(src)
 	switch treat {
 	case harness.TreatLink:
 		if !srcExists {
@@ -415,7 +405,7 @@ func (pl *planner) copyOnce(rule *harness.EntryRule, rel, path, src string, srcE
 			pl.add(Step{Kind: StepReport, Path: path, Entry: rel, Note: "default setup hooks not copied: " + removed +
 				"; to keep them, run: aprofile hook-sets import " + pl.def.Name + " --name <set>"})
 		}
-	} else if isJSONExt(filepath.Ext(path)) {
+	} else if IsJSONExt(filepath.Ext(path)) {
 		if err := checkJSON(data, src); err != nil {
 			return err
 		}

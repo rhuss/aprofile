@@ -185,7 +185,7 @@ func TestHookCallParsesKeyValue(t *testing.T) {
 	bin := filepath.Join(dir, "hook")
 	writeExec(t, bin, "#!/bin/sh\ncat >/dev/null\necho 'FOO=bar'\necho 'BAZ=qux'\n")
 
-	h := &harness.Hook{Harness: "x", Binary: bin}
+	h := harness.NewHookForTest("x", bin, 0)
 	res, err := h.Call("env", map[string]string{"harness": "x", "profile": "p", "config_dir": "/d"})
 	if err != nil {
 		t.Fatalf("Call: %v", err)
@@ -203,7 +203,7 @@ func TestHookCallExit64IsUnsupported(t *testing.T) {
 	bin := filepath.Join(dir, "hook")
 	writeExec(t, bin, "#!/bin/sh\nexit 64\n")
 
-	h := &harness.Hook{Harness: "x", Binary: bin}
+	h := harness.NewHookForTest("x", bin, 0)
 	_, err := h.Call("pre-launch", map[string]string{"harness": "x"})
 	if !errors.Is(err, harness.ErrHookUnsupported) {
 		t.Errorf("exit 64 should yield ErrHookUnsupported, got %v", err)
@@ -215,7 +215,7 @@ func TestHookCallTimesOut(t *testing.T) {
 	bin := filepath.Join(dir, "hook")
 	writeExec(t, bin, "#!/bin/sh\nsleep 5\n")
 
-	h := &harness.Hook{Harness: "x", Binary: bin, Timeout: 150 * time.Millisecond}
+	h := harness.NewHookForTest("x", bin, 150*time.Millisecond)
 	start := time.Now()
 	_, err := h.Call("env", map[string]string{"harness": "x"})
 	if err == nil {
@@ -234,7 +234,7 @@ func TestHookCallRejectsNonKeyValueOutput(t *testing.T) {
 	bin := filepath.Join(dir, "hook")
 	writeExec(t, bin, "#!/bin/sh\necho 'this is not key=value'\necho 'no-equals-here'\n")
 
-	h := &harness.Hook{Harness: "x", Binary: bin}
+	h := harness.NewHookForTest("x", bin, 0)
 	_, err := h.Call("env", map[string]string{"harness": "x"})
 	if err == nil {
 		t.Fatal("expected an error for non key=value output")

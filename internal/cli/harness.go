@@ -64,7 +64,7 @@ func runHarnessList(cmd *cobra.Command, asJSON bool) error {
 	}
 
 	if asJSON {
-		out := harnessListJSON{FormatVersion: schemaVersion}
+		out := harnessListJSON{FormatVersion: schemaVersion, Harnesses: []harnessListItemJSON{}}
 		for _, d := range a.set.All() {
 			summary, files := harnessSource(d)
 			out.Harnesses = append(out.Harnesses, harnessListItemJSON{
@@ -178,6 +178,13 @@ func runHarnessShow(cmd *cobra.Command, name string, asJSON bool) error {
 		kinds = append(kinds, k.Name)
 	}
 	line("auth_kinds", "auth_kinds", strings.Join(kinds, ", "))
+	line("auth_clears", "auth_clears", strings.Join(d.AuthClears, ", "))
+	if argv := d.LoginArgv(); argv != nil {
+		// The command line `aprofile login` runs (binary first); an empty args list
+		// starts the bare binary.
+		line("login_command", "login_command", strings.Join(argv, " "))
+		line("login_command", "login_note", d.LoginCommand.Note)
+	}
 	if len(d.Classification) > 0 {
 		line("classification", "classification", fmt.Sprintf("%d rule(s)", len(d.Classification)))
 	}

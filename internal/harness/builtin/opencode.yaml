@@ -31,6 +31,10 @@ auth_kinds:
   - name: login
     vars: {} # interactive `opencode auth login`; credentials in data/opencode/auth.json
 
+# `aprofile login` runs `opencode auth login` with the profile's environment (FR-039).
+login_command:
+  args: [auth, login]
+
 # OpenCode's default setup is spread over the XDG directories; each profile-relative
 # prefix maps to its own default location.
 default_locations:

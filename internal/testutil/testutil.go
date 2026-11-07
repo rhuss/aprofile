@@ -7,8 +7,14 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// HermeticPATH is the PATH HermeticHome pins: system directories only, so no test
+// finds a developer's real harness binary, hook or helper by accident. Tests that
+// need a stub put its directory in front explicitly.
+const HermeticPATH = "/usr/bin:/bin"
 
 // Home describes a hermetic HOME/XDG root created for a single test.
 type Home struct {
@@ -29,6 +35,11 @@ type Home struct {
 // block to the developer's real ~/.zshrc), and SHELL defaults to /bin/sh so the
 // default hermetic home performs no shell-rc edit unless a test opts in by setting
 // SHELL itself.
+//
+// PATH is pinned to HermeticPATH and every inherited APROFILE_* variable is
+// unset (a test run from inside an aprofile wrapper inherits APROFILE_CONFIG_DIR,
+// which changes how aprofile resolves its own dirs, and APROFILE_SET_VARS, which
+// changes what login and the wrapper treat as already set).
 func HermeticHome(t *testing.T) Home {
 	t.Helper()
 	root := t.TempDir()
@@ -55,6 +66,15 @@ func HermeticHome(t *testing.T) Home {
 	// unsupported shell, so no rc is edited) unless a test sets SHELL itself.
 	t.Setenv("ZDOTDIR", root)
 	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("PATH", HermeticPATH)
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "APROFILE_") {
+			t.Setenv(k, "") // registers the restore of the inherited value
+			if err := os.Unsetenv(k); err != nil {
+				t.Fatalf("testutil: unset %s: %v", k, err)
+			}
+		}
+	}
 	return h
 }
 

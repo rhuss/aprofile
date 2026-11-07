@@ -34,7 +34,11 @@ type copyReport struct {
 	Mode string `json:"mode"`
 	MCP  struct {
 		Converted []string `json:"converted"`
-		Drops     []struct {
+		Skipped   []struct {
+			Name   string `json:"name"`
+			Reason string `json:"reason"`
+		} `json:"skipped"`
+		Drops []struct {
 			Server string `json:"server"`
 			Field  string `json:"field"`
 			Reason string `json:"reason"`

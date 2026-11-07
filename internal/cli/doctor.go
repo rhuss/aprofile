@@ -36,6 +36,9 @@ func runDoctor(cmd *cobra.Command, asJSON bool) error {
 	if err != nil {
 		return err
 	}
+	if findings == nil {
+		findings = []doctor.Finding{}
+	}
 
 	if asJSON {
 		// Emit findings as JSON on stdout regardless of count so the output is always

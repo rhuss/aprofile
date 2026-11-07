@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -31,17 +33,31 @@ type copyReportJSON struct {
 	DroppedSettings []string             `json:"dropped_settings,omitempty"`
 	PluginsSkipped  []string             `json:"plugins_skipped,omitempty"`
 	SecretWarnings  []mcp.SecretWarning  `json:"secret_warnings,omitempty"`
+	// Phase 11 (T072, T078).
+	MCPCarried          []string        `json:"mcp_carried,omitempty"`           // same-harness: servers carried verbatim
+	OwnedSecretWarnings []string        `json:"owned_secret_warnings,omitempty"` // "<file>: <key path>" outside the MCP servers
+	OwnedNotConverted   []string        `json:"owned_not_converted,omitempty"`   // cross-harness: "<entry>" or "<file>#<key>"
+	SkippedPlugins      []skippedPlugin `json:"skipped_plugins,omitempty"`
+	SkillsInTarget      []string        `json:"skills_in_target,omitempty"`
+	SkillsMissing       []string        `json:"skills_missing_in_target,omitempty"`
+	SkillsHomeEscapes   []string        `json:"skills_home_escapes,omitempty"`
 	// Feature 002 (FR-007a).
 	Share            string   `json:"share"`
 	SettingsCarried  []string `json:"settings_carried,omitempty"`
 	HookSetsCarried  []string `json:"hook_sets_carried,omitempty"`
 	HookSetsLeftOut  []string `json:"hook_sets_left_out,omitempty"`
 	SettingsWarnings []string `json:"settings_warnings,omitempty"`
+	// Backup is the directory the replaced data of an existing target was copied to
+	// before an --overwrite copy (empty for a new target).
+	Backup string `json:"backup,omitempty"`
 }
 
 type copyFlags struct {
 	overwrite bool
+	yes       bool
+	adopt     bool
 	auth      string
+	authKey   string
 	label     string
 	color     string
 	icon      string
@@ -87,8 +103,11 @@ func newCopyCmd() *cobra.Command {
 	fl.StringVar(&f.share, "share", "", "share level of the target (default: the source's); "+shareFlagHelp())
 	fl.StringSliceVar(&f.hookSets, "hook-sets", nil, "hook sets of the target (default: the source's, where the target harness has a body)")
 	fl.StringSliceVar(&f.excludeHookSets, "exclude-hook-sets", nil, "every-profile hook sets the target skips (default: the source's)")
-	fl.BoolVar(&f.overwrite, "overwrite", false, "replace only what the copy writes if the target exists")
+	fl.BoolVar(&f.overwrite, "overwrite", false, "replace only what the copy writes if the target exists (lists it, asks first and backs it up)")
+	fl.BoolVar(&f.yes, "yes", false, "with --overwrite: replace the target's data without asking (required off a terminal); a backup is still made")
+	fl.BoolVar(&f.adopt, "adopt", false, "reuse an existing leftover config dir for a new target")
 	fl.StringVar(&f.auth, "auth", "", "auth kind for a cross-harness target (defaults to the target's default)")
+	fl.StringVar(&f.authKey, "auth-key", "", "secret reference for a cross-harness target's auth kind: env:NAME or file:/abs/path")
 	fl.StringVar(&f.label, "label", "", "override the carried label")
 	fl.StringVar(&f.color, "color", "", "override the carried color")
 	fl.StringVar(&f.icon, "icon", "", "override the carried icon")
@@ -135,8 +154,12 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		return err
 	}
 
-	// Target existence (FR-033): fail without --overwrite.
+	// Target existence (FR-033): fail without --overwrite. Only "not found" means
+	// absent; a target that fails to load is never overwritten (T067).
 	existingTarget, loadErr := a.store.Load(dh, dn)
+	if loadErr != nil && !errors.Is(loadErr, profile.ErrNotFound) {
+		return fmt.Errorf("target profile %s/%s fails to load (%v); fix or remove its profile file, then copy again", dh, dn, loadErr)
+	}
 	targetExists := loadErr == nil
 	if targetExists && !f.overwrite {
 		return fmt.Errorf("target profile %s/%s already exists; pass --overwrite to replace what the copy writes", dh, dn)
@@ -144,6 +167,30 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 
 	srcConfigDir := a.paths.ProfileConfigDir(sh, sn)
 	dstConfigDir := a.paths.ProfileConfigDir(dh, dn)
+
+	// FR-004: a leftover config dir for a new target must be adopted explicitly.
+	if !targetExists && layer.DirExists(dstConfigDir) && !f.adopt {
+		return fmt.Errorf("a config dir already exists at %s without a profile; pass --adopt to reuse it", dstConfigDir)
+	}
+	// FR-002: the target's wrapper name must be its own.
+	if err := checkWrapperClash(a, dh, dn, ""); err != nil {
+		return err
+	}
+	// Auth is validated before anything is written for the target (T067, T075).
+	var auth copyAuth
+	if sh == dh {
+		if f.authKey != "" {
+			return fmt.Errorf("--auth-key applies to a cross-harness copy; a same-harness copy carries the source's auth")
+		}
+	} else {
+		var existing *profile.Profile
+		if targetExists {
+			existing = existingTarget
+		}
+		if auth, err = resolveCopyAuth(dstDef, existing, f.auth, f.authKey, dh+"/"+dn); err != nil {
+			return err
+		}
+	}
 
 	report := copyReportJSON{FormatVersion: schemaVersion, Source: src.ID(), Target: dh + "/" + dn}
 
@@ -181,6 +228,31 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		return err
 	}
 
+	// An existing target's data is replaced only after it is listed, confirmed and
+	// backed up (Constitution II); nothing above has written anything yet.
+	if targetExists {
+		replaced := copyReplaces(srcDef, dstDef, level, srcConfigDir, dstConfigDir, a.store.Path(dh, dn))
+		w := a.out
+		if f.asJSON {
+			w = a.errOut // keep stdout parseable
+		}
+		fmt.Fprintf(w, "copy onto existing profile %s/%s replaces:\n", dh, dn)
+		for _, p := range replaced {
+			fmt.Fprintf(w, "  %s\n", p)
+		}
+		err := confirmOrYes(cmd, fmt.Sprintf("Replace this data of %s/%s (a backup is made first)?", dh, dn), f.yes)
+		if err == errDeclined {
+			fmt.Fprintln(w, "aborted; nothing changed")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if report.Backup, err = backupPaths(a.paths, dh, dn, replaced, time.Now()); err != nil {
+			return fmt.Errorf("back up target %s/%s (nothing changed): %w", dh, dn, err)
+		}
+	}
+
 	// When source and target both have their own settings, the target's settings
 	// start as a copy of the source's (hook location excluded). This runs before the
 	// config dir is prepared, so preparation copies from the default setup only what
@@ -209,20 +281,20 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 			return err
 		}
 		report.SecretWarnings = warnings
-		// The whole owned layer (including the MCP file) is carried verbatim;
-		// record the carried servers in the MCP report for symmetry.
+		report.OwnedSecretWarnings = ownedSecretWarnings(dstDef, dstConfigDir)
+		// The whole owned layer (including the MCP file) is carried verbatim, not
+		// converted: the servers are reported as carried.
 		if names, err := mcpServerNames(dstDef, dstConfigDir); err == nil {
-			report.MCP.Converted = names
+			report.MCPCarried = names
 		}
 		carriedSkills, skillsReport := carrySkills(srcDef, dstDef, level, srcConfigDir, dstConfigDir)
 		report.SkillsCarried = carriedSkills
 		report.SkillsReport = skillsReport
 	} else {
 		report.Mode = "cross-harness"
-		if err := applyCrossHarnessSettings(target, src, dstDef, f, targetExists); err != nil {
-			return err
-		}
+		applyCrossHarnessSettings(target, src, f, auth, targetExists)
 		report.DroppedSettings = droppedCrossSettings(src)
+		report.OwnedNotConverted = ownedNotConverted(srcDef, srcConfigDir)
 		// MCP conversion through the neutral record.
 		mcpRep, err := convertMCP(srcDef, dstDef, srcConfigDir, dstConfigDir, f.overwrite)
 		if err != nil {
@@ -233,8 +305,15 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) error {
 		carriedSkills, skillsReport := carrySkills(srcDef, dstDef, level, srcConfigDir, dstConfigDir)
 		report.SkillsCarried = carriedSkills
 		report.SkillsReport = skillsReport
-		// Plugins are never carried across harnesses (FR-036).
-		if srcDef.PluginMechanism != "" {
+		report.SkillsInTarget, report.SkillsMissing, report.SkillsHomeEscapes =
+			skillsAvailability(srcDef, dstDef, src.ShareLevel(), level, srcConfigDir, dstConfigDir)
+		// Plugins are never carried across harnesses (FR-036): each one is named with
+		// the skills and MCP servers it contains.
+		report.SkippedPlugins = findPlugins(srcDef, srcConfigDir)
+		for _, p := range report.SkippedPlugins {
+			report.PluginsSkipped = append(report.PluginsSkipped, describePlugin(p))
+		}
+		if len(report.SkippedPlugins) == 0 && srcDef.PluginMechanism != "" {
 			report.PluginsSkipped = []string{"plugins are not carried across harnesses (source uses: " + srcDef.PluginMechanism + ")"}
 		}
 	}
@@ -266,27 +345,23 @@ func applySameHarnessSettings(target, src *profile.Profile, f *copyFlags) {
 }
 
 // applyCrossHarnessSettings carries label/color/icon only and drops auth/model/endpoint
-// /extra (FR-033b). A new target gets the target default auth kind unless --auth; an
-// overwritten target keeps its existing auth/model/endpoint/extra unless --auth is set.
-func applyCrossHarnessSettings(target, src *profile.Profile, dstDef *harness.Definition, f *copyFlags, targetExists bool) error {
+// /extra (FR-033b). The auth was resolved and validated up front (resolveCopyAuth): a
+// new target gets the target default auth kind unless --auth, with the --auth-key
+// reference; an overwritten target keeps its existing model/endpoint/extra, and its
+// auth unless --auth or --auth-key is set.
+func applyCrossHarnessSettings(target, src *profile.Profile, f *copyFlags, auth copyAuth, targetExists bool) {
 	target.Label = pick(f.label, src.Label)
 	target.Color = pick(f.color, src.Color)
 	target.Icon = pick(f.icon, src.Icon)
-	switch {
-	case f.auth != "":
-		if _, ok := dstDef.AuthKind(f.auth); !ok {
-			return fmt.Errorf("harness %q has no auth kind %q", dstDef.Name, f.auth)
-		}
-		target.AuthKind = f.auth
-		target.AuthRefs = nil
-	case !targetExists:
-		target.AuthKind = dstDef.DefaultAuthKind
-		target.AuthRefs = nil
+	if auth.set {
+		target.AuthKind = auth.kind
+		target.AuthRefs = auth.refs
+	}
+	if !targetExists {
 		target.Model = ""
 		target.Endpoint = ""
 		target.ExtraEnv = nil
 	}
-	return nil
 }
 
 func droppedCrossSettings(src *profile.Profile) []string {
@@ -314,12 +389,12 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 		rule := &def.Classification[i]
 		switch rule.Layer {
 		case harness.LayerOwned:
-			if isGlobEntry(rule.Entry) {
+			if rule.IsGlob() {
 				continue
 			}
 			rel := filepath.FromSlash(strings.TrimSuffix(rule.Entry, "/"))
 			s := filepath.Join(srcDir, rel)
-			if !pathExists(s) {
+			if !layer.PathExists(s) {
 				continue
 			}
 			if err := copyTree(s, filepath.Join(dstDir, rel)); err != nil {
@@ -336,19 +411,19 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 				return nil, err
 			}
 			d := filepath.Join(dstDir, rel)
-			dstData, _ := os.ReadFile(d) // may be absent → empty
+			// An absent target starts empty; any other read error (permission
+			// denied, a directory in its place) fails the copy rather than replacing
+			// a file whose other keys could not be read.
+			dstData, err := os.ReadFile(d)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("read target %s: %w", d, err)
+			}
 			merged, err := layer.MergeMixedOwned(rule, dstData, srcData, filepath.Ext(rel))
 			if err != nil {
 				return nil, err
 			}
-			// A mixed owned file can carry literal secrets the harness wrote (FR-033a), so
-			// default a new file to 0o600 and preserve an existing file's mode rather than
-			// broadening access.
-			mode := os.FileMode(0o600)
-			if fi, serr := os.Stat(d); serr == nil {
-				mode = fi.Mode().Perm()
-			}
-			if err := config.WriteFileAtomic(d, merged, mode); err != nil {
+			// A mixed owned file can carry literal secrets the harness wrote (FR-033a).
+			if err := config.WriteFileAtomic(d, merged, ownedFileMode(d)); err != nil {
 				return nil, err
 			}
 		}
@@ -356,8 +431,12 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 	// Warn on owned MCP values matching a secret pattern (FR-033a).
 	if def.MCP != nil {
 		if rel, ok := mcpFileRel(def); ok {
-			if data, err := os.ReadFile(filepath.Join(dstDir, rel)); err == nil {
+			data, err := os.ReadFile(filepath.Join(dstDir, rel))
+			switch {
+			case err == nil:
 				return mcp.SecretWarnings(mcp.Flavor(def.MCP.Flavor), data)
+			case !errors.Is(err, os.ErrNotExist):
+				return nil, err
 			}
 		}
 	}
@@ -386,15 +465,29 @@ func convertMCP(srcDef, dstDef *harness.Definition, srcDir, dstDir string, overw
 	}
 	dstRel, _ := mcpFileRel(dstDef)
 	dstPath := filepath.Join(dstDir, dstRel)
-	existing, _ := os.ReadFile(dstPath)
+	existing, err := os.ReadFile(dstPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return mcp.ConversionReport{}, err
+	}
 	out, rep, err := mcp.MergeInto(mcp.Flavor(dstDef.MCP.Flavor), existing, servers, overwrite)
 	if err != nil {
 		return mcp.ConversionReport{}, err
 	}
-	if err := config.WriteFileAtomic(dstPath, out, 0o644); err != nil {
+	if err := config.WriteFileAtomic(dstPath, out, ownedFileMode(dstPath)); err != nil {
 		return mcp.ConversionReport{}, err
 	}
 	return rep, nil
+}
+
+// ownedFileMode returns the mode to write an owned or MCP file with: an existing
+// file's mode is preserved and a new file gets 0o600, since these files can hold
+// secrets a harness wrote (for example tokens in a 0o600 .claude.json), so a rewrite
+// never broadens access.
+func ownedFileMode(path string) os.FileMode {
+	if fi, err := os.Stat(path); err == nil {
+		return fi.Mode().Perm()
+	}
+	return 0o600
 }
 
 // carrySkills copies skills only when they are the source's own (FR-007a): skills are
@@ -441,7 +534,7 @@ func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []
 		s := filepath.Join(srcDir, rel)
 		d := filepath.Join(dstDir, rel)
 		fi, err := os.Lstat(s)
-		if err != nil || fi.Mode()&os.ModeSymlink != 0 || pathExists(d) {
+		if err != nil || fi.Mode()&os.ModeSymlink != 0 || layer.PathExists(d) {
 			continue
 		}
 		if fi.IsDir() {
@@ -523,8 +616,14 @@ func (a *app) carryHookSets(src *profile.Profile, dstDef *harness.Definition, le
 
 func printCopyReport(a *app, r copyReportJSON) {
 	fmt.Fprintf(a.out, "copied %s -> %s (%s) (run: aprofile sync)\n", r.Source, r.Target, r.Mode)
+	if r.Backup != "" {
+		fmt.Fprintf(a.out, "  backed up the replaced data of %s to %s\n", r.Target, r.Backup)
+	}
+	if len(r.MCPCarried) > 0 {
+		fmt.Fprintf(a.out, "  MCP servers carried: %s\n", strings.Join(r.MCPCarried, ", "))
+	}
 	if len(r.MCP.Converted) > 0 {
-		fmt.Fprintf(a.out, "  MCP servers: %s\n", strings.Join(r.MCP.Converted, ", "))
+		fmt.Fprintf(a.out, "  MCP servers converted: %s\n", strings.Join(r.MCP.Converted, ", "))
 	}
 	for _, s := range r.MCP.Skipped {
 		fmt.Fprintf(a.out, "  MCP server skipped: %s (%s)\n", s.Name, s.Reason)
@@ -535,8 +634,20 @@ func printCopyReport(a *app, r copyReportJSON) {
 	if len(r.DroppedSettings) > 0 {
 		fmt.Fprintf(a.out, "  dropped settings: %s\n", strings.Join(r.DroppedSettings, ", "))
 	}
+	for _, o := range r.OwnedNotConverted {
+		fmt.Fprintf(a.out, "  owned entry not converted: %s\n", o)
+	}
 	for _, s := range r.SkillsReport {
 		fmt.Fprintf(a.out, "  %s\n", s)
+	}
+	if len(r.SkillsInTarget) > 0 {
+		fmt.Fprintf(a.out, "  source skills the target already sees: %s\n", strings.Join(r.SkillsInTarget, ", "))
+	}
+	if len(r.SkillsMissing) > 0 {
+		fmt.Fprintf(a.out, "  source skills missing for the target (copy them separately): %s\n", strings.Join(r.SkillsMissing, ", "))
+	}
+	if len(r.SkillsHomeEscapes) > 0 {
+		fmt.Fprintf(a.out, "  the target also reads skills from $HOME, shared with every profile: %s\n", strings.Join(r.SkillsHomeEscapes, ", "))
 	}
 	for _, p := range r.PluginsSkipped {
 		fmt.Fprintf(a.out, "  %s\n", p)
@@ -557,6 +668,58 @@ func printCopyReport(a *app, r copyReportJSON) {
 	for _, w := range r.SecretWarnings {
 		fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s %s looks like a secret and was duplicated verbatim\n", w.Server, w.Field)
 	}
+	for _, w := range r.OwnedSecretWarnings {
+		fmt.Fprintf(a.errOut, "aprofile: warning: owned value %s looks like a secret and was duplicated verbatim\n", w)
+	}
+}
+
+// copyReplaces lists the existing data of a copy target that the copy rewrites, in
+// the order it is backed up: the target's store file, then the config-dir entries
+// the copy writes into when the source has them. A same-harness copy writes the
+// owned entries and the mixed files (their owned keys); a cross-harness copy writes
+// the target's MCP file; at share level none the source's own skills are copied
+// into the target's skills dir. Settings are copied only into absent entries and
+// credentials and state are never touched, so neither is listed. Paths that do not
+// exist are left out.
+func copyReplaces(srcDef, dstDef *harness.Definition, level profile.Share, srcDir, dstDir, storeFile string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if seen[p] {
+			return
+		}
+		if _, err := os.Lstat(p); err == nil {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	add(storeFile)
+	srcHas := func(rel string) bool { _, err := os.Lstat(filepath.Join(srcDir, rel)); return err == nil }
+	if srcDef.Name == dstDef.Name {
+		for i := range dstDef.Classification {
+			rule := &dstDef.Classification[i]
+			if (rule.Layer != harness.LayerOwned && rule.Layer != harness.LayerMixed) || rule.IsGlob() {
+				continue
+			}
+			rel := filepath.FromSlash(strings.TrimSuffix(rule.Entry, "/"))
+			if srcHas(rel) {
+				add(filepath.Join(dstDir, rel))
+			}
+		}
+	} else if srcRel, ok := mcpFileRel(srcDef); ok && srcHas(srcRel) && dstDef.HasCapability("mcp") {
+		if dstRel, ok := mcpFileRel(dstDef); ok {
+			add(filepath.Join(dstDir, dstRel))
+		}
+	}
+	if level == profile.ShareNone && srcDef.SkillsLocation != nil && dstDef.SkillsLocation != nil {
+		src, dst := skillsPath(srcDef, srcDir), skillsPath(dstDef, dstDir)
+		sfi, serr := os.Lstat(src)
+		dfi, derr := os.Lstat(dst)
+		if serr == nil && sfi.IsDir() && derr == nil && dfi.Mode()&os.ModeSymlink == 0 {
+			add(dst)
+		}
+	}
+	return out
 }
 
 // --- small helpers ---
@@ -629,13 +792,6 @@ func skillsPath(def *harness.Definition, configDir string) string {
 		return ""
 	}
 	return filepath.Join(configDir, filepath.FromSlash(def.SkillsLocation.Path))
-}
-
-func isGlobEntry(s string) bool { return strings.ContainsAny(s, "*?[") }
-
-func pathExists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
 }
 
 // copyTree copies a file or directory tree, skipping symlinks (owned entries are real

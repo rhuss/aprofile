@@ -8,26 +8,41 @@ import (
 	"testing"
 )
 
-// ccFixture builds a fixture cc-deck layout under the hermetic root and returns the
-// cc-deck source directory. It mirrors the layout the importer package documents as
-// the assumed cc-deck schema (a verification item against the real cc-deck repo).
+// ccFixture builds a fixture cc-deck layout under the hermetic root, following
+// cc-deck's real on-disk schema (cc-deck internal/config and internal/profile):
+// <config>/cc-deck/config.yaml with profiles.<harness>.<name> and default_profile,
+// cc-deck's credential copies under <config>/cc-deck/profiles/<harness>/<name>/,
+// and the live harness config dir under <data>/cc-deck/profiles/<name>/<harness>/.
+// Both cc-deck dirs sit where import looks by default. It returns the cc-deck
+// config dir. All values are fake.
 func ccFixture(t *testing.T, root string) string {
 	t.Helper()
-	source := filepath.Join(root, "ccdeck")
-	live := filepath.Join(source, "live", "claude", "work")
-	// Metadata file.
-	writeFixtureFile(t, filepath.Join(source, "profiles", "claude", "work.yaml"),
-		"harness: claude\n"+
-			"name: work\n"+
-			"label: Work\n"+
-			"color: blue\n"+
-			"icon: W\n"+
-			"primary: true\n"+
-			"auth_kind: auth-token\n"+
-			"auth_refs:\n"+
-			"  ANTHROPIC_AUTH_TOKEN: env:WORK_TOKEN\n"+
-			"config_dir: "+live+"\n")
-	// Live config dir: credentials, a mixed file, an owned dir, and state.
+	source := filepath.Join(root, ".config", "cc-deck")
+	writeFixtureFile(t, filepath.Join(source, "config.yaml"),
+		"default_profile: claude/work\n"+
+			"profiles:\n"+
+			"  claude:\n"+
+			"    work:\n"+
+			"      auth:\n"+
+			"        login: true\n"+
+			"      color: blue\n"+
+			"      icon: W\n"+
+			"    vertex:\n"+
+			"      backend: vertex\n"+
+			"      project: fake-project\n"+
+			"      region: us-east5\n"+
+			"      auth:\n"+
+			"        credentials:\n"+
+			"          file: ~/gcloud/adc.json\n"+
+			"      color: '#E27C5A'\n"+
+			"  codex:\n"+
+			"    private:\n"+
+			"      auth:\n"+
+			"        api_key:\n"+
+			"          env: FAKE_OPENAI_KEY\n")
+	writeFixtureFile(t, filepath.Join(source, "profiles", "claude", "vertex", "credentials"), `{"type":"FAKE_ADC"}`+"\n")
+	live := filepath.Join(ccDataDir(root), "profiles", "work", "claude")
+	// Live config dir: credentials, a mixed file, a content dir, and state.
 	writeFixtureFile(t, filepath.Join(live, ".credentials.json"), `{"token":"SRC_CRED"}`+"\n")
 	writeFixtureFile(t, filepath.Join(live, ".claude.json"),
 		`{"oauthAccount":{"id":"SRC"},"mcpServers":{"srv":{"command":"x"}},"projects":{"/x":{}},"numStartups":3}`+"\n")
@@ -35,6 +50,9 @@ func ccFixture(t *testing.T, root string) string {
 	writeFixtureFile(t, filepath.Join(live, "projects", "p1", "session"), "STATE\n")
 	return source
 }
+
+// ccDataDir is the cc-deck data dir of the fixture (the import default).
+func ccDataDir(root string) string { return filepath.Join(root, ".local", "share", "cc-deck") }
 
 func writeFixtureFile(t *testing.T, path, content string) {
 	t.Helper()
@@ -111,6 +129,7 @@ func TestImportDryRunChangesNothing(t *testing.T) {
 	_ = os.MkdirAll(aprofileData, 0o755)
 
 	ccBefore := snapshotTree(t, source)
+	ccDataBefore := snapshotTree(t, ccDataDir(e.root))
 	cfgBefore := snapshotTree(t, aprofileConfig)
 	dataBefore := snapshotTree(t, aprofileData)
 
@@ -120,6 +139,7 @@ func TestImportDryRunChangesNothing(t *testing.T) {
 	}
 
 	assertTreeUnchanged(t, "cc-deck", ccBefore, snapshotTree(t, source))
+	assertTreeUnchanged(t, "cc-deck data", ccDataBefore, snapshotTree(t, ccDataDir(e.root)))
 	assertTreeUnchanged(t, "aprofile config", cfgBefore, snapshotTree(t, aprofileConfig))
 	assertTreeUnchanged(t, "aprofile data", dataBefore, snapshotTree(t, aprofileData))
 }
@@ -128,8 +148,12 @@ func TestImportCreatesProfilesAndPreservesCCDeck(t *testing.T) {
 	e := newEnv(t)
 	source := ccFixture(t, e.root)
 	ccBefore := snapshotTree(t, source)
+	ccDataBefore := snapshotTree(t, ccDataDir(e.root))
 
-	e.run(nil, "import", "cc-deck", "--source", source)
+	out := e.run(nil, "import", "cc-deck", "--source", source)
+	if strings.Contains(out, "FAKE_ADC") || strings.Contains(out, "SRC_CRED") {
+		t.Errorf("import output must not show credential contents:\n%s", out)
+	}
 
 	// Profile store file exists.
 	if _, err := os.Stat(e.profileStorePath("claude", "work")); err != nil {
@@ -161,20 +185,118 @@ func TestImportCreatesProfilesAndPreservesCCDeck(t *testing.T) {
 
 	// No cc-deck file was modified.
 	assertTreeUnchanged(t, "cc-deck", ccBefore, snapshotTree(t, source))
+	assertTreeUnchanged(t, "cc-deck data", ccDataBefore, snapshotTree(t, ccDataDir(e.root)))
 }
 
+// SC-010: the cc-deck profiles import with no manual edits; each store file carries
+// the mapped auth, backend environment, appearance and primary flag.
+func TestImportMapsCCDeckSchema(t *testing.T) {
+	e := newEnv(t)
+	ccFixture(t, e.root)
+	writeFixtureFile(t, filepath.Join(e.root, "gcloud", "adc.json"), `{"type":"DECLARED"}`+"\n")
+
+	// No --source/--source-data: both cc-deck dirs are found at their defaults.
+	e.run(nil, "import", "cc-deck")
+
+	work := readFile(t, e.profileStorePath("claude", "work"))
+	for _, want := range []string{"auth_kind: oauth-login", "primary: true", "color: blue", "icon: W"} {
+		if !strings.Contains(work, want) {
+			t.Errorf("claude/work store missing %q:\n%s", want, work)
+		}
+	}
+	vertex := readFile(t, e.profileStorePath("claude", "vertex"))
+	credCopy := filepath.Join(e.root, ".local", "share", "aprofile", "credentials", "claude", "vertex", "credentials")
+	for _, want := range []string{"CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "fake-project", "CLOUD_ML_REGION", "us-east5", "GOOGLE_APPLICATION_CREDENTIALS", credCopy} {
+		if !strings.Contains(vertex, want) {
+			t.Errorf("claude/vertex store missing %q:\n%s", want, vertex)
+		}
+	}
+	if strings.Contains(vertex, "FAKE_ADC") {
+		t.Errorf("store file must not contain credential contents")
+	}
+	// cc-deck's own credential copy wins over the declared source file.
+	if got := readFile(t, credCopy); !strings.Contains(got, "FAKE_ADC") {
+		t.Errorf("credential copy = %q", got)
+	}
+	if fi, err := os.Stat(credCopy); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("credential copy mode: %v %v", fi, err)
+	}
+	codex := readFile(t, e.profileStorePath("codex", "private"))
+	if !strings.Contains(codex, "auth_kind: api-key") || !strings.Contains(codex, "OPENAI_API_KEY: env:FAKE_OPENAI_KEY") {
+		t.Errorf("codex/private store:\n%s", codex)
+	}
+}
+
+// FR-001: import moves the primary flag from the harness's previous primary and
+// reports it.
+func TestImportMovesPrimaryAndReportsIt(t *testing.T) {
+	e := newEnv(t)
+	source := ccFixture(t, e.root)
+	e.run(nil, "add", "claude", "old", "--auth-kind", "oauth-login", "--primary")
+
+	out := e.run(nil, "import", "cc-deck", "--source", source, "--source-data", ccDataDir(e.root))
+	if !strings.Contains(out, "moved primary flag from claude/old to claude/work") {
+		t.Errorf("import should report the primary move:\n%s", out)
+	}
+	if strings.Contains(readFile(t, e.profileStorePath("claude", "old")), "primary: true") {
+		t.Errorf("claude/old should no longer be primary")
+	}
+
+	jsonOut := e.run(nil, "import", "cc-deck", "--source", source, "--overwrite", "--json")
+	if !strings.Contains(jsonOut, `"source_data_dir"`) {
+		t.Errorf("--json should report the cc-deck data dir:\n%s", jsonOut)
+	}
+}
+
+// FR-045: a profile that already exists is skipped and reported while the others
+// are imported in the same run, which then exits non-zero.
 func TestImportSkipsExistingAndExitsNonZero(t *testing.T) {
 	e := newEnv(t)
 	source := ccFixture(t, e.root)
-
-	e.run(nil, "import", "cc-deck", "--source", source) // first import creates claude/work
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
 
 	out, err := e.tryRun(nil, "import", "cc-deck", "--source", source)
 	if err == nil {
-		t.Fatalf("re-import of an existing profile must exit non-zero:\n%s", out)
+		t.Fatalf("import with an existing profile must exit non-zero:\n%s", out)
 	}
-	if !strings.Contains(out, "claude/work") || !strings.Contains(strings.ToLower(out), "skip") {
-		t.Errorf("re-import should report the skipped profile:\n%s", out)
+	if !strings.Contains(out, "skip     claude/work") {
+		t.Errorf("import should report the skipped profile:\n%s", out)
+	}
+	for _, id := range [][2]string{{"claude", "vertex"}, {"codex", "private"}} {
+		if _, err := os.Stat(e.profileStorePath(id[0], id[1])); err != nil {
+			t.Errorf("%s/%s should still be imported in the same run: %v", id[0], id[1], err)
+		}
+	}
+	if strings.Contains(readFile(t, e.profileStorePath("claude", "work")), "primary: true") {
+		t.Errorf("the skipped existing profile must stay as it was")
+	}
+}
+
+// FR-045: a profile that fails partway is reported as failed and rolled back; the
+// others are imported and the command exits non-zero.
+func TestImportFailedProfileReportedOthersImported(t *testing.T) {
+	e := newEnv(t)
+	source := ccFixture(t, e.root)
+	live := filepath.Join(ccDataDir(e.root), "profiles", "work", "claude")
+	writeFixtureFile(t, filepath.Join(live, ".claude.json"), "{not json\n")
+
+	out, err := e.tryRun(nil, "import", "cc-deck", "--source", source)
+	if err == nil {
+		t.Fatalf("a failed profile must make import exit non-zero:\n%s", out)
+	}
+	if !strings.Contains(out, "failed   claude/work") || !strings.Contains(out, "1 profile(s) failed to import") {
+		t.Errorf("import should report the failed profile:\n%s", out)
+	}
+	if _, err := os.Stat(e.profileStorePath("claude", "work")); !os.IsNotExist(err) {
+		t.Errorf("the failed profile must leave no store file (err=%v)", err)
+	}
+	if _, err := os.Stat(e.profileConfigDir("claude", "work")); !os.IsNotExist(err) {
+		t.Errorf("the failed profile must leave no config dir (err=%v)", err)
+	}
+	for _, id := range [][2]string{{"claude", "vertex"}, {"codex", "private"}} {
+		if _, err := os.Stat(e.profileStorePath(id[0], id[1])); err != nil {
+			t.Errorf("%s/%s should still be imported: %v", id[0], id[1], err)
+		}
 	}
 }
 

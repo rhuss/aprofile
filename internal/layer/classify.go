@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/secret"
 )
 
 // Result is the classification of a single config-dir entry.
@@ -133,10 +134,81 @@ func UnborrowedDefaultEntries(def *harness.Definition) ([]string, error) {
 }
 
 // ClassifyKey resolves the layer of a top-level key within a mixed file. A key the
-// mixed rule does not cover is reported unclassified (FR-013, FR-018).
+// mixed rule does not declare returns false: it is seeded like a settings key unless
+// its name looks like a credential (seedsKey), and doctor reports it once per
+// harness (UndeclaredDefaultKeys, FR-013).
 func ClassifyKey(rule *harness.EntryRule, key string) (harness.Layer, bool) {
 	l, ok := rule.Keys[key]
 	return l, ok
+}
+
+// LooksLikeCredentialKey reports whether a mixed-file key name suggests it holds a
+// credential (secret.LooksLikeSecretKey: a token, secret, password, API key, account
+// or auth data, or any name ending in "key"). An undeclared key with such a name is
+// never seeded, so a key a harness adds in a later version cannot carry a secret
+// into a new profile (Principle IV). False positives only cost a seeded preference.
+func LooksLikeCredentialKey(key string) bool {
+	return secret.LooksLikeSecretKey(key)
+}
+
+// seedsKey reports whether a mixed file's key is copied from the default setup when
+// the file is seeded (at all and content): credentials and state keys never are,
+// nor is an undeclared key that looks like a credential. Owned, settings, content
+// and shared keys and the other undeclared keys are.
+func seedsKey(rule *harness.EntryRule, key string) bool {
+	l, declared := ClassifyKey(rule, key)
+	if !declared {
+		return !LooksLikeCredentialKey(key)
+	}
+	return l != harness.LayerCredentials && l != harness.LayerState
+}
+
+// UndeclaredKeys lists the top-level keys of one mixed file in the default setup
+// that the definition does not declare: Seeded ones are copied into new profiles,
+// NotSeeded ones are left out because their name looks like a credential.
+type UndeclaredKeys struct {
+	Entry     string   `json:"entry"`
+	Seeded    []string `json:"seeded,omitempty"`
+	NotSeeded []string `json:"not_seeded,omitempty"`
+}
+
+// UndeclaredDefaultKeys returns, per mixed JSON file of the definition, the
+// undeclared top-level keys of the default setup's file (FR-013). doctor reports
+// them once per harness. A missing or unparsable default file is skipped.
+func UndeclaredDefaultKeys(def *harness.Definition) ([]UndeclaredKeys, error) {
+	var out []UndeclaredKeys
+	for i := range def.Classification {
+		rule := &def.Classification[i]
+		if rule.Layer != harness.LayerMixed || rule.IsGlob() || !IsJSONExt(filepath.Ext(rule.Path())) {
+			continue
+		}
+		data, err := os.ReadFile(def.DefaultPath(rule.Path()))
+		if err != nil {
+			continue
+		}
+		m, err := decodeJSONObject(data)
+		if err != nil {
+			continue
+		}
+		u := UndeclaredKeys{Entry: rule.Path()}
+		for k := range m {
+			if _, ok := ClassifyKey(rule, k); ok {
+				continue
+			}
+			if seedsKey(rule, k) {
+				u.Seeded = append(u.Seeded, k)
+			} else {
+				u.NotSeeded = append(u.NotSeeded, k)
+			}
+		}
+		if len(u.Seeded)+len(u.NotSeeded) == 0 {
+			continue
+		}
+		sort.Strings(u.Seeded)
+		sort.Strings(u.NotSeeded)
+		out = append(out, u)
+	}
+	return out, nil
 }
 
 // normalize strips a trailing slash so directory and file spellings compare equal.

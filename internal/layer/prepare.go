@@ -116,20 +116,21 @@ func Unclassified(def *harness.Definition, configDir string) ([]string, error) {
 	return out, nil
 }
 
-// stripNonSeedKeys removes credential- and state-layer keys from a JSON mixed
-// file's seed content (FR-014, FR-015). Non-JSON mixed files are returned verbatim
-// (no built-in has one in this slice); if the default file cannot be parsed, a
-// minimal document is returned rather than risk copying credentials.
+// stripNonSeedKeys removes credential- and state-layer keys, and undeclared keys
+// whose name looks like a credential, from a JSON mixed file's seed content
+// (FR-013, FR-014, FR-015; see seedsKey). A non-JSON mixed file cannot be filtered
+// key by key, so it yields a minimal document, never the default file verbatim
+// (it may hold credential keys); likewise when the default file cannot be parsed.
 func stripNonSeedKeys(data []byte, rule *harness.EntryRule, dst string) []byte {
-	if !isJSONExt(filepath.Ext(dst)) {
-		return data
+	if !IsJSONExt(filepath.Ext(dst)) {
+		return minimalDoc(dst)
 	}
 	m, err := decodeJSONObject(data)
 	if err != nil {
 		return minimalDoc(dst)
 	}
-	for k, l := range rule.Keys {
-		if l == harness.LayerCredentials || l == harness.LayerState {
+	for k := range m {
+		if !seedsKey(rule, k) {
 			delete(m, k)
 		}
 	}
@@ -150,14 +151,14 @@ func minimalDoc(path string) []byte {
 	}
 }
 
-func isGlob(s string) bool { return strings.ContainsAny(s, "*?[") }
-
-func dirExists(path string) bool {
+// DirExists reports whether path is an existing directory (following a link).
+func DirExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
 }
 
-func pathExists(path string) bool {
+// PathExists reports whether anything, including a dangling link, exists at path.
+func PathExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
 }

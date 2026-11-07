@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -21,6 +22,12 @@ var ErrExists = errors.New("profile already exists")
 // Store reads and writes profile files under <config dir>/profiles/<harness>/.
 type Store struct {
 	paths *config.Paths
+	// Warn, when set, receives each load warning (Profile.LoadWarnings) once per
+	// store, however often the profile is loaded.
+	Warn func(msg string)
+
+	mu     sync.Mutex
+	warned map[string]bool
 }
 
 // NewStore creates a store rooted at the resolved aprofile paths.
@@ -49,7 +56,29 @@ func (s *Store) Load(harness, name string) (*Profile, error) {
 		}
 		return nil, fmt.Errorf("read profile %s/%s: %w", harness, name, err)
 	}
-	return decodeProfile(data, harness, name)
+	p, err := decodeProfile(data, harness, name)
+	if err != nil {
+		return nil, err
+	}
+	s.warn(p.LoadWarnings)
+	return p, nil
+}
+
+func (s *Store) warn(msgs []string) {
+	if s.Warn == nil || len(msgs) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.warned == nil {
+		s.warned = map[string]bool{}
+	}
+	for _, m := range msgs {
+		if !s.warned[m] {
+			s.warned[m] = true
+			s.Warn(m)
+		}
+	}
 }
 
 // decodeProfile parses and validates a profile, back-filling identity from the
@@ -68,6 +97,7 @@ func decodeProfile(data []byte, harness, name string) (*Profile, error) {
 	if p.Harness != harness || p.Name != name {
 		return nil, fmt.Errorf("profile %s/%s: file identity (%s/%s) does not match its location", harness, name, p.Harness, p.Name)
 	}
+	p.repairAppearance()
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
@@ -79,6 +109,21 @@ func decodeProfile(data []byte, harness, name string) (*Profile, error) {
 	}
 	p.normalizeLists()
 	return &p, nil
+}
+
+// repairAppearance clears a color or icon that fails the FR-001 checks and records
+// a warning instead of failing the load: a profile file written before the checks
+// existed (or hand edited) must still list, sync and be repairable with edit. Save,
+// the CLI and import keep rejecting such values.
+func (p *Profile) repairAppearance() {
+	if err := ValidateColor(p.Color); err != nil {
+		p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: %v; ignored (set one with: aprofile edit %s --color <color>)", p.ID(), err, p.ID()))
+		p.Color = ""
+	}
+	if err := ValidateIcon(p.Icon); err != nil {
+		p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: %v; ignored (set one with: aprofile edit %s --icon <icon>)", p.ID(), err, p.ID()))
+		p.Icon = ""
+	}
 }
 
 // Save writes a profile atomically after validating it.

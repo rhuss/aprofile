@@ -43,11 +43,12 @@ func decodeJSONDoc(fileData []byte, mcpKey string, dec jsonServerDecoder) ([]Ser
 }
 
 // mergeJSONDoc merges newServers into a JSON file's MCP object and re-encodes the
-// whole file, preserving every other top-level key and every existing server not in
+// whole file (a server disabled in the source that flavor cannot hold disabled is
+// skipped, see skipDisabled), preserving every other top-level key and every existing server not in
 // newServers. Existing servers are copied through verbatim (their raw bytes are never
 // re-encoded), so a literal secret a harness wrote into one is never dropped here;
 // only the servers this merge writes are run through enc.
-func mergeJSONDoc(fileData []byte, mcpKey string, newServers []Server, enc jsonServerEncoder, overwrite bool) ([]byte, ConversionReport, error) {
+func mergeJSONDoc(flavor Flavor, fileData []byte, mcpKey string, newServers []Server, enc jsonServerEncoder, overwrite bool) ([]byte, ConversionReport, error) {
 	var res ConversionReport
 	top, err := decodeTopObject(fileData)
 	if err != nil {
@@ -60,6 +61,14 @@ func mergeJSONDoc(fileData []byte, mcpKey string, newServers []Server, enc jsonS
 		}
 	}
 	for _, s := range newServers {
+		if why, skip := skipDisabled(flavor, s); skip {
+			res.Skipped = append(res.Skipped, SkippedServer{Name: s.Name, Reason: why})
+			continue
+		}
+		if why, skip := unwritableName(flavor, s); skip {
+			res.Skipped = append(res.Skipped, SkippedServer{Name: s.Name, Reason: why})
+			continue
+		}
 		_, exists := mcpObj[s.Name]
 		if exists && !overwrite {
 			res.Skipped = append(res.Skipped, SkippedServer{Name: s.Name, Reason: "already in target (pass --overwrite)"})
@@ -67,6 +76,10 @@ func mergeJSONDoc(fileData []byte, mcpKey string, newServers []Server, enc jsonS
 		}
 		native, drops := enc(s)
 		res.Drops = append(res.Drops, drops...)
+		if why, skip := unwritable(s, native, drops); skip {
+			res.Skipped = append(res.Skipped, SkippedServer{Name: s.Name, Reason: why})
+			continue
+		}
 		b, err := json.Marshal(native)
 		if err != nil {
 			return nil, res, fmt.Errorf("encode MCP server %q: %w", s.Name, err)
@@ -158,13 +171,31 @@ func asString(v any) string {
 	return s
 }
 
-// asInt returns v as an int from a decoded JSON number, or 0.
+// asInt returns v as an int from a decoded JSON or TOML number, or 0.
 func asInt(v any) int {
 	switch n := v.(type) {
 	case float64:
+		return int(n)
+	case int64:
 		return int(n)
 	case int:
 		return n
 	}
 	return 0
+}
+
+// wholeInt returns v as an int when it is a decoded JSON or TOML number with no
+// fractional part; ok=false otherwise (including a missing value).
+func wholeInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n == float64(int(n)) {
+			return int(n), true
+		}
+	case int64:
+		return int(n), true
+	case int:
+		return n, true
+	}
+	return 0, false
 }

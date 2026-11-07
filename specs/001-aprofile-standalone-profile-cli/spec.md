@@ -300,7 +300,8 @@ confirm `aprofile list --json` shows it with the entered values.
 - A file in aprofile's bin directory was not written by aprofile: `sync` never deletes it.
 - A profile config dir contains a link for a state entry left by an older tool (for example a
   cc-deck profile dir that links `projects/` to `~/.claude`): `doctor` reports the leak and
-  `sync --fix-links` replaces it with an empty real directory after confirmation, never deleting
+  `sync --fix-links` replaces it with an empty real directory (it removes only the link, so it
+  needs no confirmation; superseded by 002 FR-034), never deleting
   the link target.
 - The default setup does not yet exist (the harness has never run): shared links are created
   lazily on the next sync after the target appears, and the wrapper still starts.
@@ -332,7 +333,11 @@ confirm `aprofile list --json` shows it with the entered values.
   optional endpoint, extra environment variables, a label, a color, an icon, and an optional
   `primary` flag (at most one primary profile per harness; marking a profile primary moves the
   flag from the harness's previous primary profile and reports the change). A color MUST be an ANSI color name
-  or `#rrggbb`; an icon MUST be a single Unicode grapheme. Invalid values are rejected.
+  or `#rrggbb`; an icon MUST be a single Unicode grapheme. Invalid values are rejected on save, on
+  command-line and form input, and by `import`. An invalid color or icon found when loading a
+  hand-edited profile file is not a load error: it is cleared with a warning that names the
+  profile and the `aprofile edit <profile> --color`/`--icon` command that sets a valid one, so
+  profiles written before these checks keep loading.
 - **FR-002**: Profile identity MUST be the pair (harness, name); the same name MAY exist for
   different harnesses. Profile names and harness names MUST match
   `^[a-z][a-z0-9-]{0,62}[a-z0-9]$` (start with a letter, no trailing hyphen, at most 64
@@ -341,7 +346,8 @@ confirm `aprofile list --json` shows it with the entered values.
   and `import` MUST reject a profile whose wrapper name equals another profile's and name that
   profile; if definition overrides create a clash, `sync` reports it and skips both wrappers.
 - **FR-003**: Model, endpoint and auth kind MUST be settable through dedicated command-line
-  options (`--model`, `--endpoint`, `--auth`) for every built-in harness, not only through raw
+  options (`--model`, `--endpoint`, and `--auth-kind` with `--auth-key` on `add` and `edit`;
+  `--auth` with `--auth-key` on `copy`) for every built-in harness, not only through raw
   environment entries. "Endpoint" is the canonical term for the API base URL throughout.
 - **FR-004**: Removing a profile MUST keep its config dir unless the user passes `--purge` and
   confirms (or passes `--yes`); credentials and state are never deleted silently. `add` (and
@@ -357,13 +363,22 @@ confirm `aprofile list --json` shows it with the entered values.
   file format), plus one global settings file. Store files and config dirs MUST NOT collide even
   when both XDG variables point to the same directory. Changes made
   by hand MUST be picked up by the next command and validated with errors that name the profile
-  and field.
+  and field, except an invalid color or icon, which is cleared with a warning (FR-001). A profile
+  whose `auth_kind` its harness definition does not declare still loads, but `sync` reports it as
+  failed (its wrapper and registry entry are kept unchanged and `sync` exits non-zero, as in
+  FR-022), and `doctor` and `show` report it. A model or endpoint stored for a harness whose
+  definition declares no backing variable is dropped from the wrapper; `doctor` reports it as a
+  problem, `sync` as a note, and `show` lists it. Each report names the `aprofile edit` fix.
 - **FR-006a**: `rename` MUST move the profile file and config dir together, and MUST fail without
   changes when the new (harness, name) already exists. It MUST refuse while a harness process
   started for that profile is running, unless `--force` is given.
 - **FR-006b**: Only `sync` writes or removes wrappers. `add`, `edit`, `rename`, `copy`, `remove`
   and `import` change the profile store and config dirs; the affected wrappers are then stale
-  until the next `sync`, and `list`, `show` and `doctor` report them as stale.
+  until the next `sync`, and `list`, `show` and `doctor` report them as stale. After `remove` and
+  `rename`, the old wrapper stays in the bin directory until the next `sync` removes it, and both
+  commands say so. `doctor` reports each wrapper file that carries the aprofile marker but belongs
+  to no profile as a problem with the fix `aprofile sync`, and `list` prints one line about such
+  wrappers.
 
 **Harness definitions**
 
@@ -389,13 +404,15 @@ confirm `aprofile list --json` shows it with the entered values.
 
   | Operation | Called by | Extra input keys | Output keys |
   |-----------|-----------|------------------|-------------|
-  | `env` | `sync`, when rendering the wrapper | `auth_kind`, `model`, `endpoint` | any `VAR=value`; values that carry secrets MUST use the reference syntax of FR-028 |
+  | `env` | `sync`, when rendering the wrapper; `aprofile login`, to build the same environment; `list`, `show` and `doctor` also call it to tell whether the wrapper is stale | `auth_kind`, `model`, `endpoint` | any `VAR=value`; values that carry secrets MUST use the reference syntax of FR-028 |
   | `pre-launch` | the wrapper, before replacing itself | none | none (exit status only) |
   | `write-config` | `sync`, after preparing the config dir | `auth_kind`, `model`, `endpoint` | `changed=true\|false` |
   | `auth-status` | `show`, `doctor` | `auth_kind` | `status=ok\|missing\|unknown`, optional `detail` |
   | `login` | `login` | `auth_kind` | none (interactive, inherits the terminal) |
 
-  aprofile calls only the operations the definition lists for the hook. Exit status 64 means
+  The extra input keys `auth_kind`, `model` and `endpoint` are sent only when the profile sets a
+  value for them; a missing key means the value is unset. aprofile calls only the operations the
+  definition lists for the hook. Exit status 64 means
   "operation not supported" and is treated as a no-op. Any other non-zero exit, a timeout (10
   seconds, except `login` and `pre-launch`, which have none), or output that is not `key=value`
   lines aborts the command with an error naming the hook and operation; a failing `pre-launch`
@@ -417,24 +434,34 @@ confirm `aprofile list --json` shows it with the entered values.
   is first created and are never rewritten afterwards. `sync` creates each declared mixed file
   that is absent, seeding from the default setup's file when it exists and otherwise creating it
   with only the keys aprofile owns, and reports a skipped seed. Keys of a mixed file not covered
-  by the declaration are left alone and reported like unclassified entries (FR-018).
+  by the declaration are seeded like declared settings keys, except keys whose name looks like a
+  credential (token, secret, password, API key, auth or account data, or a name ending in "key"),
+  which are never seeded. `doctor` reports the undeclared keys of the default setup's file once per
+  harness as information, naming each key but never its value; `sync` does not report them. A
+  definition MAY name a default location for a single entry that lives outside the default config
+  directory (Claude Code keeps `.claude.json` at `~/.claude.json`).
 - **FR-014**: Credentials MUST be per profile and MUST NOT be linked, copied by `copy`, or written
   to the registry, wrappers or command output.
 - **FR-015**: State entries MUST be per profile, created empty, never linked and never copied.
 - **FR-016**: Owned entries MUST be per profile and MUST be carried over by `copy`.
 - **FR-017**: Shared entries MUST be links to the corresponding entry of the default setup.
+  (Superseded by 002 FR-009: the shared layer is split into content, settings, plugin store and
+  hook location, linked or not according to the profile's share level.)
 - **FR-018**: Entries not classified by the definition MUST NOT be linked or copied and MUST be
   reported by `sync` and `doctor`.
 - **FR-019**: aprofile MUST NOT overwrite, regenerate or delete entries the harness writes at
   runtime, except for the writes Constitution Principle II allows, which include the explicit,
-  confirmed operations `remove --purge` (FR-004), `copy --overwrite` (FR-033) and
-  `import --overwrite-credentials` (FR-045). Config patches MUST merge into existing files and
+  confirmed operations `remove --purge` (FR-004) and `copy --overwrite` (FR-033), and
+  `import --overwrite-credentials` (FR-045), where the flag itself is the explicit request and a
+  backup is always made first. Config patches MUST merge into existing files and
   preserve keys aprofile does not own.
 - **FR-020**: For harnesses that keep sessions or credentials outside their config dir (OpenCode),
   the definition MUST redirect those locations into the profile so FR-014 and FR-015 still hold.
 - **FR-021**: For harnesses that read skills from a location outside any config dir and offer no
   per-profile override, skills MUST be treated as shared for that harness and `harness show` and
-  `copy` MUST say so.
+  `copy` MUST say so. (Superseded by 002 FR-008: the skills directory is content; a location read
+  relative to `$HOME`, such as `~/.agents/skills`, is a `$HOME` escape that `show` and `doctor`
+  list, FR-015.)
 
 **Wrappers and sync**
 
@@ -516,7 +543,11 @@ confirm `aprofile list --json` shows it with the entered values.
   overridable with `--output-dir`). The provider comes from the harness definition, `home` is the
   profile config dir, `primary` comes from the profile's primary flag, and every entry aprofile
   writes has the id `aprofile:<harness>/<name>`. Entries without the `aprofile:` prefix MUST be
-  preserved unchanged; `aprofile:` entries for profiles that no longer exist are removed.
+  preserved unchanged; `aprofile:` entries for profiles that no longer exist are removed. A
+  harness whose definition declares no `omarchy_provider` has no Omarchy entries: the export skips
+  each of its profiles with a note on standard error (`profile <id> has no Omarchy provider;
+  skipped`), does not fail, and removes `aprofile:` entries for such a profile left in an existing
+  accounts file.
 - **FR-032**: aprofile MUST NOT require changes to herdr, corgi or cc-deck and MUST NOT write into
   their files.
 
@@ -547,7 +578,15 @@ confirm `aprofile list --json` shows it with the entered values.
   MUST report every field or server it could not represent. A literal value in a source owned entry
   that matches a secret pattern (the prefix or length check of FR-028) MUST NOT be written to the
   target: it is dropped and reported, naming the server and field, so conversion never authors a
-  literal secret into the target. When the target harness lacks the `mcp` capability, every server
+  literal secret into the target. This applies to every `args` element, to a URL's userinfo and
+  query parameters, and to native fields the target cannot represent. For a `--flag=value` element
+  the flag name and the value are judged separately, and the path allowance below applies to the
+  value. An `args` value that reads as a path, a package name or a URL (it starts with `/`, `./`,
+  `../`, `~/` or `@`, contains `://`, or ends in a 1 to 5 character alphanumeric extension,
+  either as a relative path such as `dist/index.js` or as a bare file name such as
+  `server-entry.js`, whose extension must contain a letter and which must not start with a known
+  secret prefix) gets the prefix check on each segment instead of the length check, so long paths
+  survive; a whole URL gets the prefix check only. When the target harness lacks the `mcp` capability, every server
   MUST be reported as skipped.
 - **FR-036**: Cross-harness `copy` MUST carry skills to the target's skills location only when
   that location is per profile. When the target's skills are shared (FR-021), `copy` MUST NOT
@@ -556,7 +595,9 @@ confirm `aprofile list --json` shows it with the entered values.
   together with any skills and MCP servers they contain that the user can copy separately.
 - **FR-037**: `aprofile mcp list <profile>` and `aprofile mcp copy <from> <to> [server...]` MUST be
   available; `mcp copy` MUST leave existing target servers unchanged unless `--overwrite` is
-  given.
+  given. `mcp copy` converts servers, so it drops and reports literal secrets (FR-035) even
+  between profiles of the same harness, while a same-harness `copy` carries the owned layer
+  verbatim and warns about them (FR-033a).
 
 **Auth**
 
@@ -572,7 +613,7 @@ confirm `aprofile list --json` shows it with the entered values.
 - **FR-040**: Every operation MUST be available as a non-interactive command.
 - **FR-041**: `list`, `show`, `harness list`, `harness show`, `mcp list`, `doctor`, `sync
   --dry-run`, `import --dry-run`, and the conversion reports of `copy` and `mcp copy` MUST support
-  `--json` with a documented, versioned schema.
+  `--json` with a documented, versioned schema (contracts/cli.md, JSON schemas).
 - **FR-042**: Human-readable output MUST use profile colors and icons on a terminal and MUST fall
   back to plain text when stdout is not a terminal or `NO_COLOR` is set.
 - **FR-043**: `aprofile ui` MUST offer a browse view with add, edit, copy and remove; `add` and
@@ -580,8 +621,11 @@ confirm `aprofile list --json` shows it with the entered values.
 - **FR-044**: `aprofile doctor` MUST check: bin directory on `PATH`, wrapper shadowing, stale or
   missing wrappers, missing harness binaries, unclassified entries, state entries that are links,
   credentials that are links, invalid definitions, references that cannot be resolved (FR-028a),
-  the hook `auth-status` result where the hook implements it, and seeded keys of mixed files that
-  differ from the default setup; each finding names the affected profile, if any, and a fix.
+  the hook `auth-status` result where the hook implements it, aprofile-marked wrappers that belong
+  to no profile (FR-006b), an auth kind the definition does not declare and a model or endpoint the
+  harness has no variable for (FR-006), and seeded keys of mixed files that differ from the default
+  setup and undeclared keys of the default setup's mixed files (both as information, FR-013); each
+  finding names the affected profile, if any, and a fix.
 
 **Migration and platforms**
 
@@ -592,9 +636,12 @@ confirm `aprofile list --json` shows it with the entered values.
   non-zero. `--overwrite` replaces the existing profile's settings and owned layer and keeps its
   credentials and state; `--overwrite-credentials` additionally replaces its credentials with the
   imported ones after backing up the old files to
-  `<aprofile data dir>/backups/<harness>/<name>/<timestamp>/`. For a mixed file, the whole file
-  is backed up and only its credentials-layer keys are replaced from the imported file; its owned
-  and state keys stay as they were.
+  `<aprofile data dir>/backups/<harness>/<name>/<timestamp>/`. For a mixed file of an existing
+  profile, `--overwrite` replaces only the owned-layer keys with those of the imported file (no
+  backup, like the rest of the owned layer); `--overwrite-credentials` also replaces the
+  credentials-layer keys, after backing up the whole file. State keys and every other key of the
+  profile's file stay as they were. A newly imported profile takes both the owned and the
+  credentials keys of the imported file.
 - **FR-046**: aprofile MUST run on Linux and macOS and MUST use the XDG base directories with the
   standard fallbacks on both.
 
@@ -656,7 +703,10 @@ confirm `aprofile list --json` shows it with the entered values.
   is state, so `copy` carries over only the MCP part. Claude's `settings.json` is likewise mixed:
   model and enabled plugins are owned. A single file cannot be half linked, so its other keys
   (hooks, permissions) are seeded from the default setup when the profile is created and belong
-  to the profile from then on; `doctor` reports when they differ from the default setup. Whether the macOS Keychain entry is
+  to the profile from then on; `doctor` reports when they differ from the default setup.
+  (Superseded by 002 FR-009 and FR-010: Claude's `settings.json` is a settings entry, not a mixed
+  file; it is linked at `all`, copied once without its hooks at `content` and created minimal at
+  `none`. `.claude.json` stays mixed.) Whether the macOS Keychain entry is
   separated per config dir must be verified during planning; if not, Claude profiles on macOS use
   a per-profile token kind or the definition documents the limitation.
 - Codex: each profile gets its own `CODEX_HOME`; Codex's native `--profile` keeps working inside it
@@ -670,7 +720,8 @@ confirm `aprofile list --json` shows it with the entered values.
 - OpenCode: the lever that moves sessions and credentials into the profile (database path override
   or data home redirect) is chosen during planning against a current release.
 - Codex, OpenCode and pi read skills from `~/.agents/skills`; unless a per-profile override is
-  found during planning, skills are shared for these harnesses (FR-021).
+  found during planning, skills are shared for these harnesses (FR-021). (Superseded by 002
+  FR-008: these paths are `$HOME` escapes; each harness's own skills directory is content.)
 - No keychain integration: secrets stay as environment variable or file references.
 - No permanent compatibility with cc-deck's configuration schema; the import is one-time.
 - Release packaging (Homebrew tap, release automation) is outside this spec; building from source

@@ -6,10 +6,13 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
@@ -42,10 +45,68 @@ type Result struct {
 	WrappersRemoved  []string
 	ConfigDirChanges int
 	RegistryChanged  bool
+	RegistryPath     string
+	RegistryRemoved  []string // profile ids whose registry entry is dropped
 	Path             PathResult
 	Problems         []string // reported, non-fatal issues (FR-022)
 	Notes            []string // reported conditions that changed nothing (FR-018: unclassified/leaking links)
 	HookChanges      int      // managed hook entries placed or removed
+	// Profiles is the per-profile plan (dry run) or outcome, sorted by profile id;
+	// it backs `sync --json` (FR-041).
+	Profiles []ProfilePlan
+}
+
+// Per-profile outcome values (sync --json, FR-041).
+const (
+	StatusOK     = "ok"     // processed this run
+	StatusFailed = "failed" // not processed; wrapper and registry entry left unchanged (FR-022)
+
+	ActionWrite     = "write"     // wrapper (re)written, or would be under --dry-run
+	ActionUnchanged = "unchanged" // already up to date
+	ActionKept      = "kept"      // left as is because the profile failed
+	ActionAdd       = "add"       // registry entry added
+	ActionUpdate    = "update"    // registry entry changed
+	ActionNone      = "none"      // nothing exists and nothing is written
+)
+
+// ProfilePlan is one profile's part of a sync.
+type ProfilePlan struct {
+	Profile   string        `json:"profile"`
+	Status    string        `json:"status"`
+	Wrapper   WrapperPlan   `json:"wrapper"`
+	ConfigDir ConfigDirPlan `json:"config_dir"`
+	Hooks     []StepPlan    `json:"hooks"`
+	Registry  string        `json:"registry"`
+	Problems  []string      `json:"problems"`
+	Notes     []string      `json:"notes"`
+}
+
+// WrapperPlan names a profile's wrapper and what sync does with it.
+type WrapperPlan struct {
+	Name   string `json:"name,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Action string `json:"action"`
+}
+
+// ConfigDirPlan lists the config-dir steps of one profile.
+type ConfigDirPlan struct {
+	Path  string     `json:"path,omitempty"`
+	Steps []StepPlan `json:"steps"`
+}
+
+// StepPlan is one config-dir or hook step: action is a change-plan kind (link,
+// mkdir, copy-once, ...), "report" for a reported condition, or "needs-confirm" for
+// a step sync skips because it replaces profile data.
+type StepPlan struct {
+	Action   string `json:"action"`
+	Path     string `json:"path"`
+	Note     string `json:"note,omitempty"`
+	Mutating bool   `json:"mutating"`
+}
+
+func newProfilePlan(id string) *ProfilePlan {
+	return &ProfilePlan{Profile: id, Status: StatusOK, Hooks: []StepPlan{}, ConfigDir: ConfigDirPlan{Steps: []StepPlan{}},
+		Problems: []string{}, Notes: []string{}}
 }
 
 // Changed reports whether the sync changed anything.
@@ -61,20 +122,75 @@ func (r *Result) HasProblems() bool { return len(r.Problems) > 0 }
 func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *config.Settings, opts Options) (*Result, error) {
 	res := &Result{}
 
+	res.RegistryPath = paths.RegistryPath()
+	plans := map[string]*ProfilePlan{}
+	planFor := func(id string) *ProfilePlan {
+		if pp, ok := plans[id]; ok {
+			return pp
+		}
+		pp := newProfilePlan(id)
+		plans[id] = pp
+		return pp
+	}
+	// problem records a profile's problem both in the global list and in its plan;
+	// any problem means the profile did not process cleanly.
+	problem := func(id, msg string) {
+		res.Problems = append(res.Problems, msg)
+		pp := planFor(id)
+		pp.Problems = append(pp.Problems, msg)
+	}
+	note := func(id, msg string) {
+		res.Notes = append(res.Notes, msg)
+		pp := planFor(id)
+		pp.Notes = append(pp.Notes, msg)
+	}
+	// A condition of a harness rather than of one profile (a declared exec hook that is
+	// not installed) goes into every affected profile's plan but into the run's list
+	// only once per key (Prod8).
+	reported := map[string]bool{}
+	first := func(key string) bool {
+		if reported[key] {
+			return false
+		}
+		reported[key] = true
+		return true
+	}
+	noteOnce := func(key, id, msg string) {
+		pp := planFor(id)
+		pp.Notes = append(pp.Notes, msg)
+		if first(key) {
+			res.Notes = append(res.Notes, msg)
+		}
+	}
+	problemOnce := func(key, id, msg string) {
+		pp := planFor(id)
+		pp.Problems = append(pp.Problems, msg)
+		if first(key) {
+			res.Problems = append(res.Problems, msg)
+		}
+	}
+
 	profiles, failures, err := store.List()
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range failures {
-		res.Problems = append(res.Problems, fmt.Sprintf("profile %s failed to load: %v", f.ID(), f.Err))
+		problem(f.ID(), fmt.Sprintf("profile %s failed to load: %v", f.ID(), f.Err))
 	}
 	for _, e := range set.Errors() {
 		res.Problems = append(res.Problems, "harness definition error: "+e.Error())
 	}
 
 	// Detect wrapper-name clashes (FR-002): skip both sides, report, but keep their
-	// existing files (do not treat as stale).
-	clash := wrapperNameClashes(profiles, set)
+	// existing files (do not treat as stale). A profile that fails to load still claims
+	// its wrapper name.
+	keys := make([]harness.ProfileKey, 0, len(profiles)+len(failures))
+	for _, p := range profiles {
+		keys = append(keys, harness.ProfileKey{Harness: p.Harness, Name: p.Name})
+	}
+	for _, f := range failures {
+		keys = append(keys, harness.ProfileKey{Harness: f.Harness, Name: f.Name})
+	}
 
 	// The hook-set library (FR-023); a bad file is a problem, the others still apply.
 	lib, libErrs := hooksets.LoadLibrary(paths.HooksDir())
@@ -101,20 +217,40 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 	}
 
 	for _, p := range profiles {
+		pp := planFor(p.ID())
 		def, ok := set.Get(p.Harness)
 		if !ok {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: no definition for harness %q; wrapper left unchanged", p.ID(), p.Harness))
+			problem(p.ID(), fmt.Sprintf("profile %s: harness %q has no usable definition (missing, or it failed to load); wrapper and registry entry left unchanged", p.ID(), p.Harness))
 			continue
 		}
-		wrapperName := def.WrapperPrefix + "-" + p.Name
+		wrapperName := def.WrapperName(p.Name)
 		known[wrapperName] = true
+		pp.Wrapper.Name = wrapperName
+		pp.Wrapper.Path = filepath.Join(paths.BinDir, wrapperName)
 
-		if clash[wrapperName] {
-			res.Problems = append(res.Problems, fmt.Sprintf("wrapper name %q is claimed by more than one profile; skipping", wrapperName))
+		if other, clash := set.WrapperClash(p.Harness, p.Name, keys, ""); clash {
+			problem(p.ID(), fmt.Sprintf("profile %s: wrapper name %q is also claimed by profile %s; skipping", p.ID(), wrapperName, other.ID()))
+			continue
+		}
+
+		// FR-006: the profile must fit its definition. An undeclared auth kind fails the
+		// profile before anything is written (its wrapper would clear every auth
+		// variable); a model or endpoint the harness has no variable for is a note.
+		fatal := false
+		for _, fi := range wrapper.FitIssues(p, def) {
+			if fi.Fatal {
+				fatal = true
+				problem(p.ID(), fmt.Sprintf("profile %s: %s; fix: %s; wrapper and registry entry left unchanged", p.ID(), fi.Message, fi.Fix))
+				continue
+			}
+			note(p.ID(), fmt.Sprintf("profile %s: %s; fix: %s", p.ID(), fi.Message, fi.Fix))
+		}
+		if fatal {
 			continue
 		}
 
 		configDir := paths.ProfileConfigDir(p.Harness, p.Name)
+		pp.ConfigDir.Path = configDir
 		prep := layer.PrepareOptions{DryRun: opts.DryRun, FixLinks: opts.FixLinks, Relink: opts.Relink}
 		if opts.Relink {
 			id := p.ID()
@@ -129,59 +265,73 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 		}
 		changes, err := layer.PrepareConfigDirWith(def, p, configDir, prep)
 		for _, c := range changes {
+			pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: c.Action, Path: stepPath(c.Step, c.Path), Note: c.Note, Mutating: c.Mutating()})
 			switch {
 			case c.Mutating():
 				res.Changes = append(res.Changes, "config-dir "+p.ID()+": "+c.String())
 				res.ConfigDirChanges++
 			case c.Action == "needs-confirm":
 				// FR-017a: sync never replaces profile data; name the command that does.
-				res.Notes = append(res.Notes, fmt.Sprintf("config-dir %s: %s skipped: it replaces profile data; to complete it run: aprofile sync --relink, or aprofile edit %s --share %s",
+				note(p.ID(), fmt.Sprintf("config-dir %s: %s skipped: it replaces profile data; to complete it run: aprofile sync --relink, or aprofile edit %s --share %s",
 					p.ID(), c.Step.String(), p.ID(), p.ShareLevel()))
 			default:
-				res.Notes = append(res.Notes, "config-dir "+p.ID()+": "+c.String())
+				note(p.ID(), "config-dir "+p.ID()+": "+c.String())
 			}
 		}
 		if err != nil {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: prepare config dir: %v", p.ID(), err))
+			problem(p.ID(), fmt.Sprintf("profile %s: prepare config dir: %v", p.ID(), err))
 			continue
 		}
+
+		// Config patches (FR-019, T071): merge-only writes of the keys the definition
+		// patches; a failing patch is a problem but does not hold back the wrapper.
+		syncPatches(def, p, configDir, opts, res, pp, problem, note)
 
 		// Hook sets (FR-028): place, update and remove only the managed entries.
 		if def.Hooks != nil {
-			if err := syncHooks(paths, def, p, lib, configDir, opts, res); err != nil {
-				res.Problems = append(res.Problems, fmt.Sprintf("profile %s: hook sets: %v", p.ID(), err))
+			if err := syncHooks(paths, def, p, lib, configDir, opts, res, pp, problem, note); err != nil {
+				problem(p.ID(), fmt.Sprintf("profile %s: hook sets: %v", p.ID(), err))
 			}
 		}
 
-		hookEnv, herr := harness.RunEnvHook(def, harness.HookContext{
-			Harness:   p.Harness,
-			Profile:   p.Name,
-			ConfigDir: configDir,
-			AuthKind:  p.AuthKind,
-			Model:     p.Model,
-			Endpoint:  p.Endpoint,
-		})
-		if herr != nil {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: exec hook env: %v", p.ID(), herr))
-			continue
+		// The exec hook's write-config operation runs after the config dir is prepared
+		// (FR-011, T066).
+		syncWriteConfig(def, p, wrapper.HookContext(p, configDir), opts, res, pp, problem, noteOnce)
+		if def.HookDeclares("pre-launch") {
+			if _, lerr := exec.LookPath(harness.HookExecutable(def.Name)); lerr != nil {
+				noteOnce(def.Name+" pre-launch", p.ID(), fmt.Sprintf("harness %s: exec hook %s is not on PATH; the wrappers of its profiles refuse to start until it is installed (the definition declares pre-launch)",
+					def.Name, harness.HookExecutable(def.Name)))
+			}
 		}
-		content, err := wrapper.RenderWith(p, def, configDir, wrapper.RenderOptions{HookEnv: hookEnv})
-		if err != nil {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: render wrapper: %v", p.ID(), err))
+
+		content, err := wrapper.Expected(p, def, configDir)
+		switch {
+		case errors.Is(err, harness.ErrHookNotFound):
+			problemOnce(def.Name+" env", p.ID(), fmt.Sprintf("harness %s: %v; the wrappers and registry entries of its profiles are left unchanged", def.Name, err))
+			continue
+		case err != nil:
+			problem(p.ID(), fmt.Sprintf("profile %s: %v", p.ID(), err))
 			continue
 		}
 		wrapperPath := filepath.Join(paths.BinDir, wrapperName)
 		written, err := writeWrapper(wrapperPath, content, opts.DryRun)
 		if err != nil {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: write wrapper: %v", p.ID(), err))
+			problem(p.ID(), fmt.Sprintf("profile %s: write wrapper: %v", p.ID(), err))
 			continue
 		}
+		// FR-044: a different executable earlier on PATH wins over the wrapper; name it
+		// (the same check doctor runs).
+		if shadow, ok := wrapper.ShadowedBy(paths.BinDir, wrapperName); ok {
+			note(p.ID(), fmt.Sprintf("profile %s: %s; %s", p.ID(), wrapper.ShadowMessage(wrapperName, shadow), wrapper.ShadowFix))
+		}
+		pp.Wrapper.Action = ActionUnchanged
 		if written {
+			pp.Wrapper.Action = ActionWrite
 			res.WrappersWritten = append(res.WrappersWritten, wrapperName)
 			res.Changes = append(res.Changes, "wrapper "+wrapperName+": written")
 		}
 
-		regEntries = append(regEntries, registry.Entry{
+		entry := registry.Entry{
 			Harness:     p.Harness,
 			Name:        p.Name,
 			Label:       p.DisplayLabel(),
@@ -192,7 +342,16 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			ConfigDir:   configDir,
 			WrapperPath: wrapperPath,
 			Share:       string(p.ShareLevel()),
-		})
+		}
+		regEntries = append(regEntries, entry)
+		switch old, ok := oldByID[p.ID()]; {
+		case !ok:
+			pp.Registry = ActionAdd
+		case old != entry:
+			pp.Registry = ActionUpdate
+		default:
+			pp.Registry = ActionUnchanged
+		}
 		processed[p.ID()] = true
 	}
 
@@ -201,14 +360,25 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 	// reported in Problems) keeps its existing wrapper and registry entry unchanged. Carry
 	// the old entry over and mark its wrapper known so stale removal never deletes a
 	// working profile's wrapper because of a transient or unrelated failure.
+	existing := map[string]bool{} // every profile id with a profile file
 	preserve := func(id string) {
+		existing[id] = true
 		if processed[id] {
 			return
 		}
+		pp := planFor(id)
+		pp.Status = StatusFailed
+		pp.Wrapper.Action = ActionKept
+		pp.Registry = ActionNone
 		if e, ok := oldByID[id]; ok {
 			regEntries = append(regEntries, e)
+			pp.Registry = ActionKept
 			if e.WrapperPath != "" {
 				known[filepath.Base(e.WrapperPath)] = true
+				if pp.Wrapper.Name == "" {
+					pp.Wrapper.Name = filepath.Base(e.WrapperPath)
+					pp.Wrapper.Path = e.WrapperPath
+				}
 			}
 		}
 	}
@@ -218,9 +388,24 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 	for _, f := range failures {
 		preserve(f.ID())
 	}
+	for id := range oldByID {
+		if !existing[id] {
+			res.RegistryRemoved = append(res.RegistryRemoved, id)
+		}
+	}
+	sort.Strings(res.RegistryRemoved)
 
-	// Remove stale aprofile-marked wrappers.
-	removed, err := removeStaleWrappers(paths.BinDir, known, opts.DryRun)
+	// Remove stale aprofile-marked wrappers. A wrapper whose harness has no usable
+	// definition (it failed to load) while a profile (loaded or not) still names that
+	// harness is not stale: sync cannot tell which of that harness's wrappers belong to
+	// a profile, so it keeps them all (FR-022). Without any such profile the wrappers
+	// are stale like any other.
+	named := map[string]bool{}
+	for _, k := range keys {
+		named[k.Harness] = true
+	}
+	keepHarness := func(h string) bool { _, ok := set.Get(h); return !ok && named[h] }
+	removed, err := removeStaleWrappers(paths.BinDir, known, keepHarness, opts.DryRun)
 	if err != nil {
 		return nil, err
 	}
@@ -251,31 +436,111 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 	// PATH management.
 	res.Path = EnsurePath(paths.BinDir, settings, opts.RemovePath, opts.DryRun)
 
+	ids := make([]string, 0, len(plans))
+	for id := range plans {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		res.Profiles = append(res.Profiles, *plans[id])
+	}
 	return res, nil
+}
+
+// stepPath is the profile-relative path of a step, or the given fallback.
+func stepPath(s layer.Step, fallback string) string {
+	if s.Entry != "" {
+		return s.Entry
+	}
+	return fallback
+}
+
+// Step actions sync adds to the change-plan kinds of the config-dir steps.
+const (
+	ActionPatch       = "patch"        // a config patch set keys of a file (FR-019)
+	ActionWriteConfig = "write-config" // the exec hook's write-config operation (FR-011)
+	ActionReport      = "report"       // a reported condition that changed nothing
+)
+
+// syncPatches applies the definition's config patches to one profile and records
+// each applied patch as a mutating "patch" step naming the keys it set. A skipped
+// patch (absent or linked file) is a note; a patch that cannot be applied (the file
+// is not valid JSON/TOML, or cannot be written) is a problem and leaves the file
+// unchanged.
+func syncPatches(def *harness.Definition, p *profile.Profile, configDir string, opts Options, res *Result, pp *ProfilePlan,
+	problem, note func(id, msg string)) {
+	for _, o := range layer.ApplyConfigPatches(def, configDir, opts.DryRun) {
+		switch {
+		case o.Err != nil:
+			problem(p.ID(), fmt.Sprintf("profile %s: %v", p.ID(), o.Err))
+		case o.Skipped != "":
+			msg := fmt.Sprintf("config patch %s not applied: %s", o.File, o.Skipped)
+			pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: ActionReport, Path: o.File, Note: msg})
+			note(p.ID(), fmt.Sprintf("config-dir %s: %s", p.ID(), msg))
+		case o.Changed:
+			n := "config patch: set " + strings.Join(o.Keys, ", ")
+			pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: ActionPatch, Path: o.File, Note: n, Mutating: true})
+			res.Changes = append(res.Changes, fmt.Sprintf("config-dir %s: patch %s (set %s)", p.ID(), o.File, strings.Join(o.Keys, ", ")))
+			res.ConfigDirChanges++
+		}
+	}
+}
+
+// syncWriteConfig calls the exec hook's write-config operation (FR-011). It is not
+// called under --dry-run, because the hook writes; the plan lists it as a
+// non-mutating step instead. changed=true counts as a config-dir change, so an
+// unchanged second sync still reports 0 changes. A missing hook executable is a note,
+// once per harness (the config the hook would write is missing, but the wrapper still
+// launches the harness); any other hook failure is a problem.
+func syncWriteConfig(def *harness.Definition, p *profile.Profile, hctx harness.HookContext, opts Options, res *Result, pp *ProfilePlan,
+	problem func(id, msg string), noteOnce func(key, id, msg string)) {
+	if !def.HookDeclares("write-config") {
+		return
+	}
+	if opts.DryRun {
+		pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: ActionWriteConfig, Path: ".",
+			Note: "exec hook write-config runs here; not called under --dry-run"})
+		return
+	}
+	changed, err := harness.RunWriteConfigHook(def, hctx)
+	switch {
+	case errors.Is(err, harness.ErrHookNotFound):
+		noteOnce(def.Name+" write-config", p.ID(), fmt.Sprintf("harness %s: %v", def.Name, err))
+	case err != nil:
+		problem(p.ID(), fmt.Sprintf("profile %s: %v", p.ID(), err))
+	case changed:
+		pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: ActionWriteConfig, Path: ".", Note: "exec hook reported changed=true", Mutating: true})
+		res.Changes = append(res.Changes, fmt.Sprintf("config-dir %s: exec hook write-config changed the config", p.ID()))
+		res.ConfigDirChanges++
+	default:
+		pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: ActionWriteConfig, Path: ".", Note: "exec hook reported changed=false"})
+	}
 }
 
 // syncHooks places the managed hook entries of one profile and saves its record.
 // Diverged entries are reported and left alone; a referenced set missing from the
 // library, or a set whose body does not fit the harness, is a problem (sync exits
 // non-zero) and its entries stay unchanged.
-func syncHooks(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string, opts Options, res *Result) error {
+func syncHooks(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string, opts Options, res *Result,
+	pp *ProfilePlan, problem, note func(id, msg string)) error {
 	hp, applied, err := hooksets.SyncProfile(def, p, lib, paths.ManagedHooksPath(p.Harness, p.Name), configDir, opts.DryRun)
 	for _, s := range applied {
 		res.Changes = append(res.Changes, "hooks "+p.ID()+": "+s.String())
 		res.HookChanges++
+		pp.Hooks = append(pp.Hooks, StepPlan{Action: string(s.Kind), Path: stepPath(s, s.Path), Note: s.Note, Mutating: s.Mutating()})
 	}
 	if hp != nil {
 		for _, m := range hp.MissingSets {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: hook set %q is referenced but missing from %s; its managed entries were left unchanged", p.ID(), m, paths.HooksDir()))
+			problem(p.ID(), fmt.Sprintf("profile %s: hook set %q is referenced but missing from %s; its managed entries were left unchanged", p.ID(), m, paths.HooksDir()))
 		}
 		for _, m := range hp.InvalidSets {
-			res.Problems = append(res.Problems, fmt.Sprintf("profile %s: %s; the set was not applied", p.ID(), m))
+			problem(p.ID(), fmt.Sprintf("profile %s: %s; the set was not applied", p.ID(), m))
 		}
 		for _, m := range hp.MissingScripts {
-			res.Notes = append(res.Notes, fmt.Sprintf("hooks %s: %s", p.ID(), m))
+			note(p.ID(), fmt.Sprintf("hooks %s: %s", p.ID(), m))
 		}
 		for _, d := range hp.Divergences {
-			res.Notes = append(res.Notes, fmt.Sprintf("hooks %s: %s", p.ID(), d.String()))
+			note(p.ID(), fmt.Sprintf("hooks %s: %s", p.ID(), d.String()))
 		}
 	}
 	return err
@@ -297,8 +562,9 @@ func writeWrapper(path, content string, dryRun bool) (changed bool, err error) {
 }
 
 // removeStaleWrappers deletes aprofile-marked files in binDir whose names are not
-// in the known set. It never touches files without the aprofile marker (FR-023).
-func removeStaleWrappers(binDir string, known map[string]bool, dryRun bool) ([]string, error) {
+// in the known set. It never touches files without the aprofile marker (FR-023),
+// nor a wrapper whose marker names a harness keepHarness reports (FR-022).
+func removeStaleWrappers(binDir string, known map[string]bool, keepHarness func(string) bool, dryRun bool) ([]string, error) {
 	entries, err := os.ReadDir(binDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -319,6 +585,9 @@ func removeStaleWrappers(binDir string, known map[string]bool, dryRun bool) ([]s
 		if !wrapper.IsWrapper(data) {
 			continue // not ours; never delete (FR-023)
 		}
+		if h := markerHarness(data); h != "" && keepHarness != nil && keepHarness(h) {
+			continue // its harness failed to load: leave it unchanged (FR-022)
+		}
 		if !dryRun {
 			if err := os.Remove(path); err != nil {
 				return nil, fmt.Errorf("remove stale wrapper %s: %w", path, err)
@@ -330,22 +599,9 @@ func removeStaleWrappers(binDir string, known map[string]bool, dryRun bool) ([]s
 	return removed, nil
 }
 
-// wrapperNameClashes returns the set of wrapper names claimed by more than one
-// profile (FR-002).
-func wrapperNameClashes(profiles []*profile.Profile, set *harness.Set) map[string]bool {
-	count := map[string]int{}
-	for _, p := range profiles {
-		def, ok := set.Get(p.Harness)
-		if !ok {
-			continue
-		}
-		count[def.WrapperPrefix+"-"+p.Name]++
-	}
-	clash := map[string]bool{}
-	for name, n := range count {
-		if n > 1 {
-			clash[name] = true
-		}
-	}
-	return clash
+// markerHarness returns the harness named on a wrapper's marker line
+// ("# aprofile:wrapper harness=<h> profile=<n>"), or "".
+func markerHarness(content []byte) string {
+	h, _, _ := wrapper.MarkerIdentity(content)
+	return h
 }

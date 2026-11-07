@@ -121,8 +121,8 @@ func TestSeedMixedFileExcludesCredentialsAndState(t *testing.T) {
 	h := testutil.HermeticHome(t)
 	d := claudeDef(t)
 	// A default .claude.json holding a credential key, two state keys and an owned key.
-	defaultSetup := filepath.Join(h.Root, ".claude")
-	testutil.WriteFile(t, filepath.Join(defaultSetup, ".claude.json"),
+	// Claude Code keeps it at ~/.claude.json, outside ~/.claude (T077).
+	testutil.WriteFile(t, filepath.Join(h.Root, ".claude.json"),
 		`{"oauthAccount":{"email":"me@example.com"},"projects":{"/x":{"trusted":true}},"numStartups":7,"mcpServers":{"s":{"command":"x"}}}`)
 	configDir := filepath.Join(h.DataHome, "aprofile", "profiles", "claude", "work")
 	if _, err := layer.PrepareConfigDir(d, allProfile(), configDir, false); err != nil {

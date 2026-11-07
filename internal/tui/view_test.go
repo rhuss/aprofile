@@ -14,11 +14,17 @@ var sampleRows = []ProfileRow{
 	{Harness: "codex", Name: "work", Label: "Codex Work", WrapperStatus: "missing"},
 }
 
+// renderSnapshot renders the browse view without a cursor, as the interactive view
+// shows it before the first keypress.
+func renderSnapshot(rows []ProfileRow, color bool) string {
+	return renderBrowse(sortRows(rows), -1, color)
+}
+
 // TestRenderBrowsePlain covers FR-042 degradation: with color disabled (stdout is not a
 // TTY or NO_COLOR is set) the browse view is plain text with no ANSI escape codes, while
 // still showing icons, the primary marker, the wrapper status and the harness grouping.
 func TestRenderBrowsePlain(t *testing.T) {
-	out := RenderBrowse(sampleRows, false)
+	out := renderSnapshot(sampleRows, false)
 
 	if strings.Contains(out, "\x1b[") {
 		t.Errorf("plain render must contain no ANSI escapes:\n%q", out)
@@ -43,7 +49,7 @@ func TestRenderBrowseColored(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(saved) })
 
-	out := RenderBrowse(sampleRows, true)
+	out := renderSnapshot(sampleRows, true)
 	if !strings.Contains(out, "\x1b[") {
 		t.Errorf("colored render should contain ANSI escapes:\n%q", out)
 	}
@@ -51,7 +57,7 @@ func TestRenderBrowseColored(t *testing.T) {
 
 // TestRenderBrowseEmpty shows the empty-state hint rather than a blank screen.
 func TestRenderBrowseEmpty(t *testing.T) {
-	out := RenderBrowse(nil, false)
+	out := renderSnapshot(nil, false)
 	if !strings.Contains(out, "no profiles yet") {
 		t.Errorf("empty render should hint how to add a profile, got:\n%s", out)
 	}
@@ -59,7 +65,7 @@ func TestRenderBrowseEmpty(t *testing.T) {
 
 // TestRenderBrowseCursor marks the row under the cursor and no other.
 func TestRenderBrowseCursor(t *testing.T) {
-	out := renderBrowse(sampleRows, 0, false)
+	out := renderBrowse(sortRows(sampleRows), 0, false)
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	markers := 0
 	for _, l := range lines {

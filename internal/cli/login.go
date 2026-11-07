@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,8 +13,12 @@ import (
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/cc-deck/aprofile/internal/wrapper"
 )
+
+// execLogin replaces this process with the harness's login command. Tests swap it
+// for a recorder so no real harness is started.
+var execLogin = syscall.Exec
 
 func newLoginCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -27,6 +32,11 @@ func newLoginCmd() *cobra.Command {
 	return cmd
 }
 
+// runLogin runs the harness's own login flow under the profile's environment
+// (FR-039): the exec hook's login operation when the definition declares one,
+// otherwise (or when the hook answers "not supported" or is not installed) the
+// definition's login_command. Which one runs is data, never a harness-name branch
+// (Constitution Principle I).
 func runLogin(cmd *cobra.Command, ref string) error {
 	a, err := newApp(cmd)
 	if err != nil {
@@ -44,10 +54,22 @@ func runLogin(cmd *cobra.Command, ref string) error {
 	if !ok {
 		return fmt.Errorf("unknown harness %q", h)
 	}
+	// FR-006: an undeclared auth kind would run the login with every auth variable
+	// cleared and none set; refuse it as sync does.
+	if fi := wrapper.AuthKindIssue(p, def); fi != nil {
+		return fmt.Errorf("profile %s: %s; fix: %s", p.ID(), fi.Message, fi.Fix)
+	}
 
-	bin, err := exec.LookPath(def.Binary)
-	if err != nil {
-		return fmt.Errorf("harness binary %q not found on PATH", def.Binary)
+	useHook := def.HookDeclares("login")
+	argv := def.LoginArgv()
+	if !useHook && argv == nil {
+		return fmt.Errorf("harness %q has no login flow: its definition declares no login_command and its exec hook no login operation; add one in %s", h, a.paths.HarnessesDir())
+	}
+	var bin string
+	if !useHook {
+		if bin, err = exec.LookPath(def.Binary); err != nil {
+			return fmt.Errorf("harness binary %q not found on PATH", def.Binary)
+		}
 	}
 
 	// Ensure the config dir exists so credentials land in the profile.
@@ -56,90 +78,50 @@ func runLogin(cmd *cobra.Command, ref string) error {
 		return err
 	}
 
-	env, err := loginEnv(p, def, configDir)
+	// The login runs with the environment the profile's wrapper gives the harness,
+	// including the exec hook's env variables; a declared env operation that fails (or
+	// whose executable is missing) stops the login as it stops sync's wrapper render
+	// (FR-011, FR-027).
+	hctx := wrapper.HookContext(p, configDir)
+	hookEnv, err := harness.RunEnvHook(def, hctx)
+	if err != nil {
+		return fmt.Errorf("profile %s: %w", p.ID(), err)
+	}
+	env, err := loginEnv(p, def, configDir, hookEnv, os.Environ())
 	if err != nil {
 		return err
 	}
 
+	if useHook {
+		fmt.Fprintf(a.out, "running %s login for profile %s (config dir: %s)\n", harness.HookExecutable(h), p.ID(), configDir)
+		herr := harness.RunLoginHook(def, hctx, env, a.out, a.errOut)
+		if herr == nil {
+			return nil
+		}
+		if !errors.Is(herr, harness.ErrHookUnsupported) && !errors.Is(herr, harness.ErrHookNotFound) {
+			return herr
+		}
+		if argv == nil {
+			return fmt.Errorf("profile %s: %w, and the definition declares no login_command to fall back to", p.ID(), herr)
+		}
+		if bin, err = exec.LookPath(def.Binary); err != nil {
+			return fmt.Errorf("harness binary %q not found on PATH", def.Binary)
+		}
+	}
+
 	// Replace this process with the harness so the login is fully interactive
-	// (inherits the terminal). The exec-hook `login` operation (T045) will handle
-	// harness-specific login subcommands where a definition provides one.
-	fmt.Fprintf(a.out, "launching %s for profile %s login (config dir: %s)\n", def.Binary, p.ID(), configDir)
-	return syscall.Exec(bin, []string{def.Binary}, env)
+	// (inherits the terminal).
+	fmt.Fprintf(a.out, "launching %s for profile %s login (config dir: %s)\n", strings.Join(argv, " "), p.ID(), configDir)
+	if note := def.LoginCommand.Note; note != "" {
+		fmt.Fprintln(a.out, note)
+	}
+	return execLogin(bin, argv, env)
 }
 
-// loginEnv builds the process environment for an interactive login: the profile's
-// config_env redirects, the APROFILE_* contract, and the selected auth kind's
-// resolved variables, with every other auth kind's variable removed.
-func loginEnv(p *profile.Profile, def *harness.Definition, configDir string) ([]string, error) {
-	env := map[string]string{}
-	for _, kv := range os.Environ() {
-		if i := strings.IndexByte(kv, '='); i > 0 {
-			env[kv[:i]] = kv[i+1:]
-		}
-	}
-	// Clear every auth variable, then set the selected kind's.
-	for _, v := range def.AllAuthVars() {
-		delete(env, v)
-	}
-	// config_env redirects.
-	for _, e := range def.ConfigEnv {
-		env[e.Var] = harness.ConfigEnvPath(configDir, e.Path)
-	}
-	// Contract variables.
-	env["APROFILE_HARNESS"] = p.Harness
-	env["APROFILE_NAME"] = p.Name
-	env["APROFILE_LABEL"] = p.DisplayLabel()
-	env["APROFILE_COLOR"] = p.Color
-	env["APROFILE_ICON"] = p.Icon
-	env["APROFILE_CONFIG_DIR"] = configDir
-	env["APROFILE_SHARE"] = string(p.ShareLevel())
-	// Resolved auth for the selected kind.
-	if kind, ok := def.AuthKind(p.AuthKind); ok {
-		for _, v := range kind.VarNames() {
-			if refObj, has := p.AuthRefs[v]; has {
-				val, err := secret.Resolve(refObj)
-				if err != nil {
-					return nil, fmt.Errorf("profile %s: %w", p.ID(), err)
-				}
-				env[v] = val
-			}
-		}
-	}
-	// Model/endpoint.
-	if def.ModelVar != "" && p.Model != "" {
-		env[def.ModelVar] = p.Model
-	}
-	if def.EndpointVar != "" && p.Endpoint != "" {
-		env[def.EndpointVar] = p.Endpoint
-	}
-	if p.HerdrAgent != "" {
-		env["HERDR_AGENT"] = p.HerdrAgent
-	}
-	// Extra env, matching the wrapper: caller-overridable, so set only when the
-	// variable is not already present; references are resolved fail-closed.
-	for _, e := range p.ExtraEnv {
-		if _, present := env[e.Name]; present {
-			continue
-		}
-		if !e.Literal && secret.IsReference(e.Value) {
-			ref, err := secret.ParseReference(e.Value)
-			if err != nil {
-				return nil, fmt.Errorf("profile %s: extra env %q: %w", p.ID(), e.Name, err)
-			}
-			val, err := secret.Resolve(ref)
-			if err != nil {
-				return nil, fmt.Errorf("profile %s: extra env %q: %w", p.ID(), e.Name, err)
-			}
-			env[e.Name] = val
-			continue
-		}
-		env[e.Name] = e.Value
-	}
-
-	out := make([]string, 0, len(env))
-	for k, v := range env {
-		out = append(out, k+"="+v)
-	}
-	return out, nil
+// loginEnv builds the process environment for an interactive login from the
+// caller's environment: the environment the profile's wrapper gives the harness
+// (wrapper.Environ shares the wrapper's environment model), with hookEnv, the exec
+// hook's env output, as caller-overridable variables listed in APROFILE_SET_VARS.
+func loginEnv(p *profile.Profile, def *harness.Definition, configDir string, hookEnv []harness.EnvVar, environ []string) ([]string, error) {
+	return wrapper.Environ(p, def, configDir, wrapper.RenderOptions{HookEnv: hookEnv}, environ)
 }

@@ -41,3 +41,30 @@ Out-of-scope ideas captured from reviews and conversations, waiting for a brains
 - **Summary**: `planEventGroups` holds several record-state transitions in one long function.
 
 > Splitting it into classify, resolve divergence and assemble steps would make each transition testable on its own.
+
+### importer-external-credential-paths
+
+- **Source**: deep-review
+- **Date**: 2026-11-06
+- **Reference**: 001-aprofile-standalone-profile-cli
+- **Summary**: `import cc-deck` copies any absolute credential file that cc-deck's config names, from any location, into a private copy.
+
+> This matches cc-deck's own behavior, and the trust boundary is the user's config. Listing files outside cc-deck's own folders in `--dry-run` would make that visible.
+
+### flag-value-drop-keeps-server
+
+- **Source**: deep-review
+- **Date**: 2026-11-06
+- **Reference**: 001-aprofile-standalone-profile-cli
+- **Summary**: When an MCP conversion drops a whole `--flag=value` argument, the server is still written and starts without that option.
+
+> It is reported in the drop list, but a server that loses a credential flag may fail at runtime; a stronger signal (or a per-server skip option) could help.
+
+### sync-summary-with-problems
+
+- **Source**: deep-review
+- **Date**: 2026-11-06
+- **Reference**: 001-aprofile-standalone-profile-cli
+- **Summary**: sync's summary says "0 changes" next to "completed with problems".
+
+> The summary line could count problems too, so a run with a missing hook doesn't read as fully up to date.

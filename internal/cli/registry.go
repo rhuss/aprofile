@@ -60,14 +60,23 @@ func runRegistryExport(cmd *cobra.Command, format, outputDir string) error {
 	if err != nil {
 		return err
 	}
+	// keep: profiles that exist but cannot be exported keep their entries unchanged;
+	// only entries of removed profiles are dropped (FR-031).
+	var keep []string
 	for _, f := range failures {
-		fmt.Fprintf(a.errOut, "aprofile: profile %s failed to load; skipped\n", f.ID())
+		fmt.Fprintf(a.errOut, "aprofile: profile %s failed to load; its entries are kept unchanged\n", f.ID())
+		keep = append(keep, f.ID())
 	}
 
 	var exportProfiles []registry.OmarchyProfile
 	for _, p := range profiles {
 		def, ok := a.set.Get(p.Harness)
-		if !ok || def.OmarchyProvider == "" {
+		if !ok {
+			fmt.Fprintf(a.errOut, "aprofile: profile %s: harness %q has no usable definition; its entries are kept unchanged\n", p.ID(), p.Harness)
+			keep = append(keep, p.ID())
+			continue
+		}
+		if def.OmarchyProvider == "" {
 			fmt.Fprintf(a.errOut, "aprofile: profile %s has no Omarchy provider; skipped\n", p.ID())
 			continue
 		}
@@ -85,7 +94,7 @@ func runRegistryExport(cmd *cobra.Command, format, outputDir string) error {
 	if dir == "" {
 		dir = a.paths.OmarchyAccountsDir()
 	}
-	written, err := registry.ExportOmarchy(dir, exportProfiles)
+	written, err := registry.ExportOmarchy(dir, exportProfiles, keep)
 	if err != nil {
 		return err
 	}

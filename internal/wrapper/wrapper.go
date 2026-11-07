@@ -37,15 +37,10 @@ type RenderOptions struct {
 	HookEnv []harness.EnvVar
 }
 
-// Render produces the wrapper script for one profile with no exec-hook env output.
-// configDir is the absolute profile config dir (the profile root).
-func Render(p *profile.Profile, def *harness.Definition, configDir string) (string, error) {
-	return RenderWith(p, def, configDir, RenderOptions{})
-}
-
 // RenderWith produces the wrapper script for one profile, weaving in the exec-hook
-// env output (FR-011). A profile whose definition declares no exec hook renders
-// byte-for-byte as Render, keeping wrappers self-contained (FR-026).
+// env output (FR-011). configDir is the absolute profile config dir (the profile
+// root). With empty opts (a definition that declares no exec hook) the wrapper
+// carries nothing from a hook, keeping it self-contained (FR-026).
 func RenderWith(p *profile.Profile, def *harness.Definition, configDir string, opts RenderOptions) (string, error) {
 	if def == nil {
 		return "", fmt.Errorf("render wrapper for %s: nil harness definition", p.ID())
@@ -58,12 +53,15 @@ func RenderWith(p *profile.Profile, def *harness.Definition, configDir string, o
 	w("# Managed by aprofile. Do not edit; regenerate with: aprofile sync")
 	w("")
 
+	vars := overridableVars(p, def, opts.HookEnv)
+	captured := clearedSources(p, def, vars)
+
 	renderNestedCleanup(w, p, def)
 	renderConfigEnv(w, def, configDir)
 	renderContract(w, p, configDir)
-	renderAuth(w, p, def)
+	renderAuth(w, p, def, captured)
 	renderHerdr(w, p)
-	renderOverridable(w, p, def, opts.HookEnv)
+	renderOverridable(w, p, vars, captured)
 	renderGuardAndExec(w, p, def, configDir)
 
 	return b.String(), nil
@@ -122,11 +120,14 @@ func renderContract(w func(string), p *profile.Profile, configDir string) {
 	w("")
 }
 
-// renderAuth unsets every auth variable, then sets the selected kind's variables
-// from their references, fail-closed (FR-027, FR-028a). Auth variables are never
-// caller-overridable.
-func renderAuth(w func(string), p *profile.Profile, def *harness.Definition) {
-	all := def.AllAuthVars()
+// renderAuth unsets every auth variable and every auth_clears variable, then sets
+// the selected kind's variables from their references, fail-closed (FR-027,
+// FR-028a). Auth variables are never caller-overridable, and a provider switch the
+// definition clears never leaks in from the caller's shell. captured names the
+// cleared variables an overridable reference reads (see clearedSources): their
+// caller values are kept in temporaries before the unset.
+func renderAuth(w func(string), p *profile.Profile, def *harness.Definition, captured []string) {
+	all := def.UnsetAuthVars()
 	if len(all) == 0 {
 		return
 	}
@@ -134,34 +135,24 @@ func renderAuth(w func(string), p *profile.Profile, def *harness.Definition) {
 	// Collect the selected kind's references first. An env reference that reads from an
 	// auth variable (for example env:ANTHROPIC_AUTH_TOKEN) must be captured into a temp
 	// BEFORE the unset, or the unset would blank the value before it is resolved (FR-028a).
-	type authRef struct {
-		target string
-		tmp    string // non-empty for an env reference captured before the unset
-		ref    secret.Reference
-	}
-	var refs []authRef
-	if k, ok := def.AuthKind(p.AuthKind); ok {
-		for _, v := range k.VarNames() {
-			ref, has := p.AuthRefs[v]
-			if !has {
-				continue // left unset; credentials come from files/login
-			}
-			ar := authRef{target: v, ref: ref}
-			if ref.Kind == secret.KindEnv {
-				ar.tmp = "_aprofile_authsrc_" + v
-				// Capture the caller's value (empty when unset); resolution checks it below.
-				w(fmt.Sprintf(`%s="${%s-}"`, ar.tmp, ref.Value))
-			}
-			refs = append(refs, ar)
+	refs := selectedAuthRefs(p, def)
+	for _, ar := range refs {
+		if ar.ref.Kind == secret.KindEnv {
+			// Capture the caller's value (empty when unset); resolution checks it below.
+			w(fmt.Sprintf(`%s="${%s-}"`, authTemp(ar.target), ar.ref.Value))
 		}
+	}
+	for _, v := range captured {
+		w(fmt.Sprintf(`%s="${%s-}"`, clearedTemp(v), v))
 	}
 	w("unset " + strings.Join(all, " "))
 	for _, ar := range refs {
-		if ar.tmp != "" {
+		if ar.ref.Kind == secret.KindEnv {
 			// Resolve from the temp, keeping the original Raw in the fail-closed message.
-			tmpRef := secret.Reference{Kind: secret.KindEnv, Value: ar.tmp, Raw: ar.ref.Raw}
+			tmp := authTemp(ar.target)
+			tmpRef := secret.Reference{Kind: secret.KindEnv, Value: tmp, Raw: ar.ref.Raw}
 			w(tmpRef.ResolveShell(ar.target, p.ID(), ShellQuote, ""))
-			w("unset " + ar.tmp)
+			w("unset " + tmp)
 		} else {
 			w(ar.ref.ResolveShell(ar.target, p.ID(), ShellQuote, ""))
 		}
@@ -182,53 +173,32 @@ func renderHerdr(w func(string), p *profile.Profile) {
 
 // renderOverridable sets model, endpoint, extra variables and any exec-hook env
 // variables only when the caller has not already set them, and exports
-// APROFILE_SET_VARS listing their names (FR-027, FR-011).
-func renderOverridable(w func(string), p *profile.Profile, def *harness.Definition, hookEnv []harness.EnvVar) {
+// APROFILE_SET_VARS listing their names (FR-027, FR-011). A reference to a cleared
+// variable reads the temporary renderAuth captured before the unset.
+func renderOverridable(w func(string), p *profile.Profile, vars []overridableVar, captured []string) {
 	var setVars []string
 	w("# Model, endpoint and extra variables (caller-overridable).")
-
-	overridableLiteral := func(name, val string) {
-		w(fmt.Sprintf(`if [ -z "${%s:-}" ]; then`, name))
-		w(fmt.Sprintf("  %s=%s", name, ShellQuote(val)))
+	for _, v := range vars {
+		w(fmt.Sprintf(`if [ -z "${%s:-}" ]; then`, v.name))
+		switch {
+		case v.ref == nil:
+			w(fmt.Sprintf("  %s=%s", v.name, ShellQuote(v.value)))
+		case v.ref.Kind == secret.KindEnv && contains(captured, v.ref.Value):
+			tmpRef := secret.Reference{Kind: secret.KindEnv, Value: clearedTemp(v.ref.Value), Raw: v.ref.Raw}
+			w(tmpRef.ResolveShell(v.name, p.ID(), ShellQuote, "  "))
+		default:
+			w(v.ref.ResolveShell(v.name, p.ID(), ShellQuote, "  "))
+		}
 		w("fi")
-		w("export " + name)
-		setVars = append(setVars, name)
+		w("export " + v.name)
+		setVars = append(setVars, v.name)
 	}
-	// overridableRef renders a reference resolved fail-closed at launch; it returns
-	// false when the value is not a well-formed reference so the caller falls back to
-	// a shell-quoted literal.
-	overridableRef := func(name, rawRef string) bool {
-		ref, err := secret.ParseReference(rawRef)
-		if err != nil {
-			return false
+	if len(captured) > 0 {
+		temps := make([]string, len(captured))
+		for i, c := range captured {
+			temps[i] = clearedTemp(c)
 		}
-		w(fmt.Sprintf(`if [ -z "${%s:-}" ]; then`, name))
-		w(ref.ResolveShell(name, p.ID(), ShellQuote, "  "))
-		w("fi")
-		w("export " + name)
-		setVars = append(setVars, name)
-		return true
-	}
-
-	if def.ModelVar != "" && p.Model != "" {
-		overridableLiteral(def.ModelVar, p.Model)
-	}
-	if def.EndpointVar != "" && p.Endpoint != "" {
-		overridableLiteral(def.EndpointVar, p.Endpoint)
-	}
-	for _, e := range p.ExtraEnv {
-		if !e.Literal && secret.IsReference(e.Value) && overridableRef(e.Name, e.Value) {
-			continue
-		}
-		overridableLiteral(e.Name, e.Value)
-	}
-	// Exec-hook env output (FR-011): references resolve at launch, literals are
-	// shell-quoted; both are caller-overridable like a profile's extra variables.
-	for _, e := range hookEnv {
-		if secret.IsReference(e.Value) && overridableRef(e.Name, e.Value) {
-			continue
-		}
-		overridableLiteral(e.Name, e.Value)
+		w("unset " + strings.Join(temps, " "))
 	}
 
 	w("APROFILE_SET_VARS=" + ShellQuote(strings.Join(setVars, " ")))
@@ -259,24 +229,29 @@ func renderGuardAndExec(w func(string), p *profile.Profile, def *harness.Definit
 // before exec, only when the definition declares a pre-launch operation (FR-011);
 // otherwise the wrapper stays self-contained (FR-026). The hook has no timeout here
 // (it runs in the shell). Exit 64 means "unsupported" and is a no-op; any other
-// non-zero exit stops the wrapper before the harness starts.
+// non-zero exit stops the wrapper before the harness starts. A declared hook whose
+// executable is not on PATH also stops the wrapper (exit 127, T076): the definition
+// says the harness needs the hook before it starts, so launching without it would
+// silently skip that step.
 func renderPreLaunch(w func(string), p *profile.Profile, def *harness.Definition, configDir string) {
 	if !def.HookDeclares("pre-launch") {
 		return
 	}
-	bin := "aprofile-harness-" + p.Harness
+	bin := harness.HookExecutable(p.Harness)
 	w("# Harness pre-launch hook (exit 64 = unsupported, treated as a no-op; FR-011).")
-	w(fmt.Sprintf("if command -v %s >/dev/null 2>&1; then", ShellQuote(bin)))
-	w(fmt.Sprintf("  printf '%%s\\n' %s %s %s | %s pre-launch",
+	w(fmt.Sprintf("if ! command -v %s >/dev/null 2>&1; then", ShellQuote(bin)))
+	w(fmt.Sprintf("  printf '%%s\\n' %s >&2", ShellQuote(fmt.Sprintf("aprofile: profile %s: exec hook %s not found on PATH; the harness definition declares its pre-launch operation", p.ID(), bin))))
+	w("  exit 127")
+	w("fi")
+	w(fmt.Sprintf("printf '%%s\\n' %s %s %s | %s pre-launch",
 		ShellQuote("harness="+p.Harness),
 		ShellQuote("profile="+p.Name),
 		ShellQuote("config_dir="+configDir),
 		ShellQuote(bin)))
-	w("  _aprofile_hook_status=$?")
-	w(`  if [ "${_aprofile_hook_status}" -ne 0 ] && [ "${_aprofile_hook_status}" -ne 64 ]; then`)
-	w(fmt.Sprintf("    printf '%%s\\n' %s >&2", ShellQuote(fmt.Sprintf("aprofile: pre-launch hook for %s failed", p.ID()))))
-	w(`    exit "${_aprofile_hook_status}"`)
-	w("  fi")
+	w("_aprofile_hook_status=$?")
+	w(`if [ "${_aprofile_hook_status}" -ne 0 ] && [ "${_aprofile_hook_status}" -ne 64 ]; then`)
+	w(fmt.Sprintf("  printf '%%s\\n' %s >&2", ShellQuote(fmt.Sprintf("aprofile: pre-launch hook for %s failed", p.ID()))))
+	w(`  exit "${_aprofile_hook_status}"`)
 	w("fi")
 	w("")
 }

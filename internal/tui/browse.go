@@ -2,7 +2,6 @@ package tui
 
 import (
 	"io"
-	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -32,7 +31,7 @@ const browseHelp = "\n↑/↓ move · a add · e edit · c copy · d remove · q
 // records the chosen action; the CLI performs the action through the same operations
 // its commands use (Constitution VI).
 type browseModel struct {
-	rows   []ProfileRow
+	rows   []ProfileRow // in display order (sortRows)
 	color  bool
 	cursor int
 	result BrowseResult
@@ -77,23 +76,12 @@ func (m browseModel) View() string {
 	return renderBrowse(m.rows, m.cursor, m.color) + browseHelp
 }
 
-// selected returns a copy of the row under the cursor in the same sorted order the
-// view renders, or nil when there are no rows.
+// selected returns a copy of the row under the cursor, or nil when there are no rows.
 func (m browseModel) selected() *ProfileRow {
-	if len(m.rows) == 0 {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
-	ordered := append([]ProfileRow(nil), m.rows...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].Harness != ordered[j].Harness {
-			return ordered[i].Harness < ordered[j].Harness
-		}
-		return ordered[i].Name < ordered[j].Name
-	})
-	if m.cursor < 0 || m.cursor >= len(ordered) {
-		return nil
-	}
-	r := ordered[m.cursor]
+	r := m.rows[m.cursor]
 	return &r
 }
 
@@ -102,7 +90,7 @@ func (m browseModel) selected() *ProfileRow {
 // display rows and whether color is enabled (FR-042); it then performs the chosen
 // action through its own operations.
 func RunBrowse(in io.Reader, out io.Writer, rows []ProfileRow, color bool) (BrowseResult, error) {
-	m := browseModel{rows: rows, color: color}
+	m := browseModel{rows: sortRows(rows), color: color}
 	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
 	final, err := p.Run()
 	if err != nil {

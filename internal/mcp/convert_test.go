@@ -15,9 +15,9 @@ type fcap struct{ workingDir, enabled, timeout bool }
 
 var testCaps = map[Flavor]fcap{
 	FlavorClaude:   {},
-	FlavorCodex:    {},
+	FlavorCodex:    {workingDir: true, enabled: true, timeout: true},
 	FlavorOpenCode: {workingDir: true, enabled: true, timeout: true},
-	FlavorPi:       {workingDir: true, timeout: true},
+	FlavorPi:       {workingDir: true, enabled: true, timeout: true},
 }
 
 // jsonEq compares two servers by their JSON encoding, which normalizes nil vs empty
@@ -143,10 +143,13 @@ func TestDropsAreReported(t *testing.T) {
 	}{
 		{FlavorClaude, Server{Name: "s", Transport: TransportStdio, Command: "c", WorkingDir: "/w"}, "working_dir"},
 		{FlavorClaude, Server{Name: "s", Transport: TransportStdio, Command: "c", Timeout: 10}, "timeout"},
-		{FlavorClaude, Server{Name: "s", Transport: TransportStdio, Command: "c", Enabled: boolPtr(false)}, "enabled"},
-		{FlavorPi, Server{Name: "s", Transport: TransportStdio, Command: "c", Enabled: boolPtr(true)}, "enabled"},
-		{FlavorCodex, Server{Name: "s", Transport: TransportStdio, Command: "c", WorkingDir: "/w"}, "working_dir"},
-		{FlavorOpenCode, Server{Name: "s", Transport: TransportHTTP, URL: "https://x", Auth: "env:TOK"}, "auth"},
+		// An enabled flag Claude cannot hold is reported (a disabled server is skipped,
+		// see TestDisabledServerNeverEnabled).
+		{FlavorClaude, Server{Name: "s", Transport: TransportStdio, Command: "c", Enabled: boolPtr(true)}, "enabled"},
+		{FlavorPi, Server{Name: "s", Transport: TransportStdio, Command: "c", ToolAllow: []string{"t"}}, "tool_allow/tool_deny"},
+		{FlavorCodex, Server{Name: "s", Transport: TransportStdio, Command: "c", Description: "d"}, "description"},
+		// An env bearer token becomes an Authorization header; a file one cannot.
+		{FlavorOpenCode, Server{Name: "s", Transport: TransportHTTP, URL: "https://x", Auth: "file:/run/tok"}, "auth"},
 		// Codex env_vars forwards by name only: a ref whose key != var name cannot convert.
 		{FlavorCodex, Server{Name: "s", Transport: TransportStdio, Command: "c", Env: map[string]string{"SERVER_VAR": "env:HOST_VAR"}}, "env[SERVER_VAR]"},
 	}

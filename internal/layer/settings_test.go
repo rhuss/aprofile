@@ -115,9 +115,12 @@ func TestSettingsInvalidJSON(t *testing.T) {
 }
 
 func TestSecretWarnings(t *testing.T) {
-	doc := `{"env": {"ANTHROPIC_API_KEY": "abc123", "TOKEN_REF": "env:X", "PLAIN": "hello", "GH": "ghp_abcdef"}, "statusLine": "x"}`
+	// One rule with the copy report (internal/secret): a prefix in any token, or a
+	// literal under a credential-like key name; long values are not flagged here.
+	doc := `{"env": {"ANTHROPIC_API_KEY": "abc123", "TOKEN_REF": "env:X", "AUTH_VAR": "${X}", "PLAIN": "hello", "GH": "ghp_abcdef", "HDR": "Bearer xoxb-1"},
+	  "statusLine": "x", "permissions": {"allow": ["mcp__playwright__browser_navigate_and_more"]}}`
 	got := strings.Join(layer.SecretWarnings([]byte(doc)), ",")
-	if got != "env.ANTHROPIC_API_KEY,env.GH" {
+	if got != "env.ANTHROPIC_API_KEY,env.GH,env.HDR" {
 		t.Errorf("SecretWarnings = %q", got)
 	}
 	if strings.Contains(got, "abc123") {

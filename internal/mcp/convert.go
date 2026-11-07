@@ -1,6 +1,9 @@
 package mcp
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Flavor is the per-harness MCP schema flavor a harness definition declares
 // (definition.MCP.Flavor). The mcp package's only per-harness knowledge is the switch
@@ -22,6 +25,16 @@ type ConversionReport struct {
 	Replaced  []string        `json:"replaced,omitempty"` // existing target servers overwritten
 	Skipped   []SkippedServer `json:"skipped,omitempty"`  // servers not written
 	Drops     []Drop          `json:"drops,omitempty"`    // per-field drops for written servers
+}
+
+// MarshalJSON writes converted as [] when no server was converted, so the field
+// is always a list (FR-041 stable schema), never null.
+func (r ConversionReport) MarshalJSON() ([]byte, error) {
+	type plain ConversionReport
+	if r.Converted == nil {
+		r.Converted = []string{}
+	}
+	return json.Marshal(plain(r))
 }
 
 // ParseDoc decodes a harness's native MCP document (the whole config file's bytes)
@@ -50,11 +63,11 @@ func ParseDoc(flavor Flavor, fileData []byte) ([]Server, error) {
 func MergeInto(flavor Flavor, fileData []byte, servers []Server, overwrite bool) ([]byte, ConversionReport, error) {
 	switch flavor {
 	case FlavorClaude:
-		return mergeJSONDoc(fileData, "mcpServers", servers, encodeClaudeServer, overwrite)
+		return mergeJSONDoc(FlavorClaude, fileData, "mcpServers", servers, encodeClaudeServer, overwrite)
 	case FlavorPi:
-		return mergeJSONDoc(fileData, "mcpServers", servers, encodePiServer, overwrite)
+		return mergeJSONDoc(FlavorPi, fileData, "mcpServers", servers, encodePiServer, overwrite)
 	case FlavorOpenCode:
-		return mergeJSONDoc(fileData, "mcp", servers, encodeOpenCodeServer, overwrite)
+		return mergeJSONDoc(FlavorOpenCode, fileData, "mcp", servers, encodeOpenCodeServer, overwrite)
 	case FlavorCodex:
 		return mergeCodexDoc(fileData, servers, overwrite)
 	default:
@@ -72,8 +85,8 @@ func SkipAll(servers []Server, reason string) ConversionReport {
 	return r
 }
 
-// SecretWarnings parses a harness's MCP document and reports every env or header value
-// that is a literal matching a secret pattern. A same-harness copy carries these
+// SecretWarnings parses a harness's MCP document and reports every env, header, args,
+// url or unmodeled native value that is a literal matching a secret pattern. A same-harness copy carries these
 // verbatim and warns about each (FR-033a); no value is included in the warning.
 func SecretWarnings(flavor Flavor, fileData []byte) ([]SecretWarning, error) {
 	servers, err := ParseDoc(flavor, fileData)
@@ -90,6 +103,16 @@ func SecretWarnings(flavor Flavor, fileData []byte) ([]SecretWarning, error) {
 		for _, k := range sortedKeys(s.Headers) {
 			if isLiteralSecretValue(s.Headers[k]) {
 				ws = append(ws, SecretWarning{Server: s.Name, Field: "headers[" + k + "]"})
+			}
+		}
+		// args, url and unmodeled native fields use the same checks a conversion
+		// applies; their drop list names exactly the secret-looking values.
+		_, ad := encodeArgs(s.Name, s.Args, nil)
+		_, ud := encodeURLValue(s.Name, s.URL, nil)
+		ed := encodeExtra(flavor, s, map[string]any{})
+		for _, d := range append(append(ad, ud...), ed...) {
+			if d.Reason == ReasonLiteralSecret {
+				ws = append(ws, SecretWarning{Server: d.Server, Field: d.Field})
 			}
 		}
 	}

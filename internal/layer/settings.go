@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -99,12 +98,16 @@ func WithoutKey(data []byte, key, file string) ([]byte, error) {
 	return out, err
 }
 
-// secretKeyRE matches key names that usually hold credentials.
-var secretKeyRE = regexp.MustCompile(`(?i)(token|secret|password|passwd|api[_-]?key|apikey|credential)`)
+// settingsSecretOptions is how a settings-layer value is judged: the prefix check
+// only (settings routinely hold long values without spaces, such as MCP tool
+// permission rules and model ids), with references treated as not literal.
+var settingsSecretOptions = secret.Options{PrefixOnly: true, SkipReferences: true}
 
 // SecretWarnings returns the key paths of string values that look like secrets: a
-// known secret prefix, or a credential-like key name with a literal (not a
-// reference) value. Values are never included (Principle IV, research R6).
+// value with a known secret prefix (secret.LooksLikeLiteralSecret with
+// settingsSecretOptions), or a literal (not a reference) value under a
+// credential-like key name (secret.LooksLikeSecretKey). Values are never included
+// (Principle IV, research R6).
 func SecretWarnings(doc []byte) []string {
 	var v any
 	if err := json.Unmarshal(doc, &v); err != nil {
@@ -126,8 +129,8 @@ func SecretWarnings(doc []byte) []string {
 			if t == "" {
 				return
 			}
-			literal := !secret.IsReference(t) && !strings.HasPrefix(t, "${")
-			if secret.CheckPrefix(t) != nil || (literal && secretKeyRE.MatchString(key)) {
+			literal := !secret.IsReferenceOnly(t)
+			if secret.LooksLikeLiteralSecret(t, settingsSecretOptions) || (literal && secret.LooksLikeSecretKey(key)) {
 				out = append(out, path)
 			}
 		}
