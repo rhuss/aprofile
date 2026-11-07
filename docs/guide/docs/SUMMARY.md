@@ -13,3 +13,7 @@
 - [Compare share levels](user/share-levels.md)
 - [Manage profiles](user/manage-profiles.md)
 - [Troubleshoot profiles](user/troubleshooting.md)
+
+## Reference
+
+- [Command reference](reference/commands.md)
