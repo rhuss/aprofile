@@ -27,13 +27,14 @@ PDF_OUT = slug=$$($(GET) slug) && date=$$($(GET) baseline.captured) || exit 1; \
 # every page starts with h1.guide-page-title.
 PRINT_ARGS = --page-heading 'h1.guide-page-title' --section-heading 'h1.guide-section'
 
-.PHONY: help doctor fetch-baseline regions site site-internal check preview pdf print-pdf dist drift clean
+.PHONY: help doctor fetch-baseline regions readme check-readme site site-internal check preview pdf print-pdf dist drift clean
 
 help:
 	@echo "Guide targets (GitHub Markdown adapter):"
 	@echo "  make doctor          check the tool chain"
 	@echo "  make fetch-baseline  fetch the pinned sources into .guide/cache/"
 	@echo "  make regions         rewrite the baseline values in docs/ and internal/"
+	@echo "  make readme          generate the repository README from the guide introduction"
 	@echo "  make site            regions, then render docs/ into build/site (pandoc)"
 	@echo "  make site-internal   render docs/ and internal/ into build/site-internal"
 	@echo "  make check           builds, page and content checks, leak check (STRICT=1 adds the claim ledger)"
@@ -58,6 +59,12 @@ regions:
 site: regions
 	bash pandoc/render.sh build/site docs:.
 
+readme: regions
+	$(UV) run --quiet scripts/sync-readme.py --write
+
+check-readme: regions
+	$(UV) run --quiet scripts/sync-readme.py --check
+
 site-internal: regions
 	@if [ "$$($(GET) internal.enabled)" != true ]; then \
 		echo "internal part disabled in guide.yaml; skipping site-internal"; \
@@ -65,7 +72,7 @@ site-internal: regions
 		bash pandoc/render.sh build/site-internal docs:docs internal:internal; \
 	fi
 
-check: fetch-baseline site site-internal
+check: fetch-baseline site site-internal check-readme
 	$(UV) run --quiet $(TOOLS)/guidecfg.py validate
 	@dirs=docs; if [ -d internal ]; then dirs="docs internal"; fi; \
 	$(UV) run --quiet $(TOOLS)/attrs.py regions $$dirs

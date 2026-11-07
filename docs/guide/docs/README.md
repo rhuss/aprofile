@@ -61,6 +61,9 @@ Profile separation has limits: Codex CLI and OpenCode also read skills from loca
 
 - **End user:** [Get started](user/getting-started.md) to build aprofile and launch your first profile.
 - Read [Profile basics](overview/profile-basics.md) for the concepts behind profiles and sharing.
+- Manage existing accounts with [Manage profiles](user/manage-profiles.md).
+- Diagnose problems with [Troubleshoot profiles](user/troubleshooting.md).
+- Look up syntax in the [Command reference](reference/commands.md).
 - Use the [table of contents](SUMMARY.md) to follow the guide in order.
 
 This guide describes the sources pinned on <!-- guide:attr baseline-date -->2026-11-06<!-- /guide:attr -->: <!-- guide:attr baseline-sources -->aprofile 483957d, claude-code 0ed9469, codex 6abffd4, opencode cd47971, pi 6bf2ab9<!-- /guide:attr -->.
