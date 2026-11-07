@@ -7,3 +7,7 @@ rules:
   require: ["^## Why this matters$", "^## What a profile is$", "^## What stays private$", "^## What a share level changes$"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Why this matters$", "^## What a profile is$", "^## What stays private$", "^## What a share level changes$"]
+- glob: docs/user/getting-started.md
+  require: ["^## Build aprofile$", "^## Create a profile$", "^## Sync and launch$"]
+  forbid: ["\\u2013|\\u2014", "sk-[A-Za-z0-9]{8,}", "ghp_[A-Za-z0-9]{8,}"]
+  require_order: ["^## Build aprofile$", "^## Create a profile$", "^## Sync and launch$"]
