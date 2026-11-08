@@ -37,7 +37,8 @@ All ranges below refer to the verified target checkout `docs/guide/.guide/cache/
 ## Findings and upstream candidates
 
 - The previous page said aprofile provided no group command and characterized history as private at every share level. The pinned target README describes the group command and history groups; membership is separate from share level. The updated page follows the target source. The previous blanket statement about no history mirroring was imprecise: group members use selected shared history entries, though this is not cross-harness conversion or continuous transcript mirroring.
-- No contradiction among the inspected pinned target sources was found, so there are no upstream candidates to report.
+- The target README contradicts itself about settings: `README.md:120` says settings stay private in every group, while `README.md:71` says settings are linked at `all`, copied at `content`, and minimal at `none`. The updated page follows the share-level table and states that group membership does not change settings behavior. This upstream candidate was already recorded in Task 1.
+- No other contradictions among the inspected target sources were found.
 
 ## Unverified and concerns
 
