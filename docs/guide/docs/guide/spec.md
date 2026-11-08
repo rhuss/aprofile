@@ -92,11 +92,11 @@ The guide pins this checkout and the four upstream sources that define the suppo
 
 | ID | Repository | Commit |
 |---|---|---|
-| `aprofile` | local checkout `../..` | <!-- guide:attr aprofile-commit -->483957da3f5eadd28e72661f5fd53875efda88d4<!-- /guide:attr --> |
+| `aprofile` | local checkout `../..` | <!-- guide:attr aprofile-commit -->4a743a4b404f049f8ea6f0c22fc3cbdef8e85c9f<!-- /guide:attr --> |
 | `claude-code` | `anthropics/claude-code` | <!-- guide:attr claude-code-commit -->0ed94698aa0aeee471465fc9c867c2e8434c4d68<!-- /guide:attr --> |
-| `codex` | `openai/codex` | <!-- guide:attr codex-commit -->6abffd442d6865a72056b305a31a604b83d087d8<!-- /guide:attr --> |
-| `opencode` | `anomalyco/opencode` | <!-- guide:attr opencode-commit -->cd47971fd60f9a46dab2600087a691064c7f46fa<!-- /guide:attr --> |
-| `pi` | `earendil-works/pi` | <!-- guide:attr pi-commit -->6bf2ab9bbb64fd14793e506a5404078441219b95<!-- /guide:attr --> |
+| `codex` | `openai/codex` | <!-- guide:attr codex-commit -->748ab55ca7de0b647d9a7a9d9a8e70e00f28666d<!-- /guide:attr --> |
+| `opencode` | `anomalyco/opencode` | <!-- guide:attr opencode-commit -->da8c0211f7c00afbf1dd96e629801fe84d205541<!-- /guide:attr --> |
+| `pi` | `earendil-works/pi` | <!-- guide:attr pi-commit -->6e2222a8dda06e3d69fad46d630f152f5873567a<!-- /guide:attr --> |
 
 No additional inputs were registered.
 

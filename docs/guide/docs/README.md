@@ -59,4 +59,4 @@ History groups are supported for Claude Code, Codex CLI, and Pi. OpenCode does n
 - Look up syntax in the [Command reference](reference/commands.md).
 - Use the [table of contents](SUMMARY.md) to follow the guide in order.
 
-This guide describes the sources pinned on <!-- guide:attr baseline-date -->2026-11-06<!-- /guide:attr -->: <!-- guide:attr baseline-sources -->aprofile 483957d, claude-code 0ed9469, codex 6abffd4, opencode cd47971, pi 6bf2ab9<!-- /guide:attr -->.
+This guide describes the sources pinned on <!-- guide:attr baseline-date -->2026-11-08<!-- /guide:attr -->: <!-- guide:attr baseline-sources -->aprofile 4a743a4, claude-code 0ed9469, codex 748ab55, opencode da8c021, pi 6e2222a<!-- /guide:attr -->.

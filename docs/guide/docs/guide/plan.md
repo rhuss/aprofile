@@ -25,11 +25,11 @@ aprofile:specs/003-history-groups/spec.md:1-50
 
   | Source | Repository | Commit | Status |
   |---|---|---|---|
-  | `aprofile` | `../..` | <!-- guide:attr aprofile-commit -->483957da3f5eadd28e72661f5fd53875efda88d4<!-- /guide:attr --> | verified |
+  | `aprofile` | `../..` | <!-- guide:attr aprofile-commit -->4a743a4b404f049f8ea6f0c22fc3cbdef8e85c9f<!-- /guide:attr --> | verified |
   | `claude-code` | `anthropics/claude-code` | <!-- guide:attr claude-code-commit -->0ed94698aa0aeee471465fc9c867c2e8434c4d68<!-- /guide:attr --> | verified |
-  | `codex` | `openai/codex` | <!-- guide:attr codex-commit -->6abffd442d6865a72056b305a31a604b83d087d8<!-- /guide:attr --> | verified |
-  | `opencode` | `anomalyco/opencode` | <!-- guide:attr opencode-commit -->cd47971fd60f9a46dab2600087a691064c7f46fa<!-- /guide:attr --> | verified |
-  | `pi` | `earendil-works/pi` | <!-- guide:attr pi-commit -->6bf2ab9bbb64fd14793e506a5404078441219b95<!-- /guide:attr --> | verified |
+  | `codex` | `openai/codex` | <!-- guide:attr codex-commit -->748ab55ca7de0b647d9a7a9d9a8e70e00f28666d<!-- /guide:attr --> | verified |
+  | `opencode` | `anomalyco/opencode` | <!-- guide:attr opencode-commit -->da8c0211f7c00afbf1dd96e629801fe84d205541<!-- /guide:attr --> | verified |
+  | `pi` | `earendil-works/pi` | <!-- guide:attr pi-commit -->6e2222a8dda06e3d69fad46d630f152f5873567a<!-- /guide:attr --> | verified |
 
 - Baseline values available to pages (never type versions or commits): `aprofile-repo`, `aprofile-commit`, `aprofile-commit-short`, `aprofile-blob`, `aprofile-tree`; `claude-code-repo`, `claude-code-commit`, `claude-code-commit-short`, `claude-code-blob`, `claude-code-tree`; `codex-repo`, `codex-commit`, `codex-commit-short`, `codex-blob`, `codex-tree`; `opencode-repo`, `opencode-commit`, `opencode-commit-short`, `opencode-blob`, `opencode-tree`; `pi-repo`, `pi-commit`, `pi-commit-short`, `pi-blob`, `pi-tree`; `baseline-date`, `baseline-sources`.
 - Change requests documented as experimental (label only through the adapter snippet): none.
