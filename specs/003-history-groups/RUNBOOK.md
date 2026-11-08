@@ -1,22 +1,34 @@
 ---
 runbook_version: 1
 feature: 003-history-groups
-status: drafted
+status: passed
 mode: light
 steps_total: 12
-step_results: pending,pending,pending,pending,pending,pending,pending,pending,pending,pending,pending,pending
+step_results: passed,passed,passed,passed,passed,passed,passed,passed,passed,passed,passed,passed
 drafted_at: a18edca
 drafted_fingerprint: a2879f84c0a677f4cfe3d76c78904f216ccfacb4bbeff3a16801f12a37357317
-tested_at:
-tested_fingerprint:
-updated: 2026-11-07
+tested_at: 583fd81
+tested_fingerprint: f3ab63d44ab3fc85082b120acc519915b1d42337bae023c54e056dad3529da45
+updated: 2026-11-08
 ---
 
 # Try it: History Groups
 
 <!-- runbook-status -->
-> **Status:** drafted · 0 of 12 steps · Mode: light · Drafted at a18edca · 2026-11-07
+> **Status:** passed · 12 of 12 steps (12 passed) · Mode: light · Tested at 583fd81 · 2026-11-08
 <!-- /runbook-status -->
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## What you're testing
 
@@ -49,14 +61,16 @@ Teardown: `rm -rf specs/003-history-groups/.walkthrough/home`.
 **Run:**
 
 ```
-make build && ./bin/aprofile group --help | head -3
+make build && ./bin/aprofile group --help | sed -n '/Available Commands/,/^$/p'
 ```
 
-**What you should see:** the build finishes without errors, and the help names the `group` command with subcommands for listing, showing, creating and deleting history groups.
+**What you should see:** the build finishes without errors, and the help lists the `group` subcommands `create`, `delete`, `list` and `show`.
 
-**If you see something else:** "unknown command group" means the binary is not from this branch; check `git branch --show-current` shows `003-history-groups`.
+**If you see something else:** "unknown command group" means the binary is older than the history groups feature; check that `git log --oneline -1 main` shows the history groups commit and that this checkout contains it.
 
-**Result:**
+**Result:** passed (agent). Corrected during the run: the first draft used `| head -3`, which shows the description of history groups rather than the subcommands; the step now prints the "Available Commands" block.
+  ✔ build succeeds → `go build -o bin/aprofile ./cmd/aprofile`
+  ✔ subcommands listed → `create`, `delete`, `list`, `show`
 
 ### Step 2 of 12: Create the sandbox home with a fake default setup (setup)
 
@@ -87,7 +101,9 @@ EOF
 
 **If you see something else:** "sandbox already exists" means an earlier run left it behind; run the teardown command from the Test environment section and rerun. An `UNSAFE` line means the environment file is wrong; stop and do not run later steps.
 
-**Result:**
+**Result:** passed (agent).
+  ✔ no UNSAFE line
+  ✔ seeded files → `./.claude/history.jsonl`, `./.claude/projects/-tmp-demo/s-default.jsonl`
 
 ### Step 3 of 12: See the built-in groups (US4)
 
@@ -105,7 +121,10 @@ EOF
 
 **If you see something else:** an `opencode` row means the OpenCode definition declares history entries, which the spec forbids (FR-003).
 
-**Result:**
+**Result:** passed (agent). Sandbox path shortened to `~sandbox`.
+  ✔ columns → `HARNESS  GROUP  MEMBERS  STORE`
+  ✔ home rows → `claude/codex/pi  home (built in)  default setup  ~sandbox/.claude|.codex|.pi`
+  ✔ no `opencode` row
 
 ### Step 4 of 12: A typo in a group name creates nothing (US2)
 
@@ -123,7 +142,10 @@ EOF
 
 **If you see something else:** a profile named `test` in the listing means the group was not validated before creation.
 
-**Result:**
+**Result:** passed (agent).
+  ✔ error → `aprofile: history group claude/wrok does not exist; groups of claude: home (create one with: aprofile group create claude/<group>)`
+  ✔ `exit=2`
+  ✔ nothing created → the `profiles/claude` directory does not exist
 
 ### Step 5 of 12: Two profiles in `home` share one conversation (US1)
 
@@ -143,11 +165,16 @@ EOF
   test -L "$P/claude/lab/.credentials.json" && echo "credentials LINKED" || echo "credentials private" )
 ```
 
-**What you should see:** both `add` commands print the group line `home: shares history with your default setup` and the note that running the same conversation in two profiles at once is not prevented; `readlink` prints the sandbox's `.claude/projects` path; the listing shows `s-default.jsonl` and `s-lab.jsonl`; the count is `1` (one copy on disk); and `credentials private`.
+**What you should see:** both `add` commands print `history group: home (store ...)` with the sandbox's `.claude` and the note that running the same conversation in two profiles at once is not prevented; `readlink` prints the sandbox's `.claude/projects` path; the listing shows `s-default.jsonl` and `s-lab.jsonl`; the count is `1` (one copy on disk); and `credentials private`.
 
 **If you see something else:** a count of `2` means the session was copied instead of shared; `credentials LINKED` would be a serious isolation bug.
 
-**Result:**
+**Result:** passed (agent). Corrected during the run: the draft expected the form label `home: shares history with your default setup`; `add` prints `history group: home (store ~sandbox/.claude)`.
+  ✔ group line and concurrent-use note printed by both `add` commands
+  ✔ readlink → `~sandbox/.claude/projects`
+  ✔ listing → `s-default.jsonl`, `s-lab.jsonl`
+  ✔ copies on disk → `1`
+  ✔ `credentials private`
 
 ### Step 6 of 12: `show` explains what is shared (US1)
 
@@ -158,14 +185,17 @@ EOF
 **Run:**
 
 ```
-( . specs/003-history-groups/.walkthrough/env.sh; "$A" show claude/lab | grep -E 'group|projects/|history.jsonl|sessions/' )
+( . specs/003-history-groups/.walkthrough/env.sh; "$A" show claude/lab | grep -E 'group|history|projects|sessions ' )
 ```
 
-**What you should see:** a line saying the profile shares history with your default setup and the other members of history group `home`; `projects/` and `history.jsonl` listed as linked with the reason `history group home`; `sessions/` listed as private.
+**What you should see:** a line saying the profile shares history with your default setup and the other members of history group `home`; `projects` and `history.jsonl` listed under "linked to the history group store" with `history group home`; `sessions` listed as `runtime state: always private`.
 
 **If you see something else:** `projects/` shown as a leaking link means the treatment code does not know about the group.
 
-**Result:**
+**Result:** passed (agent). Corrected during the run: `show` prints entry names without a trailing `/`, so the draft's `grep 'sessions/'` could not match; the grep now matches the names.
+  ✔ group → `history: shares history with your default setup and the other members of history group home`
+  ✔ linked → `history.jsonl  history group home`, `projects  history group home` (also file-history, paste-cache, plans, tasks, todos)
+  ✔ private → `sessions  runtime state: always private`
 
 ### Step 7 of 12: A separate `work` group stays separate (US2)
 
@@ -187,7 +217,10 @@ EOF
 
 **If you see something else:** `-tmp-work` in the default setup means the `work` members are linked to the wrong store.
 
-**Result:**
+**Result:** passed (agent).
+  ✔ `created history group claude/work (store ~sandbox/.local/share/aprofile/groups/claude/work)`
+  ✔ corp sees → `s-work.jsonl`
+  ✔ default setup projects → only `-tmp-demo`
 
 ### Step 8 of 12: Move an existing profile with history into `home`, dry run first (US3)
 
@@ -213,7 +246,11 @@ EOF
 
 **If you see something else:** exit 3 means `--yes` was not passed; a missing `history.jsonl` in the set-aside folder would mean data was lost.
 
-**Result:**
+**Result:** passed (agent). Output: 47 lines, saved to `specs/003-history-groups/.walkthrough/step-8.log`.
+  ✔ dry run → `move-to-store projects/-tmp-demo/s-solo.jsonl`, `set-aside history.jsonl ... (not mergeable)`, `link-history` for every history entry, and `set-aside history goes to ~sandbox/.local/share/aprofile/set-aside/claude/solo/20261108T174552Z`
+  ✔ real run lists the same steps → `joined history group home`
+  ✔ default setup `-tmp-demo` → `s-default.jsonl`, `s-lab.jsonl`, `s-solo.jsonl`
+  ✔ set-aside → `history.jsonl`, `manifest.json`
 
 ### Step 9 of 12: Leaving a group keeps the shared history (US3)
 
@@ -235,7 +272,10 @@ EOF
 
 **If you see something else:** a missing `s-solo.jsonl` in the default setup means leaving changed the store, which the spec forbids (FR-015).
 
-**Result:**
+**Result:** passed (agent).
+  ✔ `left history group home; the profile's history is its own again` (plan: `mkdir` private empty entries, `history moved or set aside: no; nothing is deleted`)
+  ✔ `projects is a real directory`, count `0`
+  ✔ default setup still lists `s-default.jsonl`, `s-lab.jsonl`, `s-solo.jsonl`
 
 ### Step 10 of 12: Group delete rules (US4)
 
@@ -258,7 +298,11 @@ EOF
 
 **If you see something else:** a successful delete of `home`, or a new `work` silently adopting the old store, would contradict FR-005 and FR-006.
 
-**Result:**
+**Result:** passed (agent).
+  ✔ delete with members → `history group claude/work still has members: acme, corp; ...`, `exit=2`
+  ✔ delete home → `claude/home is built in: it always exists and cannot be created, renamed or deleted`, `exit=2`
+  ✔ delete after leaving → `deleted history group claude/work; its store is kept at ~sandbox/.local/share/aprofile/groups/claude/work ...`, `exit=0`
+  ✔ create again → `a kept store of a deleted group claude/work exists at ...; move or remove it by hand first`, `exit=2`
 
 ### Step 11 of 12: Drift is detected and repaired (US5)
 
@@ -282,7 +326,11 @@ EOF
 
 **If you see something else:** `linked after sync` means plain `sync` replaced a real entry, which it must never do (FR-022).
 
-**Result:**
+**Result:** passed (agent).
+  ✔ doctor → `[claude/lab] history entry projects is a real entry instead of a link to the history group home store` with `fix: aprofile sync --relink ... or merge it with: aprofile edit claude/lab --group home`
+  ✔ sync → `report .../claude/lab/projects (history-not-linked: ... run: aprofile edit claude/lab --group home ...)`
+  ✔ `still real after sync`
+  ✔ `linked after relink`
 
 ### Step 12 of 12: Wrapper and registry publish the group (US5)
 
@@ -295,14 +343,16 @@ EOF
 ```
 ( . specs/003-history-groups/.walkthrough/env.sh
   grep APROFILE_HISTORY_GROUP "$XDG_DATA_HOME/aprofile/bin/claude-lab" "$XDG_DATA_HOME/aprofile/bin/claude-solo"
-  "$A" registry export | jq -r '.. | objects | select(has("history_group")) | "\(.harness)/\(.name) \(.history_group)"' )
+  jq -r '.. | objects | select(has("history_group")) | "\(.harness)/\(.name) \(.history_group)"' "$("$A" registry path)" )
 ```
 
 **What you should see:** the `claude-lab` wrapper sets `APROFILE_HISTORY_GROUP` to `home` and `claude-solo` sets it empty; the registry lists `claude/lab home`, `claude/personal home`, and `claude/solo`, `claude/acme`, `claude/corp` with an empty group.
 
 **If you see something else:** a missing variable means the wrapper was not re-rendered; run `"$A" sync` inside the sandbox and retry.
 
-**Result:**
+**Result:** passed (agent). Corrected during the run: the draft piped `aprofile registry export` into jq, but that command writes the Omarchy export (here into the sandbox's `.local/state/omarchy`); the step now reads the registry file from `aprofile registry path`.
+  ✔ wrappers → `claude-lab: APROFILE_HISTORY_GROUP='home'`, `claude-solo: APROFILE_HISTORY_GROUP=''`
+  ✔ registry → `claude/lab home`, `claude/personal home`, `claude/acme`, `claude/corp`, `claude/solo` with an empty group
 
 ## Not covered here
 
@@ -321,3 +371,9 @@ EOF
 All five user stories are covered; the cross-account resume and the TUI are listed under Not covered here.
 
 ## Results
+
+All 12 steps passed (agent, 2026-11-08), in a sandbox home under `specs/003-history-groups/.walkthrough/home`. Four steps had wrong commands or expectations in the draft and were corrected during the run (Steps 1, 5, 6, 12); none of the corrections concerned the feature's behavior.
+
+What the run shows: profiles in `home` share one copy of a conversation with the default setup while logins stay private; a separate `work` group keeps its history apart; a typo in a group name creates nothing; joining with existing history moves conversations without overwriting and sets aside what cannot merge; leaving keeps the shared history; the delete rules protect members, `home` and kept stores; drift is reported and repaired only on request; and wrappers and the registry publish the group.
+
+Not tried here: resuming a real conversation under a second account (see Not covered here).
