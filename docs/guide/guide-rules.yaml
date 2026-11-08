@@ -20,7 +20,7 @@ rules:
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Choose who shares history$", "^## Create and join a group$", "^## Resume in another member$", "^## Leave a group$", "^## Limits and recovery$"]
 - glob: docs/user/manage-profiles.md
-  require: ["aprofile list", "aprofile show", "aprofile edit", "aprofile copy", "aprofile sync", "hook-sets", "mcp copy"]
+  require: ["aprofile list", "aprofile show", "aprofile edit", "aprofile copy", "aprofile sync", "hook-sets", "mcp copy", "login claude/work", "login codex/team", "login opencode/work", "login pi/work", "--group", "history-groups\\.md", "never carries source history", "rename.*refused", "credential", "--purge", "imported credential files"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Inspect profiles$", "^## Change profiles$", "^## Copy profile data$", "^## Manage hooks and MCP servers$"]
 - glob: docs/user/troubleshooting.md
