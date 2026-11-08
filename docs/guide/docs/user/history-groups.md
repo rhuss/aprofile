@@ -139,7 +139,7 @@ Leaving separates a profile's future history from the group's store. The group a
 
 Review the join plan before approving it. A running profile cannot change groups, and running the same conversation in two profiles at once is not prevented. Two writers can interleave a transcript, so keep each conversation active in one profile at a time.
 
-When a join finds existing history, its result depends on the harness's merge mode. A `per-file` directory entry moves regular files whose relative paths are missing from the group store. A path already present in the store is set aside, and the store file is not overwritten. A `none` entry is set aside as a whole. Other unmergeable entries are also set aside, so a join does not promise that every history file merges.
+When a join finds existing history, its result depends on the harness's merge mode. A `per-file` directory entry moves regular files whose relative paths are missing from the group store. If the store already has a different file at that relative path, the profile file is set aside; the store file is never overwritten. A `none` entry is set aside as a whole. Other unmergeable entries are also set aside, so a join does not promise that every history file merges.
 
 Set-aside data is kept under aprofile's data directory, with a `manifest.json` alongside each join's set-aside items. The manifest records the profile, group, creation time, and each item's original path and reason. `aprofile doctor` reports set-aside history as information. If a join stops partway through, `doctor` and `sync` report the membership drift and the command to complete the join. `sync` recreates missing links; `sync --relink` backs up a replaced link and restores it.
 
