@@ -1,0 +1,23 @@
+# Upstream findings collected by cc-guide runs; file them with /guide:upstream.
+findings:
+- id: UF-1
+  source: aprofile
+  kind: doc-drift
+  locations:
+  - ref: README.md:120
+    quote: Logins, settings and all other runtime state stay private in every group.
+  summary: README group privacy text conflicts with the share-level table for settings.
+  evidence: README.md:71 says settings are linked at all, copied once at content,
+    and minimal at none; line 120 says settings stay private in every group. The product
+    defines history membership independently from share level.
+  status: collected
+- id: UF-2
+  source: aprofile
+  kind: stale-reference
+  locations:
+  - ref: README.md:16
+    quote: https://github.com/cc-deck/aprofile
+  summary: README clone URL points to the former repository owner.
+  evidence: The confirmed public repository and this checkout remote are rhuss/aprofile;
+    the clone command still names cc-deck/aprofile.
+  status: collected
