@@ -1,54 +1,59 @@
 # Guide spec: aprofile User Guide
 
 <!-- Sources:
-aprofile:README.md:3-242
+aprofile:README.md:3-5,7-23,25-48,112-142,233-245,284-286
+aprofile:internal/cli/group.go:55-62
+aprofile:internal/history/store.go:13-55
+aprofile:internal/harness/builtin/claude.yaml
+aprofile:internal/harness/builtin/codex.yaml
+aprofile:internal/harness/builtin/opencode.yaml
+aprofile:internal/harness/builtin/pi.yaml
 claude-code:README.md:7
 codex:README.md:1
 opencode:README.md:10
 pi:README.md:13-21
+url:https://github.com/rhuss/aprofile
 -->
 
 ## Why
 
 ### Problem
 
-Managing work, personal, or client accounts for one coding tool by hand means pointing each account at a separate configuration directory, which is fiddly and can mix transcripts, memory, or billing. (Source: `aprofile:README.md:7-9`.)
+Managing work, personal, and client accounts by manually switching configuration directories can mix conversations, memory, or billing. Some related accounts also need to continue the same conversations while other accounts must stay separate. (Source: `aprofile:README.md:7-9,112-127`.)
 
 ### Outcome
 
-The reader can create a named profile and use a short launcher such as `claude-work` to start the selected coding tool with that profile's configuration and private credentials and runtime state. (Source: `aprofile:README.md:3-5,25-40,42-48`.)
+The reader can launch each account with a named wrapper, choose how much setup it reuses, and keep history isolated or explicitly share it with profiles of the same supported harness. The selected wrapper uses that profile's login, endpoint, and model. (Source: `aprofile:README.md:25-48,112-140`.)
 
 ### Components
 
-- aprofile is a command-line tool for running accounts or configurations of coding tools side by side, each with its own credentials, history, memory, and settings. (Source: `aprofile:README.md:3-5`.)
-- Claude Code is an agentic coding tool that runs in a terminal, understands the codebase, and handles coding work through natural language commands. (Source: `claude-code:README.md:7`.)
-- Codex CLI is a coding agent from OpenAI that runs locally on the user's computer. (Source: `codex:README.md:1`.)
+- aprofile manages named accounts or configurations of coding tools. (Source: `aprofile:README.md:3-5`.)
+- Claude Code is a terminal coding tool that works on a codebase through natural language. (Source: `claude-code:README.md:7`.)
+- Codex CLI is OpenAI's locally running coding agent. (Source: `codex:README.md:1`.)
 - OpenCode is an open source AI coding agent. (Source: `opencode:README.md:10`.)
-- Pi is a minimal, extensible agent harness that users can customize. (Source: `pi:README.md:13-17`.)
+- Pi is a minimal, extensible agent harness. (Source: `pi:README.md:13-17`.)
 
 ### Fit
 
-aprofile has a built-in definition for each supported coding tool, including the environment variable that selects its configuration directory. (Source: `aprofile:README.md:171-182`; `aprofile:internal/harness/builtin/claude.yaml`; `aprofile:internal/harness/builtin/codex.yaml`; `aprofile:internal/harness/builtin/opencode.yaml`; `aprofile:internal/harness/builtin/pi.yaml`.)
-
-When the reader runs `aprofile sync`, aprofile prepares the profile configuration and writes a launcher that starts the selected tool with the profile's environment. (Source: `aprofile:README.md:32-40,197-207`.)
+aprofile prepares each profile's configuration and launcher on sync. Share levels govern reused setup. A separate, optional history-group membership links designated history entries to one store for that harness. The built-in home group uses the default setup's history; custom groups use an aprofile-managed store. (Source: `aprofile:README.md:32-48,112-120`; `aprofile:internal/cli/group.go:55-62`; `aprofile:internal/history/store.go:13-55`.)
 
 ### Why this combination
 
-Separate profiles let users run work, personal, or client accounts side by side while choosing how much default setup each profile shares, with credentials and runtime state kept private to each profile. (Source: `aprofile:README.md:9,42-58,62-72`.)
+Users can keep unrelated accounts separate while letting selected profiles continue one another's conversations, without making their logins shared. History-group membership is independent of the share level. (Source: `aprofile:README.md:112-120`.)
 
 ### Status and limits
 
-aprofile runs on Linux and macOS, builds from source with Go 1.24 or newer, and does not yet include release packaging in this slice. (Source: `aprofile:README.md:11-23,240-242`.)
+aprofile runs on Linux and macOS and builds from source with Go 1.24 or newer. History groups are supported for Claude Code, Codex, and Pi; OpenCode does not support them. Running one conversation simultaneously through multiple members can interleave its transcript. This feature does not convert conversations between harnesses. (Source: `aprofile:README.md:11-23,112-142,284-286`; `aprofile:internal/harness/builtin/claude.yaml`; `aprofile:internal/harness/builtin/codex.yaml`; `aprofile:internal/harness/builtin/opencode.yaml`; `aprofile:internal/harness/builtin/pi.yaml`.)
 
 ## The guide
 
 ### Purpose
 
-Help end users build aprofile, create and launch their first profile, choose a share level, manage profiles, diagnose common problems, and find command syntax.
+Help end users build aprofile, create and launch profiles, choose share levels and history groups, manage profiles, diagnose common problems, and find command syntax.
 
 ### Persona and journey
 
-- **End user**: learns what a profile separates, builds aprofile from an available source checkout, creates and syncs a profile, launches its wrapper, chooses a share level, manages profiles and hook sets, and uses `show` or `doctor` to inspect problems.
+- **End user**: learns what a profile separates, builds aprofile from source, creates and syncs a profile, launches its wrapper, chooses a share level and history group, manages profiles and hook sets, and uses `show` or `doctor` to inspect problems.
 
 ### Sections and pages
 
@@ -59,18 +64,19 @@ Help end users build aprofile, create and launch their first profile, choose a s
 
 #### End user guide
 
-- `docs/user/getting-started.md` is the End user entry page. It starts with the outcome for this persona, then shows the supported build-from-source path, profile creation, `sync`, and launching a generated wrapper. The draft uses an existing source checkout and omits a clone command while the repository URL is unresolved.
+- `docs/user/getting-started.md` is the End user entry page. It starts with the outcome for this persona, then shows the supported build-from-source path, profile creation, `sync`, and launching a generated wrapper.
 - `docs/user/share-levels.md` helps the reader choose `all`, `content`, or `none`. It explains what each level shares, what always stays private, and the documented differences and limits across supported tools.
+- `docs/user/history-groups.md` explains how profiles of one harness can share conversation history through `home` or a custom group, or keep history isolated without group membership. It covers the relationship between history membership and share levels, supported harnesses, and the known limits.
 - `docs/user/manage-profiles.md` covers listing and inspecting profiles, editing and renaming, removal and its `--purge` confirmation, copying profiles, login, MCP server copy, hook sets, and running `sync` after changes.
 - `docs/user/troubleshooting.md` uses `show` and `doctor` to inspect stale wrappers, PATH problems, missing harness binaries, unresolved references, and unclassified entries. It gives only fixes supported by the pinned aprofile source.
 
 #### Reference
 
-- `docs/reference/commands.md` is a concise command index for the end user. It groups profile, sharing, hook, MCP, and diagnostic commands and points to the harness-specific documentation where appropriate.
+- `docs/reference/commands.md` is a concise command index for the end user. It groups profile, sharing, history-group, hook, MCP, and diagnostic commands and points to the harness-specific documentation where appropriate.
 
 ### Diagrams
 
-No diagrams are planned. The profile setup path is short enough to explain with numbered steps, and the share-level differences fit in a table.
+No diagrams are planned. The profile setup path is short enough to explain with numbered steps, and the share-level and history-group differences fit in tables.
 
 ### Experimental content
 
@@ -82,7 +88,7 @@ There is no internal part. The guide contains no confidential input claims.
 
 ### Sources
 
-The guide pins this checkout and the four upstream sources that define the supported coding tools.
+The guide pins this checkout and the four upstream sources that define the supported coding tools. The local source field remains `../..`; the public repository is [github.com/rhuss/aprofile](https://github.com/rhuss/aprofile).
 
 | ID | Repository | Commit |
 |---|---|---|
@@ -96,5 +102,4 @@ No additional inputs were registered.
 
 ### Open questions
 
-- The pinned aprofile README gives `https://github.com/cc-deck/aprofile` as the clone URL, but a source lookup during setup returned `Repository not found`. The approved install page starts from an existing checkout and omits the clone command.
-- The weekly drift workflow is committed at the parent repository's `.github/workflows/guide-drift.yml`, because GitHub discovers workflows only at the repository root. This checkout has no configured GitHub remote, so the schedule will run only after the repository is hosted on GitHub.
+- The weekly drift workflow is committed at the parent repository's `.github/workflows/guide-drift.yml`, because GitHub discovers workflows only at the repository root.

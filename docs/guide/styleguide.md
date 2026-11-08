@@ -9,6 +9,10 @@ Every page follows these terms and rules alongside its section voice.
 - "harness" means a supported coding agent command-line program.
 - "wrapper" means the launcher aprofile creates for a profile, such as `claude-work`.
 - "share level" means how much of a harness's default setup a profile uses.
+- "history group" means a named set of profiles of one harness that share one conversation history.
+- "isolated profile" means a profile in no history group; it keeps its history to itself.
+- "home" means the built-in history group whose store is the harness's default setup.
+- "custom group" means a history group created explicitly, with its history in aprofile's data directory.
 - Product names are spelled exactly: aprofile, Claude Code, Codex CLI, OpenCode, and Pi.
 - Persona name: "End user".
 
