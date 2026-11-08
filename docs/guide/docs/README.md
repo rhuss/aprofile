@@ -1,68 +1,57 @@
 # aprofile User Guide
 
 <!-- Sources:
-aprofile:README.md:3-9,13-23,25-48,54-72,76-87,165-182,197-207,240-242
-aprofile:internal/harness/builtin/claude.yaml:6-12
-aprofile:internal/harness/builtin/codex.yaml:6-12
-aprofile:internal/harness/builtin/opencode.yaml:11-19
-aprofile:internal/harness/builtin/pi.yaml:11-17
-aprofile:internal/cli/edit.go:21-25
-aprofile:go.mod:1-3
+aprofile:README.md:3-9,13-23,25-48,112-120,140,286
+aprofile:internal/cli/group.go:54-62
 claude-code:README.md:7
 codex:README.md:1
 opencode:README.md:10
-pi:README.md:13-21
+pi:README.md:13-17
+aprofile:go.mod:1-3
 -->
 
 ## What you get
 
-Keep your work, personal, and client accounts separate while using them on the same computer. With aprofile, you'll create a named profile and launch your coding tool with a short command such as `claude-work`. You won't have to point the tool at a different configuration directory by hand each time, which can mix up conversations, memory, or billing.
+With aprofile, you can launch work, personal, and client accounts through named commands such as `claude-work`. Each profile uses its own login and can keep its conversations separate by default, while selected profiles can share history when they need to continue one another's work. This avoids switching configuration directories by hand, which can mix conversations, memory, or billing.
 
 ## What the parts are
 
-aprofile is a command-line tool that manages separate accounts or configurations for coding tools. A **profile** is one account or configuration of one tool, identified by the tool and a name, such as `claude/work`.
+aprofile is a command-line tool for managing named accounts or configurations of coding tools. A **profile** is one account or configuration of one harness, identified by the harness and a name, such as `claude/work`.
 
-The supported tools help you work on code:
-
-| Tool | What it does for you |
+| Tool | What it does |
 |---|---|
-| Claude Code | Runs in your terminal, understands your codebase, and carries out coding tasks you describe in natural language. |
-| Codex CLI | OpenAI's coding agent, a program that works on coding tasks and runs locally on your computer. |
-| OpenCode | An open source AI coding agent that helps you work on code. |
-| Pi | A minimal coding agent you can customize to fit your workflow. |
+| Claude Code | A coding tool in your terminal that understands your codebase and carries out tasks through natural language commands. |
+| Codex CLI | OpenAI's coding agent that runs locally on your computer. |
+| OpenCode | An open source AI coding agent. |
+| Pi | A minimal, extensible agent harness that you can customize with extensions, skills, prompt templates, and themes. |
 
 This guide calls a supported coding agent command-line program a **harness**. A **wrapper** is the launcher aprofile creates for a profile, such as `claude-work`.
 
 ## How they fit
 
-aprofile knows how to select a separate configuration for each supported tool. You create a profile, then run `aprofile sync` to prepare that configuration and write its wrapper. Running the wrapper starts the coding tool with the profile's environment. The wrapper forwards your arguments unchanged, so the coding tool still handles your work.
+You create profiles, then run `aprofile sync` to prepare their configuration and write wrappers. A wrapper starts its harness with the profile's login, endpoint, and model, where configured. Each profile's **share level** controls how much of the harness's default setup it reuses.
 
-A **share level** decides how much of the tool's default setup a profile uses. You can reuse instructions while keeping settings separate, reuse more of the default setup, or start clean. Credentials and runtime state, such as conversations, sessions, and memory, stay private to each profile at every share level.
-
-Even `all` keeps each profile's history and sessions separate. Switching profiles does not bring your conversations with you. Read [History and sessions](user/share-levels.md#history-and-sessions) before choosing a profile for ongoing work.
+History is separate from share level. A profile in no history group keeps its history to itself, which is the default for new profiles. You can optionally put profiles of the same harness in a history group so they can resume one another's conversations. Group membership selects history; the share level continues to control setup reuse. Logins stay private in a group. See [History groups](user/history-groups.md) for details.
 
 Profile changes can leave wrappers stale. Run `aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
 
 ## Ways to run it
 
-Choose the share level that fits the account:
+Choose a share level for how much setup a profile should reuse: `content` reuses instructions and skills, `all` uses the default setup live, and `none` starts clean. Then choose history separately: leave the profile out of a group to keep its history isolated, or join a same-harness group to share its conversations. [Compare share levels](user/share-levels.md) and [learn about history groups](user/history-groups.md) before choosing.
 
-- `content` reuses instructions and skills while keeping the profile's own settings. It's the default for new profiles unless you change the default setting.
-- `all` reuses the default setup live, so changes to shared settings also affect the profile.
-- `none` starts clean without borrowing the default setup's content or settings.
-
-[Compare share levels](user/share-levels.md) before choosing how much to share. You can manage profiles with commands or use `aprofile ui` to browse and edit them interactively; the same operations are available for scripts.
+You can manage profiles with commands or use `aprofile ui` to browse and edit them. The same operations are available for scripts.
 
 ## Status and limits
 
-aprofile runs on Linux and macOS. Building from source requires the Go compiler, version <!-- guide:attr aprofile-go-minimum -->1.24.0<!-- /guide:attr --> or newer. It's the supported installation path; release packaging isn't included in this baseline. See [Get started](user/getting-started.md) for the build steps.
+aprofile runs on Linux and macOS. Building from source requires Go <!-- guide:attr aprofile-go-minimum -->1.24.0<!-- /guide:attr --> or newer. Building from source is the supported installation path; release packaging is not included in this baseline. See [Get started](user/getting-started.md) for build steps.
 
-Profile separation has limits: Codex CLI and OpenCode also read skills from locations outside the profile. No share level isolates those locations. Shared settings and plugin storage can also receive concurrent writes from different profiles. The [share-level comparison](user/share-levels.md) explains these limits before you choose a setup.
+History groups are supported for Claude Code, Codex CLI, and Pi. OpenCode does not support them. Resuming the same conversation in two profiles at once can interleave its transcript, so use one member at a time. History groups do not convert conversations between harnesses.
 
 ## Where to go next
 
 - **End user:** [Get started](user/getting-started.md) to build aprofile and launch your first profile.
 - Read [Profile basics](overview/profile-basics.md) for the concepts behind profiles and sharing.
+- Compare [share levels](user/share-levels.md), then configure [history groups](user/history-groups.md) if selected profiles should share conversations.
 - Manage existing accounts with [Manage profiles](user/manage-profiles.md).
 - Diagnose problems with [Troubleshoot profiles](user/troubleshooting.md).
 - Look up syntax in the [Command reference](reference/commands.md).
