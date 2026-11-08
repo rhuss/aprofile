@@ -8,7 +8,7 @@ rules:
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Why this matters$", "^## What a profile is$", "^## What stays private$", "^## What a share level changes$"]
 - glob: docs/user/getting-started.md
-  require: ["^## Build aprofile$", "^## Create a profile$", "^## Sync and launch$"]
+  require: ["^## Build aprofile$", "^## Create a profile$", "^## Sync and launch$", "isolated", "history-groups\\.md", "aprofile-go-minimum"]
   forbid: ["\\u2013|\\u2014", "sk-[A-Za-z0-9]{8,}", "ghp_[A-Za-z0-9]{8,}"]
   require_order: ["^## Build aprofile$", "^## Create a profile$", "^## Sync and launch$"]
 - glob: docs/user/share-levels.md
