@@ -24,7 +24,7 @@ rules:
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Inspect profiles$", "^## Change profiles$", "^## Copy profile data$", "^## Manage hooks and MCP servers$"]
 - glob: docs/user/troubleshooting.md
-  require: ["aprofile show", "aprofile doctor", "PATH", "unclassified"]
+  require: ["aprofile show", "aprofile doctor", "PATH", "unclassified", "history-groups.md", "history group", "group membership", "set-aside", "manifest", "auth-status", "orphan", "temporary", "sync --relink"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Inspect the profile$", "^## Run doctor$", "^## Follow a reported fix$"]
 - glob: docs/reference/commands.md
