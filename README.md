@@ -41,9 +41,9 @@ claude-work
 
 ## Choosing a share level
 
-At every share level, logins, history, sessions and memory are always private to the profile, as are its logs and caches. The share level only decides how much of your default setup (for Claude Code, `~/.claude`) the profile uses. Pick it with `--share` on `add`, `edit`, `copy` and `import cc-deck`, or in the `aprofile ui` form. New profiles get `content` unless `default_share` in `<config dir>/aprofile/settings.yaml` says otherwise.
+At every share level, logins are always private; history and memory are private unless you put profiles in a history group (see [History groups](#history-groups)). Logs and caches are always private too. The share level only decides how much of your default setup (for Claude Code, `~/.claude`) the profile uses. Pick it with `--share` on `add`, `edit`, `copy` and `import cc-deck`, or in the `aprofile ui` form. New profiles get `content` unless `default_share` in `<config dir>/aprofile/settings.yaml` says otherwise.
 
-- `all`: Uses your whole setup live; logins, history and memory stay private.
+- `all`: Uses your whole setup live; logins stay private, history too unless grouped.
 - `content`: Uses your instructions and skills; keeps its own settings and hooks.
 - `none`: Shares nothing with your setup; starts clean, with only named hook sets.
 
@@ -64,7 +64,8 @@ What each level does with each kind of entry:
 | Category | `all` | `content` | `none` |
 |----------|-------|-----------|--------|
 | Credentials | private | private | private |
-| Runtime state (history, sessions, memory, logs, caches) | private | private | private |
+| History (conversations, prompt history, project memory) | private, or shared in a history group | private, or shared in a history group | private, or shared in a history group |
+| Other runtime state (logs, caches, per-process files) | private | private | private |
 | Owned (MCP servers, model, endpoint) | private | private | private, starts empty |
 | Content (instructions, skills, agents, commands, prompts) | linked | linked | not present |
 | Settings (permissions, enabled plugins, status line) | linked | own copy, taken once | own, starts minimal |
@@ -108,6 +109,38 @@ aprofile harness classify claude RTK.md --as content
 
 IDE extensions write lock files into the config dir of the session that started them. An IDE launched from a shell that runs a profile wrapper inherits that profile; one started outside a wrapper talks to the default setup only. To have an IDE use a profile, start it from such a shell.
 
+## History groups
+
+Some profiles should continue each other's conversations, others should only share among themselves, and some must stay apart. A history group is a set of profiles of one harness that share one conversation history: a conversation started in one member can be resumed in another with the harness's own resume (`claude-lab --resume <id>`), and it then runs with that member's login, endpoint and model. There is only one copy of the conversation on disk; the members' history entries are links to the group's store.
+
+- `home` is built in for every harness that supports groups. Its store is your default setup, so its members share history with the plain `claude` (or `codex`, `pi`). Join it with `--group home`.
+- Your own groups are made with `aprofile group create claude/work`. Their history lives in aprofile's data directory (`<data dir>/aprofile/groups/<harness>/<group>/`), apart from the default setup. Join with `--group work`.
+- A profile in no group is isolated: its history is its own. That is the default for new profiles.
+
+Logins, settings and all other runtime state stay private in every group, and membership does not depend on the share level: a `none` profile can join `home` and then shares only its history.
+
+| # | Use case | Group | Why |
+|---|----------|-------|-----|
+| H1 | Personal aliases (other endpoints or accounts) continue each other's conversations and those of the plain default setup | `--group home` | Each alias links its history to the default setup; logins, endpoints and models stay per profile |
+| H2 | Work profiles continue each other's conversations, never personal ones | `--group work` | aprofile group create claude/work first; work history lives apart from the default setup |
+| H3 | A client profile that must never see other history or memory, and whose history no other profile sees | `no group` | The profile's history is its own (isolated), as without history groups |
+| H4 | A demo profile with a clean history | `no group` | Nothing from other conversations shows up |
+
+```sh
+aprofile group create claude/work
+aprofile add claude acme --auth-kind oauth-login --group work
+aprofile add claude lab --endpoint https://lab.example.com --group home
+aprofile edit claude/personal --group home --dry-run   # what a join moves and sets aside
+aprofile edit claude/client --no-group                 # back to its own, fresh history
+aprofile group list
+```
+
+Naming a group that does not exist fails with exit code 2 and lists the harness's groups, so a typo never starts a new empty history. Joining with existing history moves each conversation file into the group's store where no file of that name exists yet, and sets everything else aside (prompt history, databases, colliding project memory) under `<data dir>/aprofile/set-aside/<harness>/<name>/<timestamp>/` with a manifest; nothing in the store is overwritten and nothing is deleted. `edit` lists the plan first, asks once (or needs `--yes`) when anything moves or is set aside, and refuses while the profile runs. Leaving a group removes only the links; the group's history stays and the profile starts with fresh, empty history. `group delete` refuses while a group has members and keeps the store unless you pass `--purge`; `home` cannot be created, renamed or deleted.
+
+Running the same conversation in two profiles at the same time is not prevented and can interleave its transcript, so resume a conversation in one profile at a time. Shared conversations also show which account wrote them, because transcripts carry account identifiers. OpenCode keeps sessions and logins in one database, so it does not support history groups; `aprofile harness show <name>` lists each harness's history entries and notes such as pi's session format migration.
+
+`doctor` reports a member whose history entry became a real file or directory, a link to the wrong store, a missing store and a profile of a group that does not exist; `sync` recreates missing links but never moves data or writes into your default setup, and `sync --relink` restores a replaced link after a backup.
+
 ## Hook sets
 
 Hook sets keep hooks in one place and let each profile pick the ones it uses. Each set is one file in `<config dir>/aprofile/hooks.d/<name>.yaml` with a body per harness, in that harness's own hook format (aprofile never translates hooks between harnesses):
@@ -144,15 +177,16 @@ Two alternatives need no hook set:
 
 | Command | What it does |
 |---------|--------------|
-| `aprofile add <harness> <name>` | Create a profile. Flags: `--share`, `--hook-sets`, `--exclude-hook-sets`, `--model`, `--endpoint`, `--auth-kind`, `--auth-key`, `--env`, `--env-literal`, `--color`, `--icon`, `--label`, `--primary`, `--herdr-agent`, `--adopt`. |
+| `aprofile add <harness> <name>` | Create a profile. Flags: `--share`, `--group`, `--hook-sets`, `--exclude-hook-sets`, `--model`, `--endpoint`, `--auth-kind`, `--auth-key`, `--env`, `--env-literal`, `--color`, `--icon`, `--label`, `--primary`, `--herdr-agent`, `--adopt`. |
 | `aprofile list` | List profiles grouped by harness (`--json` for a stable schema). |
 | `aprofile show <harness>/<name>` | Show one profile: its share level, every config-dir entry with its treatment and reason, hook sets, and whether it has credentials (never the values): credential files in the config dir, whether each auth reference resolves now, and the exec hook's `auth-status` answer, which covers logins kept in the macOS Keychain. |
-| `aprofile edit <harness>/<name>` | Change a profile's fields. `--share` applies a level change with `--dry-run` and `--yes`. |
+| `aprofile edit <harness>/<name>` | Change a profile's fields. `--share` applies a level change and `--group <group>` or `--no-group` a history group change, each with `--dry-run` and `--yes`. |
+| `aprofile group list\|show\|create\|delete` | Manage history groups (`--json`; `delete --purge` also removes the store). |
 | `aprofile rename <harness>/<name> <new-name>` | Rename a profile, moving its file, config dir and imported credential files together (references into that dir follow). Refused while the profile runs; where aprofile cannot check that, it asks first. `--force` skips both. |
 | `aprofile remove <harness> <name>` | Remove a profile. `--purge` also deletes its config dir and the credential files `import` copied for it (after confirmation). |
 | `aprofile sync` | Write one wrapper per profile, prepare each config dir for its share level, place hook sets, publish the registry, and manage the PATH block. Idempotent. Removes temp entries (`.aprofile-tmp-*`, `.aprofile-new-*`) an interrupted aprofile write left in a config dir once they (and, for a directory, everything in it) are older than a minute, and counts each removal as a change; an entry that an interrupted directory swap left only in its `.<entry>.aprofile-new-*-old` temp is renamed back instead, and a temp entry it cannot remove or restore is a problem. The summary counts problems (`0 changes, 2 problems (see above)`); a run with problems is never reported as up to date. `--fix-links` repairs leaking links, `--relink` restores links a harness replaced with a real file. |
 | `aprofile login <harness>/<name>` | Run the harness's own login flow with the profile's environment: the definition's `login_command` (`claude auth login`, `codex login`, `opencode auth login`; pi starts a session where you run `/login`), or the exec hook's `login` operation when the definition declares one. |
-| `aprofile copy <h>/<n> <h>/<n>` | Copy a profile within or across harnesses, converting MCP servers. `--overwrite` replaces an existing target's copied parts: it backs up what it replaces under `<data dir>/backups/` and asks first, and in a non-interactive run it requires `--yes` and exits with code 3 without it. `--adopt` reuses a leftover config dir; `--auth-key env:NAME` supplies the key a cross-harness target's auth kind needs. |
+| `aprofile copy <h>/<n> <h>/<n>` | Copy a profile within or across harnesses, converting MCP servers. `--overwrite` replaces an existing target's copied parts: it backs up what it replaces under `<data dir>/backups/` and asks first, and in a non-interactive run it requires `--yes` and exits with code 3 without it. `--adopt` reuses a leftover config dir; `--auth-key env:NAME` supplies the key a cross-harness target's auth kind needs. The target is in no history group unless `--group` names one of its harness; copy never carries history. |
 | `aprofile mcp list <h>/<n>` / `mcp copy <from> <to> [server...]` | Inspect or copy MCP servers. |
 | `aprofile harness list` / `harness show <name>` | Inspect the effective harness definitions, the origin of each field and rule, and what each share level shares. |
 | `aprofile harness classify <harness> <entry> --as <category>` | Classify one entry in `harnesses.d`, merged with the built-in rules. |
@@ -188,7 +222,7 @@ Model and endpoint are settable only for a harness whose definition declares the
 Every entry of a profile's config dir belongs to one category, declared by the harness definition:
 
 - **credentials**: per profile, created by the harness or `login`, never linked, never copied, never written to the registry or wrappers.
-- **state** (sessions, transcripts, history, logs, caches, databases with their `-wal`/`-shm` companions, locks): per profile, created empty, never linked, never copied.
+- **state** (sessions, transcripts, history, logs, caches, databases with their `-wal`/`-shm` companions, locks): per profile, created empty, never linked, never copied. The one exception is opt-in: the entries a definition marks as history (`history: true`) are linked to the group store for a member of a history group.
 - **owned** (MCP servers, model and endpoint settings): per profile, carried over by `copy`.
 - **content** (instructions such as `CLAUDE.md`, skills, agents, commands, prompts, themes, keybindings), **settings** (permissions, enabled plugins, status line), the **plugin store** (installed plugin code) and the **hook location**: what the share level decides about, as in the table above.
 
@@ -203,8 +237,10 @@ A wrapper is a small POSIX-sh launcher. It is self-contained: at launch it needs
 ```
 APROFILE_HARNESS  APROFILE_NAME  APROFILE_LABEL
 APROFILE_COLOR    APROFILE_ICON  APROFILE_CONFIG_DIR
-APROFILE_SHARE
+APROFILE_SHARE    APROFILE_HISTORY_GROUP
 ```
+
+`APROFILE_HISTORY_GROUP` is the profile's history group (empty when isolated), so a tool such as a session browser can tell which profiles share a history; the registry carries it as `history_group`.
 
 Model, endpoint and extra variables use `${VAR:-default}`, so a caller can override them for one run. Authentication variables are always set from the profile and are never caller-overridable; the wrapper clears every other auth kind's variables and the variables the definition lists in `auth_clears`. For Claude Code these are the provider switches and their settings (`CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION` and similar), so a provider exported in your shell cannot redirect a profile; a profile that should use a cloud provider sets the switch itself with `--env`, either as a value or as a pass-through such as `--env CLOUD_ML_REGION=env:CLOUD_ML_REGION`, which reads the caller's value from before the clear. `aprofile login` builds the same environment as the wrapper, including the exec hook's `env` variables. Integration with other tools is pull-only: aprofile publishes a machine-readable registry at `<data dir>/registry.json` and the `APROFILE_*` contract, and requires no changes in, and writes nothing into, those tools.
 

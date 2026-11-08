@@ -1,6 +1,17 @@
 <!--
 Sync Impact Report
-- Version change: (unversioned template) → 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4 → 1.1.0
+- Version change: (unversioned template) → 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4 → 1.1.0 → 1.2.0
+- 1.2.0 (MINOR, spec 003-history-groups FR-025): Principle III gains an opt-in exception for
+  history groups: the history entries of a member of an explicitly chosen history group are
+  linked to the group store; credentials and all other state stay private, and isolated profiles
+  keep the previous rule. Principle II's allowed writes gain adding, replacing and removing
+  history links of group members, creating fresh empty history entries when a profile leaves a
+  group or an entry stops being history, and, on an explicit, confirmed join, moving mergeable
+  history into the group store and the rest into set-aside history; the default-setup rule gains
+  the writes of an explicit `home` join (creating a missing history directory empty, moving
+  mergeable session files in), never by `sync`.
+  Modified principles: II, III (titles unchanged). Added/removed sections: none.
+  Follow-up: spec 002's level table and FR-008 carry a note pointing to this exception.
 - 1.1.0 (MINOR, spec 002-profile-isolation-levels FR-035): Principle III now has share levels
   (`all`, `content`, `none`) and splits the former shared layer into content, settings, plugin
   store and hook location; skills move from owned to content; credentials and state stay private
@@ -79,11 +90,18 @@ Rationale: a tool that must be edited every time a harness ships a new flag is a
   an empty real entry (never touching the link target); on an explicit, confirmed request and
   after a backup, `settings pull`, a share level change that replaces profile data with a link,
   and relinking an entry the harness turned into a real file; and deleting the whole profile
-  config dir on a confirmed purge. Adding or removing a link for a share level change needs no
+  config dir on a confirmed purge. For members of a history group: adding, replacing and removing
+  links for history entries; creating fresh empty history entries when a profile leaves a group or
+  an entry stops being history; and, on an explicit, confirmed join, moving mergeable history into
+  the group store (never overwriting a store file) and moving the rest to set-aside history in
+  aprofile's data directory. Adding or removing a link for a share level change needs no
   confirmation, because it never deletes profile data or a link target. Config patches MUST merge
   into existing files and preserve keys aprofile does not own.
 - The user's default harness setup stays first class and is never modified by `sync`, except for
-  explicitly requested operations such as import.
+  explicitly requested operations such as import. An explicit join of the `home` history group
+  may create a missing history directory empty in the default location and, after confirmation,
+  move mergeable session files into it; it never replaces or rewrites an existing default-setup
+  entry, and `sync` never does either.
 - Every write operation MUST be idempotent: running `sync` twice yields the same state as once.
 
 Rationale: harnesses keep live state in their config dirs; regenerating them corrupts that state.
@@ -94,7 +112,10 @@ Each profile config dir has layers, and their rules are non-negotiable at every 
 
 - **Credentials**: isolated per profile, never copied, never symlinked, never exported.
 - **State** (sessions, transcripts, history, logs, auto-memory, caches, databases, locks): per
-  profile, created empty, never symlinked, never copied.
+  profile, created empty, never symlinked, never copied. Exception (opt-in history groups): the
+  entries a harness definition declares as history are linked to the group store for a member of
+  an explicitly chosen history group; credentials and all other state stay private, and a profile
+  in no group (isolated) keeps this rule unchanged.
 - **Owned** (MCP servers, model and endpoint settings): per profile, travels with `copy`.
 - **Borrowable** entries, which the definition declares as one of: **content** (read-mostly
   material such as instructions, skills, agents, commands, themes), **settings** (configuration the
@@ -214,4 +235,4 @@ Rationale: a bug in this tool damages live accounts; tests are the only safe pla
 - Compliance is reviewed at each spex gate and in code review. Violations are either fixed or
   recorded as justified exceptions in the plan's Complexity Tracking section.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-04
+**Version**: 1.2.0 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-07

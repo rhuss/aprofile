@@ -205,6 +205,19 @@ func runHarnessShow(cmd *cobra.Command, name string, asJSON bool) error {
 		line("hooks", "hooks", d.Hooks.Location+" ("+d.Hooks.Form+")")
 	}
 
+	// Spec 003: the history entries a history group links, or that there are none.
+	if hist := d.HistoryRules(); len(hist) > 0 {
+		fmt.Fprintln(a.out, "  history entries (linked to the group store for members of a history group):")
+		for _, r := range hist {
+			fmt.Fprintf(a.out, "    %-36s merge: %s\n", r.Entry, r.EffectiveMerge())
+		}
+		if d.HistoryNote != "" {
+			fmt.Fprintf(a.out, "    note: %s\n", d.HistoryNote)
+		}
+	} else {
+		fmt.Fprintln(a.out, "  history entries: none (history groups not supported)")
+	}
+
 	// FR-022: what each share level shares for this harness.
 	fmt.Fprintln(a.out, "  share levels:")
 	fmt.Fprintf(a.out, "    %-14s %-10s %-10s %-10s\n", "category", "all", "content", "none")
@@ -299,6 +312,14 @@ func runHarnessClassify(cmd *cobra.Command, name, entry, as string, dryRun bool)
 	if err != nil {
 		return err
 	}
+	// Research R8: a history entry keeps its history fields as state; any other
+	// category drops them.
+	if r := d.HistoryRule(entry); r != nil && as != string(harness.LayerState) {
+		fmt.Fprintf(a.out, "note: %s was a history entry of %s; as %s it is no longer history (the next sync removes each member's link to the group store, never the store's data, and gives the entry the %s treatment)\n", entry, name, as, as)
+		if as == string(harness.LayerCredentials) || as == string(harness.LayerOwned) || as == string(harness.LayerMixed) {
+			fmt.Fprintf(a.out, "note: for members of %s/home such a link points into the default setup, which sync reports as a leaking link; replace it with: aprofile sync --fix-links\n", name)
+		}
+	}
 	// Validate the result before writing: the merged definition must still load.
 	if err := checkOverrideLoads(path, data, name); err != nil {
 		return err
@@ -348,6 +369,14 @@ func classifyOverride(dir string, d *harness.Definition, entry, as string) (stri
 	}
 	rule := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle,
 		Content: []*yaml.Node{scalar("entry"), scalar(entry), scalar("layer"), scalar(as)}}
+	// An override replaces the whole rule, so a history entry classified as state
+	// restates its history fields (research R8, contracts/harness-definition.md).
+	if hr := d.HistoryRule(entry); hr != nil && as == string(harness.LayerState) {
+		rule.Content = append(rule.Content, scalar("history"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+		if hr.Merge != "" {
+			rule.Content = append(rule.Content, scalar("merge"), scalar(string(hr.Merge)))
+		}
+	}
 	norm := strings.TrimSuffix(entry, "/")
 	// One rule per entry: the first matching rule is replaced and later duplicates
 	// are dropped, so the file never holds two rules for the same entry.

@@ -29,7 +29,7 @@ func TestUS2DefaultLevelNamedOnAdd(t *testing.T) {
 		t.Errorf("settings.yaml default_share should apply:\n%s", out)
 	}
 	out = e.run(nil, "add", "claude", "lab", "--auth-kind", "oauth-login", "--share", "all")
-	if !strings.Contains(out, "share level: all") || !strings.Contains(out, "logins, history and memory stay private") {
+	if !strings.Contains(out, "share level: all") || !strings.Contains(out, "logins stay private, history too unless grouped") {
 		t.Errorf("--share all should be named with its description:\n%s", out)
 	}
 	if out, err := e.tryRun(nil, "add", "claude", "bad", "--auth-kind", "oauth-login", "--share", "most"); err == nil {
@@ -48,7 +48,8 @@ func TestUS2HelpSharing(t *testing.T) {
 	e := newEnv(t)
 	out := e.run(nil, "help", "sharing")
 	for _, want := range []string{
-		"logins, history, sessions and memory are always private",
+		"logins are always private; history and memory are private unless you put profiles in a history group",
+		"History groups", "home", "at the same time", "which account wrote", "opencode: history groups not supported",
 		"UC1", "UC7", "What each level does", "Plugin store", "Per-harness differences", "codex:",
 	} {
 		if !strings.Contains(out, want) {

@@ -1,9 +1,12 @@
 package layer
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/cc-deck/aprofile/internal/config"
 )
@@ -22,6 +25,9 @@ type ApplyOptions struct {
 	// required for every Confirm step that is applied: profile data is never
 	// replaced without a backup (SC-007).
 	Backup func(paths []string) (string, error)
+	// SetAsideManifest records one set-aside item (spec 003). Apply calls it before
+	// the item is moved, so the manifest never misses an item that was moved.
+	SetAsideManifest func(item SetAsideItem) error
 }
 
 // Apply executes a plan in order. It returns the steps it applied (report steps
@@ -49,7 +55,7 @@ func Apply(steps []Step, opts ApplyOptions) (applied, skipped []Step, err error)
 			}
 			s.Backup = dir
 		}
-		if err := applyStep(s); err != nil {
+		if err := applyStep(&s, opts); err != nil {
 			if s.Backup != "" {
 				err = fmt.Errorf("%w (the data was backed up to %s)", err, s.Backup)
 			}
@@ -60,7 +66,7 @@ func Apply(steps []Step, opts ApplyOptions) (applied, skipped []Step, err error)
 	return applied, skipped, nil
 }
 
-func applyStep(s Step) error {
+func applyStep(s *Step, opts ApplyOptions) error {
 	switch s.Kind {
 	case StepMkdir:
 		if err := os.MkdirAll(s.Path, 0o755); err != nil {
@@ -141,6 +147,69 @@ func applyStep(s Step) error {
 			}
 			if err := os.Remove(s.Path); err != nil {
 				return err
+			}
+		}
+		return symlink(s.Source, s.Path)
+	case StepMoveToStore:
+		sfi, err := os.Lstat(s.Path)
+		if os.IsNotExist(err) {
+			return nil // already moved
+		}
+		if dfi, derr := os.Lstat(s.Dest); err == nil && derr == nil && os.SameFile(sfi, dfi) && DistinctDirs(s.Path, s.Dest) {
+			// An interrupted earlier move left a hard link in the store: removing the
+			// profile's name completes it.
+			return os.Remove(s.Path)
+		}
+		err = moveNoOverwrite(s.Path, s.Dest)
+		if err == nil {
+			return nil
+		}
+		if !os.IsExist(err) || s.Fallback == "" {
+			return fmt.Errorf("move %s into the store: %w", s.Path, err)
+		}
+		// The store file appeared after planning (a running member wrote it): it is
+		// never overwritten; the profile's file is set aside instead (FR-014).
+		if err := recordSetAside(opts, s.Entry, ReasonExistsInStore); err != nil {
+			return err
+		}
+		if err := moveNoOverwrite(s.Path, s.Fallback); err != nil {
+			return fmt.Errorf("set aside %s: %w", s.Path, err)
+		}
+		// Report what happened: the applied step is the set-aside.
+		s.Kind, s.Dest, s.Reason = StepSetAside, s.Fallback, ReasonExistsInStore
+		s.Note = "exists in store: the store file appeared after planning and is never overwritten"
+	case StepSetAside:
+		if _, err := os.Lstat(s.Path); os.IsNotExist(err) {
+			return nil // already set aside
+		}
+		if err := recordSetAside(opts, s.Entry, s.Reason); err != nil {
+			return err
+		}
+		if err := moveTree(s.Path, s.Dest); err != nil {
+			return fmt.Errorf("set aside %s: %w", s.Path, err)
+		}
+	case StepRemoveEmptyDir:
+		return removeEmptyTree(s.Path)
+	case StepLinkHistory:
+		// Only creates the link; store directories come from separate mkdir steps.
+		if cur := inspect(s.Path); cur.exists {
+			if cur.link && samePath(cur.target, s.Source) {
+				return nil
+			}
+			return fmt.Errorf("link history %s: an entry exists; it is never replaced here", s.Path)
+		}
+		return symlink(s.Source, s.Path)
+	case StepRelinkHistory:
+		cur := inspect(s.Path)
+		if cur.exists && !cur.link {
+			return fmt.Errorf("relink history %s: not a link; real entries are never removed here", s.Path)
+		}
+		if cur.link {
+			if samePath(cur.target, s.Source) {
+				return nil
+			}
+			if err := os.Remove(s.Path); err != nil { // the link only, never its target
+				return fmt.Errorf("remove link %s: %w", s.Path, err)
 			}
 		}
 		return symlink(s.Source, s.Path)
@@ -275,4 +344,151 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(dst, data, fi.Mode().Perm())
 	}
+}
+
+// DistinctDirs reports whether a and b lie in two different directories, compared
+// by file identity (never by path strings, which miss links, letter case and
+// firmlinks): two names of one file there are two hard links, while one directory
+// reached by two paths holds a single name (never removed as a "completed move").
+func DistinctDirs(a, b string) bool {
+	da, err1 := os.Stat(filepath.Dir(a))
+	db, err2 := os.Stat(filepath.Dir(b))
+	return err1 == nil && err2 == nil && !os.SameFile(da, db)
+}
+
+// recordSetAside calls the manifest writer for one item, when one is set.
+func recordSetAside(opts ApplyOptions, entry, reason string) error {
+	if opts.SetAsideManifest == nil {
+		return nil
+	}
+	if err := opts.SetAsideManifest(SetAsideItem{Path: entry, Reason: reason}); err != nil {
+		return fmt.Errorf("record set-aside item %s: %w", entry, err)
+	}
+	return nil
+}
+
+// linkFile is os.Link; tests replace it to simulate a cross-device move.
+var linkFile = os.Link
+
+// moveNoOverwrite moves one file (or symbolic link) to dst and never replaces an
+// existing dst (research R6): a hard link fails with EEXIST when dst exists, and
+// only then is the source removed. On EXDEV the file is copied to an O_EXCL target
+// with its mode and modification time, synced, and the source removed. os.Rename is
+// not used because it silently replaces an existing file. An existing dst yields an
+// error for which os.IsExist is true.
+func moveNoOverwrite(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	fi, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		if err := os.Symlink(target, dst); err != nil {
+			return err
+		}
+		return os.Remove(src)
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	err = linkFile(src, dst)
+	switch {
+	case err == nil:
+	case isCrossDevice(err):
+		if err := copyExcl(src, dst, fi); err != nil {
+			return err
+		}
+	default:
+		return err
+	}
+	return os.Remove(src)
+}
+
+// copyExcl copies src to a new file dst (O_EXCL), keeping mode and mtime.
+func copyExcl(src, dst string, fi os.FileInfo) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fi.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	_ = os.Chmod(dst, fi.Mode().Perm())
+	return os.Chtimes(dst, fi.ModTime(), fi.ModTime())
+}
+
+func isCrossDevice(err error) bool { return errors.Is(err, syscall.EXDEV) }
+
+// moveTree moves a file or directory tree to dst, which must not exist. Within one
+// file system it is a rename; across file systems the tree is copied and the source
+// removed afterwards.
+func moveTree(src, dst string) error {
+	if _, err := os.Lstat(dst); err == nil {
+		return &os.PathError{Op: "set aside", Path: dst, Err: os.ErrExist}
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	err := os.Rename(src, dst)
+	if err == nil || !isCrossDevice(err) {
+		return err
+	}
+	if err := copyDir(src, dst); err != nil {
+		_ = os.RemoveAll(dst)
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+// removeEmptyTree removes a directory tree that holds only directories. It fails,
+// removing nothing more, when a file or link is left in it.
+func removeEmptyTree(path string) error {
+	fi, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return nil // already replaced by a link: nothing to remove, the link stays
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("remove %s: not a directory", path)
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("remove %s: %s is still there; nothing is deleted", path, filepath.Join(path, e.Name()))
+		}
+		if err := removeEmptyTree(filepath.Join(path, e.Name())); err != nil {
+			return err
+		}
+	}
+	return os.Remove(path)
 }

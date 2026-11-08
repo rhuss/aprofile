@@ -180,3 +180,42 @@ func TestRemove(t *testing.T) {
 		t.Error("store file should not exist")
 	}
 }
+
+func TestHistoryGroupRoundTripAndValidation(t *testing.T) {
+	store := newStore(t)
+	in := &profile.Profile{Harness: "claude", Name: "lab", HistoryGroup: "home"}
+	if err := store.Save(in); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(store.Path("claude", "lab"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "history_group: home") {
+		t.Errorf("history_group not stored:\n%s", data)
+	}
+	out, err := store.Load("claude", "lab")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if out.HistoryGroup != "home" {
+		t.Errorf("HistoryGroup = %q, want home", out.HistoryGroup)
+	}
+
+	// Isolated profiles store no history_group key (SC-002).
+	iso := &profile.Profile{Harness: "claude", Name: "solo"}
+	if err := store.Save(iso); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, _ = os.ReadFile(store.Path("claude", "solo"))
+	if strings.Contains(string(data), "history_group") {
+		t.Errorf("isolated profile stores history_group:\n%s", data)
+	}
+
+	for _, bad := range []string{"Work", "work_1", "-x", "a/b"} {
+		p := &profile.Profile{Harness: "claude", Name: "x1", HistoryGroup: bad}
+		if err := p.Validate(); err == nil || !strings.Contains(err.Error(), "history group") {
+			t.Errorf("Validate(history_group %q) = %v, want a history group error", bad, err)
+		}
+	}
+}

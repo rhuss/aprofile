@@ -40,6 +40,10 @@ type Profile struct {
 	// every-profile sets it opts out of (FR-025, FR-026). Both are stored sorted.
 	HookSets        []string `yaml:"hook_sets,omitempty"`
 	ExcludeHookSets []string `yaml:"exclude_hook_sets,omitempty"`
+	// HistoryGroup names the history group of the profile's harness the profile
+	// belongs to (spec 003); empty means isolated. "home" is the built-in group whose
+	// store is the default setup.
+	HistoryGroup string `yaml:"history_group,omitempty"`
 
 	// ShareImplicit is true when the file did not store a share level and the
 	// profile was loaded as all (FR-033); show uses it for the upgrade hint.
@@ -145,6 +149,9 @@ func (p *Profile) Validate() error {
 	}
 	if p.Share != "" && !p.Share.Valid() {
 		return fmt.Errorf("profile %s: share level %q must be all, content or none", p.ID(), p.Share)
+	}
+	if p.HistoryGroup != "" && !NameValid(p.HistoryGroup) {
+		return fmt.Errorf("profile %s: history group name %q must match ^[a-z][a-z0-9-]{0,62}[a-z0-9]$", p.ID(), p.HistoryGroup)
 	}
 	for _, list := range [][]string{p.HookSets, p.ExcludeHookSets} {
 		for _, n := range list {

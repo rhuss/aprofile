@@ -143,3 +143,24 @@ func TestProfilePathsNoCollision(t *testing.T) {
 		t.Fatalf("store path and config dir collide: %q", store)
 	}
 }
+
+func TestHistoryGroupPaths(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	p, err := config.ResolvePaths()
+	if err != nil {
+		t.Fatalf("ResolvePaths: %v", err)
+	}
+	cfg := filepath.Join(h.ConfigHome, "aprofile")
+	data := filepath.Join(h.DataHome, "aprofile")
+	cases := map[string][2]string{
+		"GroupsConfigDir": {p.GroupsConfigDir(), filepath.Join(cfg, "groups")},
+		"GroupRecordPath": {p.GroupRecordPath("claude", "work"), filepath.Join(cfg, "groups", "claude", "work.yaml")},
+		"GroupStoreDir":   {p.GroupStoreDir("claude", "work"), filepath.Join(data, "groups", "claude", "work")},
+		"SetAsideDir":     {p.SetAsideDir("claude", "solo"), filepath.Join(data, "set-aside", "claude", "solo")},
+	}
+	for name, c := range cases {
+		if c[0] != c[1] {
+			t.Errorf("%s = %q, want %q", name, c[0], c[1])
+		}
+	}
+}

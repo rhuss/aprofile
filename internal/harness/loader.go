@@ -242,7 +242,7 @@ func expandCompanions(rules []EntryRule) []EntryRule {
 				continue
 			}
 			have[e] = true
-			out = append(out, EntryRule{Entry: e, Layer: r.Layer, CompanionOf: r.Entry, Origin: r.Origin})
+			out = append(out, EntryRule{Entry: e, Layer: r.Layer, CompanionOf: r.Entry, Origin: r.Origin, History: r.History, Merge: r.Merge})
 		}
 	}
 	return out
@@ -347,6 +347,12 @@ func validate(d *Definition) (field, msg string) {
 				}
 			}
 		}
+		if msg := validateHistoryRule(r); msg != "" {
+			return "classification", msg
+		}
+	}
+	if msg := validateHistoryNesting(d.Classification); msg != "" {
+		return "classification", msg
 	}
 	for i, cp := range d.ConfigPatches {
 		if field, msg := validateConfigPatch(cp); msg != "" {
@@ -402,6 +408,64 @@ func validate(d *Definition) (field, msg string) {
 		return "backends", msg
 	}
 	return "", ""
+}
+
+// validateHistoryRule checks the history fields of one rule (spec 003,
+// contracts/harness-definition.md): history only on a plain state entry (no glob, no
+// mixed entry); merge only with history, only per-file or none, and per-file only on
+// a directory entry. It returns "" when valid.
+func validateHistoryRule(r EntryRule) string {
+	if r.History {
+		if r.Layer != LayerState {
+			return fmt.Sprintf("entry %q: history is only valid on layer state, not %q", r.Entry, r.Layer)
+		}
+		if r.IsGlob() {
+			return fmt.Sprintf("entry %q: history is not valid on a glob rule", r.Entry)
+		}
+	}
+	if r.Merge == "" {
+		return ""
+	}
+	if !r.History {
+		return fmt.Sprintf("entry %q: merge is only valid together with history: true", r.Entry)
+	}
+	switch r.Merge {
+	case MergeNone:
+	case MergePerFile:
+		if !r.IsDir() {
+			return fmt.Sprintf("entry %q: merge per-file is only valid on a directory entry (trailing /)", r.Entry)
+		}
+	default:
+		return fmt.Sprintf("entry %q: merge %q must be per-file or none", r.Entry, r.Merge)
+	}
+	return ""
+}
+
+// validateHistoryNesting rejects a history entry that holds another classified
+// entry (spec 003, FR-003, FR-004): a member's history entry is a link into the
+// group store, so every entry below it would be shared with the group too,
+// credentials included. It also rejects two rules for the same history entry
+// where one is not history. It returns "" when valid.
+func validateHistoryNesting(rules []EntryRule) string {
+	for _, h := range rules {
+		if !h.History {
+			continue
+		}
+		hp := strings.TrimSuffix(h.Path(), "/")
+		for _, r := range rules {
+			if r.Entry == h.Entry && r.History {
+				continue
+			}
+			rp := strings.TrimSuffix(filepath.ToSlash(r.Entry), "/")
+			switch {
+			case rp == hp && !r.History:
+				return fmt.Sprintf("entry %q is declared as history and also as %s; a history entry has exactly one rule", h.Entry, r.Layer)
+			case strings.HasPrefix(rp, hp+"/"):
+				return fmt.Sprintf("history entry %q contains entry %q (%s): a history entry is shared with its history group as a whole, so it must not hold other classified entries", h.Entry, r.Entry, r.Layer)
+			}
+		}
+	}
+	return ""
 }
 
 // validateMCPLocation checks the mcp location ("file#key"): sync, mcp copy and
@@ -606,7 +670,7 @@ var allFieldNames = []string{
 	"model_var", "endpoint_var", "auth_kinds", "auth_clears", "default_auth_kind", "login_command", "classification",
 	"config_patches", "mcp", "skills_location", "plugin_mechanism", "omarchy_provider",
 	"capabilities", "exec_hook", "default_locations", "share_policy", "hooks", "home_escapes",
-	"backends",
+	"backends", "history_note",
 }
 
 func asFieldError(err error) (fieldError, bool) {

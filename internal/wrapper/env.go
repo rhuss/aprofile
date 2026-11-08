@@ -159,6 +159,7 @@ func Environ(p *profile.Profile, def *harness.Definition, configDir string, opts
 	env["APROFILE_ICON"] = p.Icon
 	env["APROFILE_CONFIG_DIR"] = configDir
 	env["APROFILE_SHARE"] = string(p.ShareLevel())
+	env["APROFILE_HISTORY_GROUP"] = p.HistoryGroup
 
 	// Auth: resolve the selected kind's references and capture the cleared variables an
 	// overridable reference reads, both before the clear; clear every auth and

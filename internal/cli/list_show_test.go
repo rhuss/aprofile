@@ -62,8 +62,13 @@ func TestShowTreatmentsPerLevel(t *testing.T) {
 				t.Errorf("%s: %s treatment = %q, want %q", level, w.entry, got[w.entry].Treatment, w.treatment)
 			}
 		}
-		if got["projects"].Reason != "runtime state: always private" {
-			t.Errorf("%s: reason = %q", level, got["history.jsonl"].Reason)
+		// projects/ is a history entry (spec 003): private while the profile is in
+		// no history group; other state stays always private.
+		if got["projects"].Reason != "history: private to this profile (it is in no history group)" {
+			t.Errorf("%s: projects reason = %q", level, got["projects"].Reason)
+		}
+		if got["sessions"].Reason != "runtime state: always private" {
+			t.Errorf("%s: sessions reason = %q", level, got["sessions"].Reason)
 		}
 		if level != "none" && len(sj.Unborrowed) == 0 {
 			t.Errorf("%s: unborrowed default entries (RTK.md, ...) should be listed", level)
@@ -157,4 +162,72 @@ func section(out, heading string) string {
 		}
 	}
 	return b.String()
+}
+
+// spec 003 T031: list shows each profile's history group ("-" when isolated) in
+// text and JSON; show --json lists set-aside history.
+func TestListGroupColumnAndShowSetAside(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	testutil.SeedDefaults(t, h, "claude")
+	for _, args := range [][]string{
+		{"add", "claude", "lab", "--auth-kind", "oauth-login", "--group", "home"},
+		{"add", "claude", "solo", "--auth-kind", "oauth-login"},
+	} {
+		if out, err := runCLI(t, args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	out, err := runCLI(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		switch {
+		case strings.Contains(l, "lab") && !strings.Contains(l, "group: home"):
+			t.Errorf("list line of lab lacks its group: %q", l)
+		case strings.Contains(l, "solo") && !strings.Contains(l, "group: -"):
+			t.Errorf("list line of solo lacks group -: %q", l)
+		}
+	}
+	js, _ := runCLI(t, "list", "--json")
+	if !strings.Contains(js, `"history_group": "home"`) || !strings.Contains(js, `"history_group": ""`) {
+		t.Errorf("list --json lacks history_group:\n%s", js)
+	}
+
+	if out, err := runCLI(t, "sync"); err != nil {
+		t.Fatalf("sync: %v\n%s", err, out)
+	}
+	solo := filepath.Join(h.DataHome, "aprofile", "profiles", "claude", "solo")
+	testutil.WriteFile(t, filepath.Join(solo, "history.jsonl"), "solo\n")
+	if out, err := runCLI(t, "edit", "claude/solo", "--group", "home", "--yes"); err != nil {
+		t.Fatalf("edit: %v\n%s", err, out)
+	}
+	js, err = runCLI(t, "show", "claude/solo", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sj struct {
+		SetAside []struct {
+			Dir   string `json:"dir"`
+			Items []struct {
+				Path   string `json:"path"`
+				Reason string `json:"reason"`
+			} `json:"items"`
+		} `json:"set_aside"`
+	}
+	if err := json.Unmarshal([]byte(js), &sj); err != nil {
+		t.Fatal(err)
+	}
+	if len(sj.SetAside) != 1 || len(sj.SetAside[0].Items) != 1 || sj.SetAside[0].Items[0].Path != "history.jsonl" ||
+		!strings.HasPrefix(sj.SetAside[0].Dir, filepath.Join(h.DataHome, "aprofile", "set-aside", "claude", "solo")) {
+		t.Errorf("show --json set_aside = %+v", sj.SetAside)
+	}
+	text, _ := runCLI(t, "show", "claude/solo")
+	if !strings.Contains(text, "set-aside history") || !strings.Contains(text, sj.SetAside[0].Dir) {
+		t.Errorf("show text lacks the set-aside history:\n%s", text)
+	}
+	lab, _ := runCLI(t, "show", "claude/lab", "--json")
+	if !strings.Contains(lab, `"set_aside": []`) {
+		t.Errorf("show --json must carry an empty set_aside list:\n%s", lab)
+	}
 }

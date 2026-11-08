@@ -74,3 +74,34 @@ func TestHarnessClassify(t *testing.T) {
 		t.Error("an unknown harness is rejected")
 	}
 }
+
+// spec 003 T033 (research R8): classify --as state keeps an existing rule's history
+// fields; another category drops them with a note.
+func TestHarnessClassifyKeepsHistoryFields(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	file := filepath.Join(h.ConfigHome, "aprofile", "harnesses.d", "claude.yaml")
+	if out, err := runCLI(t, "harness", "classify", "claude", "projects/", "--as", "state"); err != nil {
+		t.Fatalf("classify: %v\n%s", err, out)
+	}
+	data, _ := os.ReadFile(file)
+	if !strings.Contains(string(data), "history: true") || !strings.Contains(string(data), "merge: per-file") {
+		t.Errorf("--as state dropped the history fields:\n%s", data)
+	}
+	set, _ := harness.Load(filepath.Dir(file))
+	d, _ := set.Get("claude")
+	if r := d.HistoryRule("projects"); r == nil || r.EffectiveMerge() != harness.MergePerFile {
+		t.Errorf("projects is no longer a per-file history entry: %+v", r)
+	}
+	out, err := runCLI(t, "harness", "classify", "claude", "plans/", "--as", "content")
+	if err != nil {
+		t.Fatalf("classify: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "no longer history") {
+		t.Errorf("classify --as content must note that plans/ is no longer history:\n%s", out)
+	}
+	set, _ = harness.Load(filepath.Dir(file))
+	d, _ = set.Get("claude")
+	if d.HistoryRule("plans") != nil {
+		t.Error("plans/ is still history after --as content")
+	}
+}

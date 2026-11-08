@@ -3,7 +3,9 @@ package cli
 import (
 	"io"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -115,5 +117,50 @@ func TestFormOffersShareLevels(t *testing.T) {
 		if o.Description != levelDescription(profile.Share(o.Value)) || len(o.UseCases) == 0 {
 			t.Errorf("option %s lacks its description or use cases: %+v", o.Value, o)
 		}
+	}
+}
+
+// spec 003 T034 (FR-027): the form offers isolated, home and the harness's own
+// groups, never the default setup as a choice, and a form-chosen group stores the
+// same profile as --group.
+func TestFormGroupChoiceMatchesFlag(t *testing.T) {
+	a := newTestApp(t)
+	testutil.SeedDefaultsAt(t, a.paths.Home, "claude")
+	if _, err := a.groups().Create("claude", "work", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := a.set.Get("claude")
+	cfg := profileFormConfig(a, def, &profileFlags{})
+	var values []string
+	for _, o := range cfg.GroupOptions {
+		values = append(values, o.Value)
+		if strings.Contains(strings.ToLower(o.Value), "default") {
+			t.Errorf("the default setup is offered as a group choice: %+v", o)
+		}
+	}
+	if strings.Join(values, ",") != ",home,work" {
+		t.Errorf("group options = %q, want isolated, home, work", values)
+	}
+	oc, _ := a.set.Get("opencode")
+	if cfg := profileFormConfig(a, oc, &profileFlags{}); len(cfg.GroupOptions) != 0 {
+		t.Errorf("opencode must not offer groups: %+v", cfg.GroupOptions)
+	}
+
+	if err := createProfileFromFlags(a, def, "claude", "viaflags", &profileFlags{authKind: "oauth-login", share: "all", group: "work"}); err != nil {
+		t.Fatalf("flag add: %v", err)
+	}
+	formF := &profileFlags{}
+	applyFormValues(formF, tui.FormValues{AuthKind: "oauth-login", Share: "all", HistoryGroup: "work"})
+	if err := createProfileFromFlags(a, def, "claude", "viaform", formF); err != nil {
+		t.Fatalf("form add: %v", err)
+	}
+	pFlag, _ := a.store.Load("claude", "viaflags")
+	pForm, _ := a.store.Load("claude", "viaform")
+	pFlag.Name, pForm.Name = "", ""
+	if !reflect.DeepEqual(pFlag, pForm) || pForm.HistoryGroup != "work" {
+		t.Errorf("form and flag add differ:\nflag: %+v\nform: %+v", pFlag, pForm)
+	}
+	if got := formEditDefaults(pForm).group; got != "work" {
+		t.Errorf("edit form pre-fill group = %q", got)
 	}
 }

@@ -47,6 +47,14 @@ type PrepareOptions struct {
 	Relink  bool
 	Confirm func(steps []Step) bool
 	Backup  func(paths []string) (string, error)
+	// HistoryStore is the store of the profile's history group (spec 003), nil for
+	// an isolated profile. ExplicitJoin is set by add, edit and copy, never by sync
+	// (it lets a missing home history directory be created in the default setup).
+	HistoryStore HistoryStore
+	ExplicitJoin bool
+	// SkipHistory leaves history entries untouched (a profile of a group that does
+	// not exist, FR-022c).
+	SkipHistory bool
 }
 
 // PrepareConfigDir prepares a profile's config dir for its share level in safe
@@ -66,7 +74,12 @@ func PrepareConfigDirWith(def *harness.Definition, p *profile.Profile, configDir
 		level = p.ShareLevel()
 		upgrade = p.ShareImplicit
 	}
-	steps, err := PlanWith(def, level, opts.Home, configDir, PlanOptions{FixLinks: opts.FixLinks, Relink: opts.Relink, Upgrade: upgrade})
+	po := PlanOptions{FixLinks: opts.FixLinks, Relink: opts.Relink, Upgrade: upgrade,
+		HistoryStore: opts.HistoryStore, ExplicitJoin: opts.ExplicitJoin, SkipHistory: opts.SkipHistory}
+	if p != nil {
+		po.ProfileID = p.ID()
+	}
+	steps, err := PlanWith(def, level, opts.Home, configDir, po)
 	if err != nil {
 		return nil, err
 	}

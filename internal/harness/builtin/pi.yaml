@@ -36,13 +36,18 @@ login_command:
   args: []
   note: "pi has no login subcommand: run /login inside the session, then exit"
 
+# Shown by harness show and help sharing (spec 003, research R1).
+history_note: "pi migrates session format v1 and v2 to v3 on load; an older pi may not read sessions a newer pi wrote into a shared store."
+
 classification:
   # Entries verified on disk with pi 1.3.0 on 2026-11-04
   # (specs/002-profile-isolation-levels/research.md R1).
   - { entry: "agent/auth.json", layer: credentials }
   - { entry: "agent/mcp-auth.json", layer: credentials }
   - { entry: "agent/mcp.json", layer: owned }
-  - { entry: "agent/sessions/", layer: state }
+  # History (spec 003, research R1, pi 1.3.0): one JSONL file per session under
+  # --<cwd>--/; --resume scans the directory.
+  - { entry: "agent/sessions/", layer: state, history: true, merge: per-file }
   - { entry: "agent/logs/", layer: state }
   - { entry: "agent/trust.json", layer: state }
   - { entry: "agent/models-store.json", layer: state }

@@ -31,6 +31,37 @@ const (
 	StepPlaceHook       StepKind = "place-hook"        // place managed hook entries
 	StepRemoveHook      StepKind = "remove-hook"       // remove managed hook entries
 	StepReport          StepKind = "report"            // a condition reported, nothing changed
+	// History groups (spec 003, data-model.md "Change plan steps").
+	StepMoveToStore    StepKind = "move-to-store"    // move one file into the group store, never overwriting
+	StepSetAside       StepKind = "set-aside"        // move a file or entry into the set-aside history
+	StepLinkHistory    StepKind = "link-history"     // link a history entry to its store path
+	StepRelinkHistory  StepKind = "relink-history"   // replace a history link pointing elsewhere
+	StepRemoveEmptyDir StepKind = "remove-empty-dir" // remove a directory tree that holds no files any more
+)
+
+// HistoryStore is the store of the profile's history group as the planner sees it
+// (spec 003, research R7). It is declared here so layer does not import the
+// history package; history.Store satisfies it.
+type HistoryStore interface {
+	// EntryPath returns the store path of a profile-relative history entry.
+	EntryPath(rel string) string
+	// IsHome reports whether the store is the default setup (the home group).
+	IsHome() bool
+	// Name returns the group name.
+	Name() string
+}
+
+// SetAsideItem is one entry of a set-aside manifest: the profile-relative path of
+// an item that was set aside, and why (exists-in-store or not-mergeable).
+type SetAsideItem struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// Set-aside reasons.
+const (
+	ReasonExistsInStore = "exists-in-store"
+	ReasonNotMergeable  = "not-mergeable"
 )
 
 // Step is one entry of a change plan. Path is absolute; Entry is the same path
@@ -51,6 +82,14 @@ type Step struct {
 	// Mode is the permission of a file the step creates (0 means 0o644); an
 	// existing file keeps its own mode.
 	Mode os.FileMode `json:"-"`
+	// Reason is why a set-aside step sets the item aside (exists-in-store or
+	// not-mergeable); it is recorded in the set-aside manifest.
+	Reason string `json:"reason,omitempty"`
+	// Dest is where a move-to-store or set-aside step moves Path to.
+	Dest string `json:"dest,omitempty"`
+	// Fallback is where a move-to-store step sets the file aside instead when the
+	// store path appeared after planning (it is never overwritten).
+	Fallback string `json:"-"`
 }
 
 // Mutating reports whether the step changes the filesystem when applied.
@@ -63,8 +102,11 @@ func (s Step) String() string {
 		entry = "."
 	}
 	out := string(s.Kind) + " " + entry
-	if s.Source != "" && (s.Kind == StepLink || s.Kind == StepReplaceWithLink) {
+	if s.Source != "" && (s.Kind == StepLink || s.Kind == StepReplaceWithLink || s.Kind == StepLinkHistory || s.Kind == StepRelinkHistory) {
 		out += " -> " + s.Source
+	}
+	if s.Dest != "" && (s.Kind == StepMoveToStore || s.Kind == StepSetAside) {
+		out += " -> " + s.Dest
 	}
 	if s.Note != "" {
 		out += " (" + s.Note + ")"
@@ -87,6 +129,21 @@ type PlanOptions struct {
 	// (and pi its own agent/settings.json), and US6 keeps that behavior until the
 	// user asks for the shared entry with sync --relink.
 	Upgrade bool
+	// HistoryStore is the store of the profile's history group (spec 003); nil for
+	// an isolated profile, whose plan is unchanged by history flags (SC-002). With a
+	// store, a history entry that links to its store path is correct, a link
+	// elsewhere is relinked, a missing entry is linked, and a real entry is reported
+	// (or, with Relink, replaced by the link after a backup and confirmation).
+	HistoryStore HistoryStore
+	// ExplicitJoin is set by add, edit and copy (never sync): a missing history
+	// directory of the home store may then be created empty in the default
+	// location (FR-016). Without it such an entry is reported.
+	ExplicitJoin bool
+	// ProfileID ("<harness>/<name>") names the profile in report notes.
+	ProfileID string
+	// SkipHistory leaves every history entry exactly as it is (no step at all): used
+	// for a profile assigned to a history group that does not exist (FR-022c).
+	SkipHistory bool
 }
 
 // Plan computes the change plan that brings configDir to the given share level
@@ -200,6 +257,39 @@ func (pl *planner) planRule(rule *harness.EntryRule) error {
 	path := filepath.Join(pl.configDir, filepath.FromSlash(rel))
 	src := pl.def.DefaultPathUnder(pl.home, rel)
 	cur := inspect(path)
+	if pl.opts.SkipHistory && rule.History {
+		return nil
+	}
+	if hs := pl.opts.HistoryStore; hs != nil {
+		if rule.History {
+			pl.planHistory(rule, rel, path, cur)
+			return nil
+		}
+		// A member's link into its group store for an entry the definition does not
+		// declare as history (any more, FR-022a), whatever its category now. The home
+		// store is the default setup, where only a state entry can have been history:
+		// a borrowable entry's link there is the share level's own, and any other
+		// private link there is a leak that only --fix-links replaces (spec 002).
+		if cur.link && samePath(cur.target, hs.EntryPath(rel)) && (!hs.IsHome() || rule.Layer == harness.LayerState) {
+			if pl.opts.SkipHistory {
+				// A membership change in the same command owns this link (it
+				// detaches it), so it is listed once.
+				return nil
+			}
+			const why = " links into the history group store but the definition does not declare it as history (no longer, or it was linked by hand)"
+			if rule.Layer == harness.LayerState || rule.Layer == harness.LayerCredentials {
+				// Replaced by an empty private entry; the link target is never touched.
+				pl.add(Step{Kind: StepFixLink, Path: path, Entry: rel, IsDir: rule.IsDir(), Source: cur.target,
+					Note: "not history: " + rel + why + " (" + hs.Name() + "); it becomes an empty private entry and the link target is unchanged"})
+				return nil
+			}
+			// Any other category: the link is removed (never its target) and the entry
+			// gets its category's treatment below, as if it were missing.
+			pl.add(Step{Kind: StepUnlink, Path: path, Entry: rel, Source: cur.target,
+				Note: "not history: " + rel + why + " (" + hs.Name() + "); it gets the " + string(rule.Layer) + " treatment and the link target is unchanged"})
+			cur = current{}
+		}
+	}
 	switch rule.Layer {
 	case harness.LayerCredentials, harness.LayerState, harness.LayerOwned:
 		if cur.link {
@@ -225,6 +315,128 @@ func (pl *planner) planRule(rule *harness.EntryRule) error {
 	}
 	return nil
 }
+
+// profileRef names the profile in report notes.
+func (pl *planner) profileRef() string {
+	if pl.opts.ProfileID != "" {
+		return pl.opts.ProfileID
+	}
+	return pl.def.Name + "/<profile>"
+}
+
+// planHistory plans one history entry of a group member (spec 003, plan.md Design
+// Decision 5). It never moves data: a real entry is reported (or replaced after a
+// backup with Relink), and the default setup is only written on an explicit join.
+func (pl *planner) planHistory(rule *harness.EntryRule, rel, path string, cur current) {
+	if pl.historyLink(rule, rel, path, cur) {
+		return
+	}
+	hs := pl.opts.HistoryStore
+	group := hs.Name()
+	if pl.opts.Relink {
+		// The store side must exist before the real entry is replaced, or the backup
+		// would leave a dangling link behind.
+		if !pl.storeDir(rule, rel, path) {
+			return
+		}
+		pl.add(Step{Kind: StepReplaceWithLink, Path: path, Entry: rel, Source: hs.EntryPath(rel), Confirm: true, IsDir: cur.dir,
+			Note: "history group " + group + ": the real entry is replaced by the link to the store after a backup"})
+		return
+	}
+	pl.add(Step{Kind: StepReport, Path: path, Entry: rel,
+		Note: "history-not-linked: a real entry where a link to the history group " + group + " store is expected; to merge it into the store, run: aprofile edit " + pl.profileRef() + " --group " + group + " (or replace it after a backup with: aprofile sync --relink)"})
+}
+
+// historyLink plans a member's history entry that is missing or a link: the store
+// side is created where allowed, a link elsewhere is relinked and a missing entry
+// is linked. It returns false, adding nothing, for a real entry.
+func (pl *planner) historyLink(rule *harness.EntryRule, rel, path string, cur current) bool {
+	hs := pl.opts.HistoryStore
+	store := hs.EntryPath(rel)
+	switch {
+	case cur.link && samePath(cur.target, store):
+		// The link is correct; a store entry that was removed (a store deleted by
+		// hand) is recreated empty (FR-022, Edge Cases).
+		pl.storeDir(rule, rel, path)
+	case cur.link:
+		if pl.storeDir(rule, rel, path) {
+			pl.add(Step{Kind: StepRelinkHistory, Path: path, Entry: rel, Source: store,
+				Note: "history group " + hs.Name() + ": replaces a link to " + cur.target})
+		}
+	case !cur.exists:
+		// A missing history file is linked too; it comes into existence when the
+		// harness first writes it (FR-016).
+		if pl.storeDir(rule, rel, path) {
+			pl.add(HistoryLinkStep(rel, path, hs))
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// storeDir makes sure the store side of a history entry exists before a link to it
+// is kept or created: the directory of a directory entry, the parent directory of a
+// file entry. A non-home store gets a mkdir step; the home store (the default setup)
+// only on an explicit join, otherwise the entry is reported with the command that
+// creates it, and storeDir returns false.
+func (pl *planner) storeDir(rule *harness.EntryRule, rel, path string) bool {
+	hs := pl.opts.HistoryStore
+	group := hs.Name()
+	need := hs.EntryPath(rel)
+	if !rule.IsDir() {
+		need = filepath.Dir(need)
+	}
+	if PathExists(need) {
+		return true
+	}
+	switch {
+	case !hs.IsHome():
+		pl.add(Step{Kind: StepMkdir, Path: need, Entry: need, IsDir: true, Note: "history store " + group})
+	case pl.opts.ExplicitJoin:
+		pl.add(Step{Kind: StepMkdir, Path: need, Entry: need, IsDir: true, Note: "default setup"})
+	case !rule.IsDir():
+		// A missing history file of the default setup is linked anyway, even when
+		// its directory is missing too: sync never writes into the default setup,
+		// and the harness creates both when it first runs there (FR-016).
+	default:
+		pl.add(Step{Kind: StepReport, Path: path, Entry: rel,
+			Note: "history: " + need + " does not exist in the default setup yet; to create it and link it, run: aprofile edit " + pl.profileRef() + " --group " + group})
+		return false
+	}
+	return true
+}
+
+// HistoryLinkStep is the step that links a member's history entry to its store.
+func HistoryLinkStep(rel, path string, hs HistoryStore) Step {
+	return Step{Kind: StepLinkHistory, Path: path, Entry: rel, Source: hs.EntryPath(rel), Note: "history group " + hs.Name()}
+}
+
+// PlanHistoryEntry plans one history entry of a member of the group whose store is
+// opts.HistoryStore when the entry is missing or a link (no data moves): the same
+// steps sync and prepare plan. It returns handled=false and no steps for a real
+// entry, which the caller merges or sets aside (a join) or reports (sync). The join
+// planner of internal/history shares it, so a join and a sync never disagree about
+// an entry that holds no data.
+func PlanHistoryEntry(def *harness.Definition, rule *harness.EntryRule, configDir string, opts PlanOptions) (steps []Step, handled bool) {
+	pl := &planner{def: def, configDir: configDir, opts: opts}
+	rel := rule.Path()
+	path := filepath.Join(configDir, filepath.FromSlash(rel))
+	handled = pl.historyLink(rule, rel, path, inspect(path))
+	return pl.steps, handled
+}
+
+// HistoryStoreSteps returns the steps that create the store side of a history entry
+// (see storeDir); ok is false, with a report step, when it may not be created.
+func HistoryStoreSteps(def *harness.Definition, rule *harness.EntryRule, configDir string, opts PlanOptions) (steps []Step, ok bool) {
+	pl := &planner{def: def, configDir: configDir, opts: opts}
+	rel := rule.Path()
+	ok = pl.storeDir(rule, rel, filepath.Join(configDir, filepath.FromSlash(rel)))
+	return pl.steps, ok
+}
+
+// samePath compares two paths after cleaning them.
+func samePath(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
 
 // leakingLink reports, or with FixLinks repairs, a private entry that is a link.
 func (pl *planner) leakingLink(rule *harness.EntryRule, rel, target string, isRule bool) {

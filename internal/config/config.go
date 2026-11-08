@@ -241,3 +241,34 @@ func validBinDir(dir string) error {
 	}
 	return nil
 }
+
+// GroupsConfigDir holds the history group records (spec 003, research R5):
+// <config dir>/groups.
+func (p *Paths) GroupsConfigDir() string {
+	return filepath.Join(p.ConfigDir, "groups")
+}
+
+// GroupRecordPath is the record of one history group:
+// <config dir>/groups/<harness>/<group>.yaml. The built-in home group has none.
+func (p *Paths) GroupRecordPath(harness, group string) string {
+	return filepath.Join(p.GroupsConfigDir(), harness, group+".yaml")
+}
+
+// GroupStoreDir is where a non-home history group keeps its history entries:
+// <data dir>/groups/<harness>/<group>, entries at their config-dir relative paths.
+func (p *Paths) GroupStoreDir(harness, group string) string {
+	return filepath.Join(p.DataDir, "groups", harness, group)
+}
+
+// GroupStoresDir is the parent of every group store of one harness.
+func (p *Paths) GroupStoresDir(harness string) string {
+	return filepath.Join(p.DataDir, "groups", harness)
+}
+
+// SetAsideDir holds the history a profile had before it joined a group and that was
+// not moved into the store: <data dir>/set-aside/<harness>/<name>, one timestamped
+// directory per join. It lies outside the profile config dir so the harness never
+// reads it; rename moves it and remove --purge deletes it.
+func (p *Paths) SetAsideDir(harness, name string) string {
+	return filepath.Join(p.DataDir, "set-aside", harness, name)
+}

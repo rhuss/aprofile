@@ -49,10 +49,16 @@ classification:
   - { entry: "config.toml", layer: owned }
   # Runtime state (FR-003). Every *.sqlite database covers its -wal/-shm/-journal
   # and .lock companions (FR-004).
-  - { entry: "sessions/", layer: state }
-  - { entry: "history.jsonl", layer: state }
-  - { entry: "session_index.jsonl", layer: state }
-  - { entry: "session_index.jsonl.lock", layer: state }
+  # History (spec 003, research R1, Codex 0.167.0): rollout files are per thread and
+  # merge per file; the session index and prompt history are append-only and never
+  # merged. The index's .lock is shared with it so writers of a shared index lock
+  # the same file. The state database stays private: it mixes threads with
+  # account-scoped tables, and Codex repairs missing rows from the rollouts.
+  - { entry: "sessions/", layer: state, history: true, merge: per-file }
+  - { entry: "archived_sessions/", layer: state, history: true, merge: per-file }
+  - { entry: "history.jsonl", layer: state, history: true, merge: none }
+  - { entry: "session_index.jsonl", layer: state, history: true, merge: none }
+  - { entry: "session_index.jsonl.lock", layer: state, history: true, merge: none }
   - { entry: "log/", layer: state }
   - { entry: "*.sqlite", layer: state }
   - { entry: ".sqlite-maintenance.lock", layer: state }

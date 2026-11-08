@@ -31,6 +31,9 @@ const (
 	// StatusKeptFromUpgrade: a profile from before share levels keeps its own
 	// entry where share level all would link one (US6, FR-033).
 	StatusKeptFromUpgrade = "kept-from-upgrade"
+	// StatusWrongHistoryLink: a member's history entry links somewhere other than
+	// its group store (spec 003, FR-021).
+	StatusWrongHistoryLink = "wrong-history-link"
 )
 
 // EntryTreatment is the outcome for one entry of one profile (FR-015): its
@@ -48,6 +51,14 @@ type EntryTreatment struct {
 // and the definition's $HOME escapes (SC-005). It derives the treatment from the
 // same definition data and policy the planner uses, so show, dry runs and sync agree.
 func Treatments(def *harness.Definition, p *profile.Profile, home, configDir string) ([]EntryTreatment, error) {
+	return TreatmentsWith(def, p, home, configDir, nil)
+}
+
+// TreatmentsWith is Treatments for a profile whose history group store is hs (nil
+// for an isolated profile, which gives exactly Treatments' result). A member's
+// history entries are reported as linked to the store with the reason "history
+// group <g>", including the ones that do not exist yet (spec 003, FR-020).
+func TreatmentsWith(def *harness.Definition, p *profile.Profile, home, configDir string, hs HistoryStore) ([]EntryTreatment, error) {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
@@ -66,6 +77,10 @@ func Treatments(def *harness.Definition, p *profile.Profile, home, configDir str
 			out = append(out, EntryTreatment{Entry: we.Rel, Category: "unclassified", Treatment: TreatmentUnclassified,
 				Reason: "not classified by the " + def.Name + " definition: left in place, never linked; classify it with: aprofile harness classify " + def.Name + " " + we.Rel + " --as <category>",
 				Status: StatusOK})
+			continue
+		}
+		if hs != nil && we.Result.Rule != nil && we.Result.Rule.History {
+			out = append(out, historyTreatment(we.Result.Rule, we.Rel, path, hs))
 			continue
 		}
 		et := treatmentFor(def, level, we.Result.Rule, we.Rel, path, def.DefaultPathUnder(home, we.Rel))
@@ -92,6 +107,17 @@ func Treatments(def *harness.Definition, p *profile.Profile, home, configDir str
 		et := treatmentFor(def, level, r, r.Path(), filepath.Join(configDir, filepath.FromSlash(r.Path())), def.DefaultPathUnder(home, r.Path()))
 		out = append(out, et)
 	}
+	// History entries of a member that do not exist yet.
+	if hs != nil {
+		for _, r := range def.HistoryRules() {
+			if seen[r.Path()] {
+				continue
+			}
+			seen[r.Path()] = true
+			rr := r
+			out = append(out, historyTreatment(&rr, r.Path(), filepath.Join(configDir, filepath.FromSlash(r.Path())), hs))
+		}
+	}
 	// A hook location that is a key of a classified file.
 	if hf := def.HookFileRule(); hf != nil {
 		et := EntryTreatment{Entry: def.Hooks.Location, Category: string(harness.LayerHookLocation), Status: StatusOK}
@@ -112,6 +138,24 @@ func Treatments(def *harness.Definition, p *profile.Profile, home, configDir str
 	return out, nil
 }
 
+// historyTreatment is the treatment of a member's history entry: linked to the
+// group store, with a drift status when it is missing, a real entry, or a link to
+// another place.
+func historyTreatment(rule *harness.EntryRule, rel, path string, hs HistoryStore) EntryTreatment {
+	cur := inspect(path)
+	et := EntryTreatment{Entry: rel, Category: string(rule.Layer), Treatment: TreatmentLinked,
+		Reason: "history group " + hs.Name(), Status: StatusOK}
+	switch {
+	case !cur.exists:
+		et.Status = StatusNotSynced
+	case !cur.link:
+		et.Status = StatusLinkReplacedByFile
+	case !samePath(cur.target, hs.EntryPath(rel)):
+		et.Status = StatusWrongHistoryLink
+	}
+	return et
+}
+
 func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule, rel, path, src string) EntryTreatment {
 	cur := inspect(path)
 	et := EntryTreatment{Entry: rel, Category: string(rule.Layer), Status: StatusOK}
@@ -123,6 +167,9 @@ func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule
 			et.Reason = "credentials: always private"
 		case harness.LayerState:
 			et.Reason = "runtime state: always private"
+			if rule.History {
+				et.Reason = "history: private to this profile (it is in no history group)"
+			}
 		case harness.LayerOwned:
 			et.Reason = "owned (MCP servers, model): private at every level, travels with copy"
 		case harness.LayerMixed:

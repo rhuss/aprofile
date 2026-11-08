@@ -44,8 +44,8 @@ func harnessesDirOrEmpty() string {
 func writeSharingGuide(w io.Writer, set *harness.Set) {
 	fmt.Fprintln(w, "Share levels: how much of your default setup a profile uses")
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "At every level, %s to the profile,\n", alwaysPrivate)
-	fmt.Fprintln(w, "and so are logs and caches. The level only decides how much of your setup it uses.")
+	fmt.Fprintf(w, "At every level, %s.\n", alwaysPrivate)
+	fmt.Fprintln(w, "Logs and caches are always private too. The level only decides how much of your setup a profile uses.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Levels (choose with --share on add, edit, copy and import):")
 	for _, s := range profile.Shares {
@@ -72,6 +72,8 @@ func writeSharingGuide(w io.Writer, set *harness.Set) {
 	fmt.Fprintln(w, "A none profile starts with the harness's first-run onboarding; that is expected.")
 	fmt.Fprintln(w, "Preview a change with: aprofile edit <harness>/<name> --share <level> --dry-run")
 	fmt.Fprintln(w, "See one profile's entries with: aprofile show <harness>/<name>")
+
+	writeHistoryGroupsGuide(w, set)
 
 	if set == nil {
 		return
@@ -213,4 +215,57 @@ func wrapText(text string, width int) []string {
 		cur += " " + word
 	}
 	return append(lines, cur)
+}
+
+// writeHistoryGroupsGuide renders the "History groups" section (spec 003, FR-023,
+// FR-026): home, own groups, isolated profiles, the use cases, the concurrent-use
+// warning, account visibility, and per harness the support and history_note.
+func writeHistoryGroupsGuide(w io.Writer, set *harness.Set) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "History groups: which profiles share conversation history")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "A history group is a set of profiles of one harness that share one conversation history:")
+	fmt.Fprintln(w, "a conversation started in one member can be resumed in another with the harness's own resume,")
+	fmt.Fprintln(w, "and it then runs with that member's login, endpoint and model. There is one copy of it on disk.")
+	fmt.Fprintln(w, "  home       built in for every harness that supports groups; its store is your default setup,")
+	fmt.Fprintln(w, "             so members share history with plain `claude` (or codex, pi). Join: --group home")
+	fmt.Fprintln(w, "  own groups made with: aprofile group create <harness>/<group>; history lives in aprofile's")
+	fmt.Fprintln(w, "             data directory, apart from the default setup. Join: --group <group>")
+	fmt.Fprintln(w, "  no group   (isolated) the default: the profile's history is its own")
+	fmt.Fprintln(w, "Logins, settings and all other state stay private in every group. Membership does not depend on")
+	fmt.Fprintln(w, "the share level: a none profile can join home and then shares only history.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Which group fits your use case:")
+	uc := [][]string{{"#", "Use case", "Group", "Why"}}
+	for _, u := range historyUseCases {
+		uc = append(uc, []string{u.ID, u.Case, u.Recommended, u.Why})
+	}
+	writeTable(w, uc, []int{4, 46, 14, 0})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Join or leave later with: aprofile edit <harness>/<name> --group <group> | --no-group (--dry-run first).")
+	fmt.Fprintln(w, "A join moves your existing conversations into the group where nothing is in the way and sets the")
+	fmt.Fprintln(w, "rest aside in aprofile's data directory; nothing is deleted. Leaving gives fresh, empty history.")
+	fmt.Fprintln(w, "Running the same conversation in two profiles at the same time is not prevented and can interleave")
+	fmt.Fprintln(w, "its transcript: resume a conversation in one profile at a time.")
+	fmt.Fprintln(w, "Shared conversations show which account wrote them: transcripts carry account identifiers.")
+	if set == nil {
+		return
+	}
+	fmt.Fprintln(w, "Per harness:")
+	for _, d := range set.All() {
+		if !d.SupportsGroups() {
+			fmt.Fprintf(w, "  %s: history groups not supported (its definition declares no history entries)\n", d.Name)
+			continue
+		}
+		var entries []string
+		for _, r := range d.HistoryRules() {
+			if r.CompanionOf == "" {
+				entries = append(entries, r.Path())
+			}
+		}
+		fmt.Fprintf(w, "  %s: history entries %s\n", d.Name, strings.Join(entries, ", "))
+		if d.HistoryNote != "" {
+			fmt.Fprintf(w, "    note: %s\n", d.HistoryNote)
+		}
+	}
 }

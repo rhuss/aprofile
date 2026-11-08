@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
@@ -33,6 +34,9 @@ type profileFlags struct {
 	share           string
 	hookSets        []string
 	excludeHookSets []string
+	// Feature 003: history group (add, edit, copy); edit only: leave the group.
+	group   string
+	noGroup bool
 	// edit only: preview or confirm a share level change.
 	dryRun bool
 	yes    bool
@@ -54,6 +58,7 @@ func (f *profileFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.share, "share", "", shareFlagHelp())
 	fl.StringSliceVar(&f.hookSets, "hook-sets", nil, "hook sets from the library to attach (comma-separated; not at share level all)")
 	fl.StringSliceVar(&f.excludeHookSets, "exclude-hook-sets", nil, "every-profile hook sets this profile skips (comma-separated)")
+	fl.StringVar(&f.group, "group", "", groupFlagHelp)
 }
 
 func newAddCmd() *cobra.Command {
@@ -86,6 +91,13 @@ func runAdd(cmd *cobra.Command, harnessName, name string, f *profileFlags) error
 	if a.store.Exists(harnessName, name) {
 		return fmt.Errorf("profile %s/%s already exists", harnessName, name)
 	}
+	// FR-009: an unknown group (or a home join the default location cannot serve)
+	// fails before anything is created.
+	if f.group != "" {
+		if _, err := a.checkGroupJoin(def, f.group); err != nil {
+			return err
+		}
+	}
 	// FR-002: checked before the form opens, so the user is not asked for values of a
 	// profile that cannot be created.
 	if err := checkWrapperClash(a, harnessName, name, ""); err != nil {
@@ -97,6 +109,12 @@ func runAdd(cmd *cobra.Command, harnessName, name string, f *profileFlags) error
 	configDir := a.paths.ProfileConfigDir(harnessName, name)
 	if layer.DirExists(configDir) && !f.adopt {
 		return fmt.Errorf("a config dir already exists at %s without a profile; pass --adopt to reuse it", configDir)
+	}
+	// An adopted config dir may hold history; joining a group then needs the plan,
+	// the confirmation and the set-aside of edit --group (FR-013, FR-014).
+	if layer.DirExists(configDir) && f.group != "" {
+		return exitErrorf(ExitInvalidForLevel, "--group with an adopted config dir: its history must be merged or set aside first; add %s/%s without --group, then run: aprofile edit %s/%s --group %s (nothing changed)",
+			harnessName, name, harnessName, name, f.group)
 	}
 
 	// Warn when the harness binary is missing (edge case): the profile is still
@@ -168,6 +186,20 @@ func createProfileFromFlags(a *app, def *harness.Definition, harnessName, name s
 	if err := a.applyHookSetFlags(p, def, f.hookSets, f.excludeHookSets, true, true, true); err != nil {
 		return err
 	}
+	if f.group != "" {
+		if _, err := a.checkGroupJoin(def, f.group); err != nil {
+			return err
+		}
+		// Checked here too, where the group is final: the form (add --adopt opening
+		// it, or the ui add path) may choose a group after runAdd's early check. An
+		// adopted config dir may hold history, which only edit --group merges or
+		// sets aside (FR-013, FR-014).
+		if layer.DirExists(a.paths.ProfileConfigDir(harnessName, name)) {
+			return exitErrorf(ExitInvalidForLevel, "--group with an adopted config dir: its history must be merged or set aside first; add %s/%s without --group, then run: aprofile edit %s/%s --group %s (nothing changed)",
+				harnessName, name, harnessName, name, f.group)
+		}
+		p.HistoryGroup = f.group
+	}
 	if err := p.Validate(); err != nil {
 		return err
 	}
@@ -181,6 +213,9 @@ func createProfileFromFlags(a *app, def *harness.Definition, harnessName, name s
 	}
 	fmt.Fprintf(a.out, "created profile %s (run: aprofile sync)\n", p.ID())
 	fmt.Fprintf(a.out, "  share level: %s: %s\n", p.Share, levelDescription(p.Share))
+	if p.HistoryGroup != "" {
+		return a.joinNewProfile(def, p)
+	}
 	return nil
 }
 
@@ -216,6 +251,9 @@ func profileFormConfig(a *app, def *harness.Definition, f *profileFlags) tui.Pro
 		SupportsEndpoint: def.EndpointVar != "",
 		Values:           formValuesFromFlags(f),
 		ShareOptions:     shareOptions(f.share),
+	}
+	if a != nil && def.SupportsGroups() {
+		cfg.GroupOptions = groupOptions(a, def)
 	}
 	if a != nil && def.Hooks != nil {
 		lib, _ := a.loadHookLibrary()
@@ -266,6 +304,7 @@ func formValuesFromFlags(f *profileFlags) tui.FormValues {
 		Share:           f.share,
 		HookSets:        f.hookSets,
 		ExcludeHookSets: f.excludeHookSets,
+		HistoryGroup:    f.group,
 	}
 }
 
@@ -284,6 +323,22 @@ func applyFormValues(f *profileFlags, v tui.FormValues) {
 	f.share = v.Share
 	f.hookSets = v.HookSets
 	f.excludeHookSets = v.ExcludeHookSets
+	f.group = v.HistoryGroup
+}
+
+// groupOptions lists the form's history group choices (FR-027): isolated, home and
+// the harness's own groups. The default setup is the implicit member of home, never
+// a choice of its own (FR-017).
+func groupOptions(a *app, def *harness.Definition) []tui.GroupOption {
+	opts := []tui.GroupOption{{Value: "", Label: "none (isolated: the profile's history is its own)"}}
+	for _, n := range a.groups().Names(def.Name) {
+		label := n + ": shares history with the group's other members"
+		if n == history.Home {
+			label = "home: shares history with your default setup"
+		}
+		opts = append(opts, tui.GroupOption{Value: n, Label: label})
+	}
+	return opts
 }
 
 // applyValueFlags validates and applies the shared value flags onto a profile.

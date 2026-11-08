@@ -74,7 +74,7 @@ func runLogin(cmd *cobra.Command, ref string) error {
 
 	// Ensure the config dir exists so credentials land in the profile.
 	configDir := a.paths.ProfileConfigDir(h, n)
-	if _, err := layer.PrepareConfigDir(def, p, configDir, false); err != nil {
+	if _, err := layer.PrepareConfigDirWith(def, p, configDir, a.prepareOptions(def, p)); err != nil {
 		return err
 	}
 

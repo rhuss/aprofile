@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/hooksets"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
@@ -48,6 +49,8 @@ type profileJSON struct {
 	Share            string `json:"share"`
 	ShareDescription string `json:"share_description"`
 	ShareImplicit    bool   `json:"share_implicit,omitempty"`
+	// Feature 003: the history group (empty when isolated).
+	HistoryGroup string `json:"history_group"`
 }
 
 type listJSON struct {
@@ -112,7 +115,11 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 		if p.Primary {
 			primary = " (primary)"
 		}
-		fmt.Fprintf(a.out, "  %s%s  [%s] share: %s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon), primary, status, p.ShareLevel())
+		group := p.HistoryGroup
+		if group == "" {
+			group = "-"
+		}
+		fmt.Fprintf(a.out, "  %s%s  [%s] share: %s  group: %s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon), primary, status, p.ShareLevel(), group)
 	}
 	switch len(leftovers) {
 	case 0:
@@ -174,6 +181,10 @@ type showJSON struct {
 	SettingsDiffer           bool                   `json:"settings_differ"`
 	HomeEscapes              []harness.HomeEscape   `json:"home_escapes"`
 	UnborrowedDefaultEntries []string               `json:"unborrowed_default_entries"`
+	// History describes how the profile's history is shared (spec 003, FR-020).
+	History string `json:"history"`
+	// SetAside lists the profile's set-aside history (FR-020).
+	SetAside []history.SetAsideRun `json:"set_aside"`
 	// Problems lists where the profile does not fit its harness definition (FR-006):
 	// an undeclared auth kind, or a model or endpoint the harness has no variable for.
 	Problems []string `json:"problems"`
@@ -213,7 +224,13 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 			fit[fi.Field] = fi
 			sj.Problems = append(sj.Problems, fi.Message+"; fix: "+fi.Fix)
 		}
-		entries, err := layer.Treatments(def, p, "", sj.ConfigDir)
+		var hs layer.HistoryStore
+		if st, herr := a.groups().StoreFor(def, p); herr == nil && st != nil {
+			hs = st
+		} else if herr != nil {
+			sj.Problems = append(sj.Problems, herr.Error()+"; fix: aprofile edit "+p.ID()+" --group <group>, or --no-group")
+		}
+		entries, err := layer.TreatmentsWith(def, p, "", sj.ConfigDir, hs)
 		if err != nil {
 			return err
 		}
@@ -243,6 +260,11 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	if sj.Entries == nil {
 		sj.Entries = []layer.EntryTreatment{}
 	}
+	sj.History = historyLine(p)
+	sj.SetAside = []history.SetAsideRun{}
+	if runs, err := history.ListSetAside(a.paths, p.Harness, p.Name); err == nil && runs != nil {
+		sj.SetAside = runs
+	}
 
 	if statusErr != nil {
 		fmt.Fprintf(a.errOut, "aprofile: wrapper status is unknown: %v\n", statusErr)
@@ -257,6 +279,10 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	if p.ShareImplicit {
 		fmt.Fprintf(a.out, "                  (no level stored: profiles from before share levels are all; consider: aprofile edit %s --share content --dry-run)\n", p.ID())
 	}
+	if p.HistoryGroup != "" {
+		fmt.Fprintf(a.out, "  history group:  %s\n", p.HistoryGroup)
+	}
+	fmt.Fprintf(a.out, "  history:        %s\n", sj.History)
 	fmt.Fprintf(a.out, "  primary:        %v\n", p.Primary)
 	authLine := p.AuthKind
 	if fi, ok := fit["auth_kind"]; ok {
@@ -289,6 +315,12 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 		}
 	}
 	printEntries(a, sj.Entries)
+	if len(sj.SetAside) > 0 {
+		fmt.Fprintln(a.out, "  set-aside history (from history group joins; never read by the harness):")
+		for _, r := range sj.SetAside {
+			fmt.Fprintf(a.out, "    %s  (%d items)\n", r.Dir, len(r.Items))
+		}
+	}
 	if len(sj.UnborrowedDefaultEntries) > 0 {
 		fmt.Fprintln(a.out, "  not borrowed (unclassified in the default setup):")
 		for _, e := range sj.UnborrowedDefaultEntries {
@@ -313,17 +345,28 @@ var treatmentGroups = []struct{ key, title string }{
 // apart from the linked entries instead of under them.
 const absentGroup = "absent"
 
+// historyGroupKey holds a member's history entries, linked to its group store
+// (spec 003): listed apart from the entries borrowed from the default setup.
+const historyGroupKey = "history"
+
+// isHistoryLink reports whether an entry treatment is a member's history link.
+func isHistoryLink(e layer.EntryTreatment) bool {
+	return e.Treatment == layer.TreatmentLinked && strings.HasPrefix(e.Reason, "history group ")
+}
+
 // printEntries prints the entries grouped by treatment, each with its reason and
 // any status other than ok.
 func printEntries(a *app, entries []layer.EntryTreatment) {
 	groups := append(append([]struct{ key, title string }(nil), treatmentGroups[:2]...),
+		struct{ key, title string }{historyGroupKey, "history, linked to the history group store"},
 		struct{ key, title string }{absentGroup, "not in the default setup (linked once it is)"})
 	groups = append(groups, treatmentGroups[2:]...)
 	for _, g := range groups {
 		var group []layer.EntryTreatment
 		for _, e := range entries {
 			absent := e.Treatment == layer.TreatmentLinked && e.Status == layer.StatusMissingLinkTarget
-			if (g.key == absentGroup && absent) || (g.key == e.Treatment && !absent) {
+			hist := isHistoryLink(e)
+			if (g.key == historyGroupKey && hist) || (g.key == absentGroup && absent) || (g.key == e.Treatment && !absent && !hist) {
 				e2 := e
 				if absent {
 					e2.Status = layer.StatusOK // the group title already says it
@@ -373,6 +416,7 @@ func (a *app) profileToJSONErr(p *profile.Profile) (profileJSON, error) {
 		Share:            string(p.ShareLevel()),
 		ShareDescription: levelDescription(p.ShareLevel()),
 		ShareImplicit:    p.ShareImplicit,
+		HistoryGroup:     p.HistoryGroup,
 	}
 	if def != nil {
 		// list does not call the auth-status hook (one hook call per profile would slow

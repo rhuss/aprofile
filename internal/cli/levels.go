@@ -14,13 +14,13 @@ import (
 // levelDescriptions are the one-line descriptions of FR-014 (at most 80 characters,
 // used verbatim everywhere a level is shown).
 var levelDescriptions = map[profile.Share]string{
-	profile.ShareAll:     "Uses your whole setup live; logins, history and memory stay private.",
+	profile.ShareAll:     "Uses your whole setup live; logins stay private, history too unless grouped.",
 	profile.ShareContent: "Uses your instructions and skills; keeps its own settings and hooks.",
 	profile.ShareNone:    "Shares nothing with your setup; starts clean, with only named hook sets.",
 }
 
 // alwaysPrivate is the sentence every guide states up front (FR-012, US2 AS3).
-const alwaysPrivate = "logins, history, sessions and memory are always private"
+const alwaysPrivate = "logins are always private; history and memory are private unless you put profiles in a history group"
 
 // levelDescription returns the one-line description of a level.
 func levelDescription(s profile.Share) string { return levelDescriptions[s] }
@@ -51,6 +51,28 @@ var useCases = []useCase{
 		"No borrowed settings; only the hook sets the profile names (--hook-sets)"},
 }
 
+// historyUseCases are the history group use cases of spec 003 (FR-026).
+var historyUseCases = []useCase{
+	{"H1", "Personal aliases (other endpoints or accounts) continue each other's conversations and those of the plain default setup", "--group home",
+		"Each alias links its history to the default setup; logins, endpoints and models stay per profile"},
+	{"H2", "Work profiles continue each other's conversations, never personal ones", "--group work",
+		"aprofile group create claude/work first; work history lives apart from the default setup"},
+	{"H3", "A client profile that must never see other history or memory, and whose history no other profile sees", "no group",
+		"The profile's history is its own (isolated), as without history groups"},
+	{"H4", "A demo profile with a clean history", "no group",
+		"Nothing from other conversations shows up"},
+}
+
+// historyUseCaseMarkdown renders the history group use cases for the README.
+func historyUseCaseMarkdown() string {
+	var b strings.Builder
+	b.WriteString("| # | Use case | Group | Why |\n|---|----------|-------|-----|\n")
+	for _, uc := range historyUseCases {
+		fmt.Fprintf(&b, "| %s | %s | `%s` | %s |\n", uc.ID, uc.Case, uc.Recommended, uc.Why)
+	}
+	return b.String()
+}
+
 // levelRow is one row of the level table: what each level does with a category.
 type levelRow struct {
 	Category string
@@ -61,7 +83,8 @@ type levelRow struct {
 
 var levelTable = []levelRow{
 	{"Credentials", "private", "private", "private"},
-	{"Runtime state (history, sessions, memory, logs, caches)", "private", "private", "private"},
+	{"History (conversations, prompt history, project memory)", "private, or shared in a history group", "private, or shared in a history group", "private, or shared in a history group"},
+	{"Other runtime state (logs, caches, per-process files)", "private", "private", "private"},
 	{"Owned (MCP servers, model, endpoint)", "private", "private", "private, starts empty"},
 	{"Content (instructions, skills, agents, commands, prompts)", "linked", "linked", "not present"},
 	{"Settings (permissions, enabled plugins, status line)", "linked", "own copy, taken once", "own, starts minimal"},

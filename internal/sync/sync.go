@@ -17,6 +17,7 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/hooksets"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
@@ -205,6 +206,8 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 		}
 	}
 
+	groups := history.NewManager(paths, set, store)
+	missingStores := map[string]bool{} // report a missing group store once per group
 	var regEntries []registry.Entry
 	known := map[string]bool{}     // wrapper names that belong to a profile (not stale)
 	processed := map[string]bool{} // profile IDs that got a fresh registry entry this run
@@ -281,6 +284,23 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			problem(p.ID(), fmt.Sprintf("config-dir %s: look for stale temp entries: %v", p.ID(), terr))
 		}
 		prep := layer.PrepareOptions{DryRun: opts.DryRun, FixLinks: opts.FixLinks, Relink: opts.Relink}
+		// History groups (spec 003): a member's history entries are linked to its
+		// group store; sync never moves data or writes into the default setup
+		// (ExplicitJoin stays false). A profile of a group that does not exist keeps
+		// its history entries exactly as they are (FR-022c).
+		if st, herr := groups.StoreFor(def, p); herr != nil {
+			prep.SkipHistory = true
+			msg := fmt.Sprintf("config-dir %s: %v; its history entries are left unchanged; fix: aprofile edit %s --group <group>, or --no-group", p.ID(), herr, p.ID())
+			note(p.ID(), msg)
+		} else if st != nil {
+			prep.HistoryStore = st
+			if !st.IsHome() {
+				if _, serr := os.Lstat(st.Root()); os.IsNotExist(serr) && !missingStores[st.Root()] {
+					missingStores[st.Root()] = true
+					note(p.ID(), fmt.Sprintf("config-dir %s: the store of history group %s is missing at %s; sync recreates its entries empty, the group's earlier history is gone", p.ID(), p.HistoryGroup, st.Root()))
+				}
+			}
+		}
 		if opts.Relink {
 			id := p.ID()
 			h, n := p.Harness, p.Name
@@ -299,6 +319,11 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			case c.Mutating():
 				res.Changes = append(res.Changes, "config-dir "+p.ID()+": "+c.String())
 				res.ConfigDirChanges++
+			case c.Action == "needs-confirm" && prep.HistoryStore != nil && c.Step.Kind == layer.StepReplaceWithLink && p.HistoryGroup != "" && c.Step.Source == prep.HistoryStore.EntryPath(c.Step.Entry):
+				// A member's history entry became a real entry (FR-022): sync never
+				// moves data; name the commands that merge it or relink it.
+				note(p.ID(), fmt.Sprintf("config-dir %s: %s skipped: it replaces profile data; to merge it into the history group store run: aprofile edit %s --group %s, or replace it after a backup with: aprofile sync --relink",
+					p.ID(), c.Step.String(), p.ID(), p.HistoryGroup))
 			case c.Action == "needs-confirm":
 				// FR-017a: sync never replaces profile data; name the command that does.
 				note(p.ID(), fmt.Sprintf("config-dir %s: %s skipped: it replaces profile data; to complete it run: aprofile sync --relink, or aprofile edit %s --share %s",
@@ -371,6 +396,8 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			ConfigDir:   configDir,
 			WrapperPath: wrapperPath,
 			Share:       string(p.ShareLevel()),
+
+			HistoryGroup: p.HistoryGroup,
 		}
 		regEntries = append(regEntries, entry)
 		switch old, ok := oldByID[p.ID()]; {

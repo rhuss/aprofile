@@ -229,18 +229,24 @@ classification:
       unpinFable5LaunchEffort: state
       unpinOpus47LaunchEffort: state
       unpinOpus48LaunchEffort: state
-  # Runtime state: always private (FR-002).
-  - { entry: "projects/", layer: state }
-  - { entry: "history.jsonl", layer: state }
+  # Runtime state: private for isolated profiles (FR-002). Entries marked history
+  # (spec 003, research R1, Claude Code 2.1.319) are linked to the group store for
+  # members of a history group: transcripts and project memory (projects/), prompt
+  # history (history.jsonl, append-only, never merged), the paste cache that
+  # history.jsonl refers to, file checkpoints, per-session to-dos, plans and tasks.
+  # sessions/ (per-process files with a peer token), session-env/,
+  # shell-snapshots/, teams/ and transcripts/ stay private.
+  - { entry: "projects/", layer: state, history: true, merge: per-file }
+  - { entry: "history.jsonl", layer: state, history: true, merge: none }
   - { entry: "sessions/", layer: state }
   - { entry: "session-env/", layer: state }
-  - { entry: "file-history/", layer: state }
-  - { entry: "todos/", layer: state }
+  - { entry: "file-history/", layer: state, history: true, merge: per-file }
+  - { entry: "todos/", layer: state, history: true, merge: per-file }
   - { entry: "shell-snapshots/", layer: state }
-  - { entry: "tasks/", layer: state }
+  - { entry: "tasks/", layer: state, history: true, merge: per-file }
   - { entry: "teams/", layer: state }
-  - { entry: "plans/", layer: state }
-  - { entry: "paste-cache/", layer: state }
+  - { entry: "plans/", layer: state, history: true, merge: per-file }
+  - { entry: "paste-cache/", layer: state, history: true, merge: per-file }
   - { entry: "debug/", layer: state }
   - { entry: "logs/", layer: state }
   - { entry: "telemetry/", layer: state }

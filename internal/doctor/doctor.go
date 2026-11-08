@@ -18,6 +18,7 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/hooksets"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
@@ -91,6 +92,7 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 		findings = append(findings, Finding{Message: "invalid hook set: " + e.Error(), Fix: "correct the hook set file"})
 	}
 
+	groups := history.NewManager(paths, set, store)
 	for _, p := range profiles {
 		def, ok := set.Get(p.Harness)
 		if !ok {
@@ -98,14 +100,27 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 			continue
 		}
 		configDir := paths.ProfileConfigDir(p.Harness, p.Name)
+		// The profile's history store (spec 003): nil for an isolated profile or one
+		// whose group does not exist (reported by the group checks).
+		var hs layer.HistoryStore
+		st, gerr := groups.StoreFor(def, p)
+		switch {
+		case gerr != nil:
+			findings = append(findings, Finding{Profile: p.ID(), Message: gerr.Error() + "; sync leaves its history entries unchanged",
+				Fix: "aprofile edit " + p.ID() + " --group <group> (an existing group), or aprofile edit " + p.ID() + " --no-group"})
+		case st != nil:
+			hs = st
+		}
 		findings = append(findings, fitFindings(def, p)...)
-		findings = append(findings, isolationFindings(def, configDir, p.ID(), p.ShareLevel() != profile.ShareNone)...)
-		findings = append(findings, shareFindings(paths, def, p, lib, configDir)...)
+		findings = append(findings, isolationFindings(def, configDir, p.ID(), p.ShareLevel() != profile.ShareNone, hs)...)
+		findings = append(findings, shareFindings(paths, def, p, lib, configDir, hs)...)
+		findings = append(findings, setAsideFindings(paths, p)...)
 		findings = append(findings, binaryFindings(def, p.ID())...)
 		findings = append(findings, wrapperFindings(paths, def, p)...)
 		findings = append(findings, referenceFindings(p)...)
 		findings = append(findings, authStatusFindings(def, configDir, p)...)
 	}
+	findings = append(findings, groupFindings(groups, set)...)
 	for i := range findings {
 		if findings[i].Severity == "" {
 			findings[i].Severity = SeverityProblem
@@ -182,11 +197,23 @@ func undeclaredKeyFindings(d *harness.Definition) []Finding {
 // entries replaced by real files, diverged managed hooks, missing hook sets and
 // scripts (problems); settings that differ from the default setup and $HOME
 // escapes (information).
-func shareFindings(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string) []Finding {
+func shareFindings(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string, hs layer.HistoryStore) []Finding {
 	var out []Finding
 	id := p.ID()
-	if entries, err := layer.Treatments(def, p, "", configDir); err == nil {
+	if entries, err := layer.TreatmentsWith(def, p, "", configDir, hs); err == nil {
 		for _, e := range entries {
+			if hs != nil && e.Treatment == layer.TreatmentLinked && strings.HasPrefix(e.Reason, "history group ") {
+				// A member's history entry (spec 003, FR-021).
+				switch e.Status {
+				case layer.StatusLinkReplacedByFile:
+					out = append(out, Finding{Profile: id, Message: fmt.Sprintf("history entry %s is a real entry instead of a link to the history group %s store: the profile started its own history again", e.Entry, hs.Name()),
+						Fix: fmt.Sprintf("aprofile sync --relink (backs it up and asks first), or merge it with: aprofile edit %s --group %s", id, hs.Name())})
+				case layer.StatusWrongHistoryLink:
+					out = append(out, Finding{Profile: id, Message: fmt.Sprintf("history entry %s links somewhere other than the history group %s store (%s)", e.Entry, hs.Name(), hs.EntryPath(e.Entry)),
+						Fix: "aprofile sync (relinks it)"})
+				}
+				continue
+			}
 			switch e.Status {
 			case layer.StatusLinkReplacedByFile:
 				out = append(out, Finding{Profile: id, Message: fmt.Sprintf("the profile stopped sharing %s: the link was replaced by a real file", e.Entry),
@@ -464,7 +491,10 @@ func detailSuffix(detail string) string {
 // unclassified entries, state/credentials entries that are links (leaks), and, for a
 // profile whose mixed files were seeded (share level all or content), seeded
 // mixed-file keys that drifted from the default setup.
-func isolationFindings(def *harness.Definition, configDir, id string, seeded bool) []Finding {
+//
+// hs is the profile's history group store (nil when isolated): a member's history
+// entry that links to its store path is correct, not a leak (spec 003, research R7).
+func isolationFindings(def *harness.Definition, configDir, id string, seeded bool, hs layer.HistoryStore) []Finding {
 	var out []Finding
 	defaultSetup := harness.ExpandHome(def.DefaultConfigLocation)
 
@@ -507,6 +537,11 @@ func isolationFindings(def *harness.Definition, configDir, id string, seeded boo
 				continue
 			}
 			target, _ := os.Readlink(entryPath)
+			if hs != nil && rule.History {
+				// A member's history link: shareFindings reports a link to the wrong
+				// place with the history-specific fix (plain sync relinks it).
+				continue
+			}
 			msg := fmt.Sprintf("%s entry %q is a symlink -> %s (leaks across profiles)", rule.Layer, rule.Entry, target)
 			if leaksToDefault(target, defaultSetup) || leaksToDefault(target, def.DefaultPath(rel)) {
 				msg = fmt.Sprintf("%s entry %q leaks to the shared default setup (%s)", rule.Layer, rule.Entry, target)
@@ -550,4 +585,49 @@ func leaksToDefault(target, defaultSetup string) bool {
 	t := filepath.Clean(target)
 	d := filepath.Clean(defaultSetup)
 	return t == d || strings.HasPrefix(t, d+string(filepath.Separator))
+}
+
+// groupFindings reports the installation-wide history group conditions (spec 003,
+// FR-021): a missing store of a non-home group (problem) and kept stores of
+// deleted groups (information).
+func groupFindings(groups *history.Manager, set *harness.Set) []Finding {
+	var out []Finding
+	for _, def := range set.All() {
+		if !def.SupportsGroups() {
+			continue
+		}
+		list, err := groups.List(def.Name)
+		if err != nil {
+			continue
+		}
+		for _, g := range list {
+			if g.Builtin {
+				continue
+			}
+			if _, err := os.Stat(g.Store); os.IsNotExist(err) {
+				out = append(out, Finding{Message: fmt.Sprintf("history group %s: its store %s is missing; the history it held is gone", g.ID(), g.Store),
+					Fix: "aprofile sync (recreates the store's entries empty)"})
+			}
+		}
+		for _, kept := range groups.KeptStores(def.Name) {
+			out = append(out, Finding{Severity: SeverityInfo, Message: fmt.Sprintf("kept store of a deleted history group of %s: %s", def.Name, kept),
+				Fix: "move or remove it by hand when you no longer need its history"})
+		}
+	}
+	return out
+}
+
+// setAsideFindings lists a profile's set-aside history as information (FR-021).
+func setAsideFindings(paths *config.Paths, p *profile.Profile) []Finding {
+	runs, err := history.ListSetAside(paths, p.Harness, p.Name)
+	if err != nil {
+		return nil
+	}
+	var out []Finding
+	for _, r := range runs {
+		out = append(out, Finding{Profile: p.ID(), Severity: SeverityInfo,
+			Message: fmt.Sprintf("set-aside history from a history group join: %s (%d items); the harness never reads it", r.Dir, len(r.Items)),
+			Fix:     "move items back by hand if you need them; aprofile remove --purge deletes it with the profile"})
+	}
+	return out
 }

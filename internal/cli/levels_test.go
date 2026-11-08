@@ -38,3 +38,14 @@ func TestLevelDescriptions(t *testing.T) {
 		}
 	}
 }
+
+// spec 003 (FR-026, plan Design Decision 7): logins are always private; history and
+// memory only in a history group.
+func TestAlwaysPrivateMentionsHistoryGroups(t *testing.T) {
+	if alwaysPrivate != "logins are always private; history and memory are private unless you put profiles in a history group" {
+		t.Errorf("alwaysPrivate = %q", alwaysPrivate)
+	}
+	if len(historyUseCases) != 4 {
+		t.Errorf("history use cases = %d, want 4", len(historyUseCases))
+	}
+}

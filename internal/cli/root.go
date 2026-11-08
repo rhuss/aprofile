@@ -11,6 +11,8 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/config"
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/history"
+	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 )
 
@@ -76,6 +78,7 @@ func NewRootCmd() *cobra.Command {
 		newSharingHelpCmd(),
 		newSettingsCmd(),
 		newHookSetsCmd(),
+		newGroupCmd(),
 	)
 	return root
 }
@@ -88,4 +91,22 @@ func Execute() int {
 		fmt.Fprintln(cmdErr(), "aprofile: "+err.Error())
 	}
 	return exitCode(err)
+}
+
+// groups returns the history group manager (spec 003).
+func (a *app) groups() *history.Manager { return history.NewManager(a.paths, a.set, a.store) }
+
+// prepareOptions returns the config-dir preparation options for a profile with
+// its history group store: nil store for an isolated profile, history entries left
+// unchanged for a profile of a group that does not exist (FR-022c).
+func (a *app) prepareOptions(def *harness.Definition, p *profile.Profile) layer.PrepareOptions {
+	var opts layer.PrepareOptions
+	st, err := a.groups().StoreFor(def, p)
+	switch {
+	case err != nil:
+		opts.SkipHistory = true
+	case st != nil:
+		opts.HistoryStore = st
+	}
+	return opts
 }

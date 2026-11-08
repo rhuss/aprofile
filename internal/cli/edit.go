@@ -30,8 +30,10 @@ func newEditCmd() *cobra.Command {
 		},
 	}
 	f.bind(cmd)
-	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "with --share: list the config dir changes without making them")
-	cmd.Flags().BoolVar(&f.yes, "yes", false, "with --share: confirm changes that replace profile data (required off a terminal)")
+	cmd.Flags().BoolVar(&f.noGroup, "no-group", false, "leave the profile's history group: its history becomes its own again (fresh and empty; the group's history is not changed)")
+	cmd.MarkFlagsMutuallyExclusive("group", "no-group")
+	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "with --share, --group or --no-group: list the changes without making them")
+	cmd.Flags().BoolVar(&f.yes, "yes", false, "with --share, --group or --no-group: confirm changes that replace, move or set aside profile data (required off a terminal)")
 	return cmd
 }
 
@@ -79,7 +81,7 @@ func runEdit(cmd *cobra.Command, ref string, f *profileFlags) error {
 var editValueFlags = []string{
 	"--model", "--endpoint", "--auth-kind", "--auth-key", "--env", "--env-literal",
 	"--color", "--icon", "--label", "--primary", "--herdr-agent",
-	"--share", "--hook-sets", "--exclude-hook-sets",
+	"--share", "--hook-sets", "--exclude-hook-sets", "--group", "--no-group",
 }
 
 // anyProfileFlagChanged reports whether the user set any value flag on an edit.
@@ -87,7 +89,7 @@ func anyProfileFlagChanged(cmd *cobra.Command) bool {
 	for _, name := range []string{
 		"model", "endpoint", "auth-kind", "auth-key", "env", "env-literal",
 		"color", "icon", "label", "primary", "herdr-agent",
-		"share", "hook-sets", "exclude-hook-sets",
+		"share", "hook-sets", "exclude-hook-sets", "group", "no-group",
 	} {
 		if cmd.Flags().Changed(name) {
 			return true
@@ -112,6 +114,7 @@ func formEditDefaults(p *profile.Profile) *profileFlags {
 		share:           string(p.ShareLevel()),
 		hookSets:        append([]string(nil), p.HookSets...),
 		excludeHookSets: append([]string(nil), p.ExcludeHookSets...),
+		group:           p.HistoryGroup,
 	}
 	// The form has one key field. Pre-fill the reference of the lexically first
 	// variable so the choice is stable when a profile holds several.
@@ -133,6 +136,7 @@ func formEditDefaults(p *profile.Profile) *profileFlags {
 func applyEditForm(a *app, cmd *cobra.Command, p *profile.Profile, def *harness.Definition, v tui.FormValues) error {
 	f := &profileFlags{}
 	applyFormValues(f, v)
+	f.noGroup = v.HistoryGroup == "" && p.HistoryGroup != ""
 	changed := func(name string) bool {
 		switch name {
 		case "auth-key":
@@ -147,6 +151,10 @@ func applyEditForm(a *app, cmd *cobra.Command, p *profile.Profile, def *harness.
 			return !sameStrings(v.HookSets, p.HookSets)
 		case "exclude-hook-sets":
 			return !sameStrings(v.ExcludeHookSets, p.ExcludeHookSets)
+		case "group":
+			return v.HistoryGroup != "" && v.HistoryGroup != p.HistoryGroup
+		case "no-group":
+			return v.HistoryGroup == "" && p.HistoryGroup != ""
 		default:
 			return true
 		}
@@ -186,8 +194,17 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 	// --share with the current level re-applies that level's plan, which completes
 	// the steps sync only reports (FR-017a).
 	shareGiven := changed("share")
-	if f.dryRun && !shareGiven {
-		return fmt.Errorf("--dry-run previews a share level change; pass --share (current: %s)", oldLevel)
+	// --no-group=false is no change (it never leaves the group).
+	groupGiven := changed("group") || (changed("no-group") && f.noGroup)
+	if f.dryRun && !shareGiven && !groupGiven {
+		return fmt.Errorf("--dry-run previews a share level or history group change; pass --share (current: %s), --group or --no-group", oldLevel)
+	}
+	// FR-009: an unknown group, or a home join the default location cannot serve,
+	// fails before anything changes (exit 2).
+	if changed("group") && f.group != "" {
+		if _, err := a.checkGroupJoin(def, f.group); err != nil {
+			return err
+		}
 	}
 	if changed("color") {
 		if err := validateColor(f.color); err != nil {
@@ -257,11 +274,49 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 	if err := a.applyHookSetFlags(p, def, f.hookSets, f.excludeHookSets, changed("hook-sets"), changed("exclude-hook-sets"), newLevel != oldLevel); err != nil {
 		return err
 	}
+	// Share level and history group are independent; with both, the share change
+	// runs first (contracts/cli.md). The group change's confirmation is resolved
+	// before the share change writes anything, so exit 3 changes nothing (FR-013).
+	groupTo := f.group
+	if changed("no-group") && f.noGroup {
+		groupTo = ""
+	}
+	groupYes := f.yes
+	if shareGiven && groupGiven && !f.dryRun {
+		confirmed, ok, err := a.confirmGroupFirst(cmd, p, def, groupTo, f.yes)
+		if err != nil || !ok {
+			return err
+		}
+		groupYes = groupYes || confirmed
+	}
 	if shareGiven {
-		done, err := a.changeShare(cmd, p, def, oldLevel, newLevel, f.dryRun, f.yes)
+		// With a group change in the same edit, the history entries belong to the
+		// group change alone: the share plan leaves them untouched, so the join is
+		// planned against the same entries in the dry run and in the real run
+		// (FR-013, SC-005).
+		done, err := a.changeShare(cmd, p, def, oldLevel, newLevel, f.dryRun, f.yes, groupGiven)
+		if err != nil {
+			return err
+		}
+		if !done && !f.dryRun {
+			return nil
+		}
+		if done && groupGiven {
+			// The share change is applied: record it before the group change, which
+			// may still fail or be declined.
+			if err := a.store.Save(p); err != nil {
+				return err
+			}
+		}
+	}
+	if groupGiven {
+		done, err := a.changeGroup(cmd, p, def, groupTo, f.dryRun, groupYes, shareGiven)
 		if err != nil || !done {
 			return err
 		}
+	}
+	if f.dryRun {
+		return nil
 	}
 	if changed("primary") {
 		p.Primary = f.primary
@@ -288,9 +343,19 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 // plan, refuses while the profile runs, asks once (or requires --yes) when a step
 // replaces profile data, backs that data up, and applies exactly the listed steps.
 // It returns done=false when nothing should be saved (dry run or declined).
-func (a *app) changeShare(cmd *cobra.Command, p *profile.Profile, def *harness.Definition, from, to profile.Share, dryRun, yes bool) (bool, error) {
+func (a *app) changeShare(cmd *cobra.Command, p *profile.Profile, def *harness.Definition, from, to profile.Share, dryRun, yes, skipHistory bool) (bool, error) {
 	configDir := a.paths.ProfileConfigDir(p.Harness, p.Name)
-	steps, err := layer.Plan(def, to, "", configDir)
+	// A member's history links stay as they are: membership is independent of the
+	// share level (FR-012, FR-018). skipHistory leaves every history entry to a
+	// group change of the same edit.
+	po := a.historyPlanOptions(def, p)
+	if skipHistory {
+		// The group change owns every link into the group store, including those
+		// of entries that are no longer history (it detaches them), so each is
+		// listed once and dry run and real run list the same steps.
+		po.SkipHistory = true
+	}
+	steps, err := layer.PlanWith(def, to, "", configDir, po)
 	if err != nil {
 		return false, err
 	}
@@ -547,6 +612,12 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 	if layer.DirExists(oldCreds) && layer.DirExists(newCreds) {
 		return fmt.Errorf("an imported credentials dir already exists at %s; remove it if no profile uses it", newCreds)
 	}
+	// The set-aside history of a history group join belongs to the profile and
+	// moves with it (spec 003, FR-019).
+	oldAside, newAside := a.paths.SetAsideDir(h, n), a.paths.SetAsideDir(h, newName)
+	if _, err := os.Lstat(newAside); err == nil {
+		return fmt.Errorf("set-aside history already exists at %s; move it away if no profile uses it", newAside)
+	}
 	// Move the config dir if it exists.
 	if layer.DirExists(oldConfigDir) {
 		if err := os.MkdirAll(filepath.Dir(newConfigDir), 0o755); err != nil {
@@ -573,6 +644,14 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 	}
 	if err := rewriteCredentialPaths(p, oldCreds, newCreds); err != nil {
 		return err
+	}
+	if layer.DirExists(oldAside) {
+		if err := os.MkdirAll(filepath.Dir(newAside), 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(oldAside, newAside); err != nil {
+			return fmt.Errorf("move set-aside history: %w", err)
+		}
 	}
 	// Move the store file (write new, remove old).
 	p.Name = newName
@@ -670,9 +749,16 @@ func runRemove(cmd *cobra.Command, h, n string, purge, yes bool) error {
 	credsDir := a.paths.CredentialsDir(h, n)
 
 	if purge {
-		prompt := fmt.Sprintf("Delete config dir %s including credentials and state?", configDir)
+		var extra []string
 		if layer.DirExists(credsDir) {
-			prompt = fmt.Sprintf("Delete config dir %s including credentials and state, and the imported credential files in %s?", configDir, credsDir)
+			extra = append(extra, "the imported credential files in "+credsDir)
+		}
+		if layer.DirExists(a.paths.SetAsideDir(h, n)) {
+			extra = append(extra, "the set-aside history in "+a.paths.SetAsideDir(h, n))
+		}
+		prompt := fmt.Sprintf("Delete config dir %s including credentials and state?", configDir)
+		if len(extra) > 0 {
+			prompt = fmt.Sprintf("Delete config dir %s including credentials and state, and %s?", configDir, strings.Join(extra, " and "))
 		}
 		err := confirmOrYes(cmd, prompt, yes)
 		if err == errDeclined {
@@ -695,6 +781,12 @@ func runRemove(cmd *cobra.Command, h, n string, purge, yes bool) error {
 		// with the confirmed purge).
 		if err := os.RemoveAll(credsDir); err != nil {
 			return fmt.Errorf("purge imported credentials dir: %w", err)
+		}
+		// The profile's set-aside history (spec 003, FR-019). os.RemoveAll of the
+		// config dir removes a member's history links themselves and never follows
+		// them, so no group store and nothing in the default setup is touched.
+		if err := os.RemoveAll(a.paths.SetAsideDir(h, n)); err != nil {
+			return fmt.Errorf("purge set-aside history: %w", err)
 		}
 		// The entries the record lists went with the config dir; a stale record
 		// would let a later profile of the same name claim the user's own groups.

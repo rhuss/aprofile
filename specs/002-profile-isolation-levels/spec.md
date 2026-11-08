@@ -132,6 +132,12 @@ are private to the profile; the level only decides how much of the user's setup 
 | Plugin store (installed plugin code) | linked | linked; which plugins are enabled stays per profile | private; plugins are installed per profile |
 | Hooks | the default setup's hooks (a separate hook file is linked; hooks inside a linked settings file come with it) | hook sets: named ones plus those that apply to every profile, minus excluded ones | hook sets: named ones only |
 
+Note (spec 003, history groups): the runtime state row has one opt-in exception. The entries a
+harness definition declares as history are linked to the group store for a member of an
+explicitly chosen history group, at every level; credentials and all other state stay private,
+and a profile in no group keeps this table unchanged. See
+`specs/003-history-groups/spec.md` (FR-025) and Constitution 1.2.0.
+
 What `all` shares therefore differs per harness (for example, Codex keeps MCP servers inside its
 settings file, so that file stays private). `aprofile harness show <name>`, `aprofile show` and
 `aprofile help sharing` state per harness what each level shares (FR-022).
@@ -410,7 +416,9 @@ deleted.
 - **FR-008**: At every level, credentials, state and owned entries MUST keep their slice one
   treatment (private; owned travels with `copy`). The skills directory moves from owned to
   content: it is linked at `all` and `content`, and is the profile's own (starting empty) at
-  `none`, where it travels with `copy`.
+  `none`, where it travels with `copy`. (Spec 003 adds an opt-in exception for state: the
+  history entries of a member of a history group are linked to the group store; see
+  `specs/003-history-groups/spec.md`, FR-014 to FR-016 and FR-025.)
 - **FR-009**: Harness definitions MUST split the former shared layer into **content** entries,
   **settings** entries, the **plugin store** and the **hook location**. The treatment of each
   category at each level MUST come from the level table above and the definition data; no core

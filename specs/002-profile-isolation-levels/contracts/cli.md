@@ -108,3 +108,9 @@ references, `--json`, exit codes, TTY handling, secret references) apply unchang
   `format_version` stays 1 (slice one's contract requires a bump only for breaking changes); the
   slice one `registry-and-env.md` gets a note recording the addition.
 - All errors other than the codes above keep exiting 1 (`cli.Execute`).
+- Spec 003 (history groups) adds, also additively at `format_version` 1: wrappers always export
+  `APROFILE_HISTORY_GROUP=<group>` (empty when isolated, not caller-overridable), and registry
+  entries gain `"history_group"`. It also changes the `all` description to
+  `Uses your whole setup live; logins stay private, history too unless grouped.` and the
+  always-private sentence to "logins are always private; history and memory are private unless
+  you put profiles in a history group" (`specs/003-history-groups/contracts/cli.md`).

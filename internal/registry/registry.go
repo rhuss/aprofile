@@ -37,6 +37,9 @@ type Entry struct {
 	// Share is the profile's share level (feature 002, FR-019): all, content or
 	// none. Added additively at format_version 1.
 	Share string `json:"share"`
+	// HistoryGroup is the profile's history group (feature 003, FR-024), empty for
+	// an isolated profile. Added additively at format_version 1.
+	HistoryGroup string `json:"history_group"`
 }
 
 // Marshal renders the registry JSON deterministically: entries sorted by

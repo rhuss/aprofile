@@ -664,3 +664,278 @@ func TestDotEntryRejected(t *testing.T) {
 		t.Error("an entry for the profile root must be rejected")
 	}
 }
+
+// ---- spec 003: history awareness (research R7) ----
+
+// toyHistDef marks some state entries as history.
+const toyHistDef = `name: toy
+binary: toy
+wrapper_prefix: toy
+config_env: { TOY_HOME: "." }
+default_config_location: "~/.toy"
+classification:
+  - { entry: "auth.json", layer: credentials }
+  - { entry: "history.jsonl", layer: state, history: true }
+  - { entry: "sessions/", layer: state, history: true, merge: per-file }
+  - { entry: "todos/", layer: state, history: true, merge: per-file }
+  - { entry: "logs/", layer: state }
+  - { entry: "NOTES.md", layer: content }
+`
+
+// toyNoHistDef is toyHistDef without the history flags.
+const toyNoHistDef = `name: toy
+binary: toy
+wrapper_prefix: toy
+config_env: { TOY_HOME: "." }
+default_config_location: "~/.toy"
+classification:
+  - { entry: "auth.json", layer: credentials }
+  - { entry: "history.jsonl", layer: state }
+  - { entry: "sessions/", layer: state }
+  - { entry: "todos/", layer: state }
+  - { entry: "logs/", layer: state }
+  - { entry: "NOTES.md", layer: content }
+`
+
+// fakeStore is a layer.HistoryStore rooted at a directory.
+type fakeStore struct {
+	root string
+	home bool
+	name string
+}
+
+func (s fakeStore) EntryPath(rel string) string {
+	return filepath.Join(s.root, filepath.FromSlash(strings.TrimSuffix(rel, "/")))
+}
+func (s fakeStore) IsHome() bool { return s.home }
+func (s fakeStore) Name() string { return s.name }
+
+func histOpts(st layer.HistoryStore, explicit bool) layer.PlanOptions {
+	return layer.PlanOptions{HistoryStore: st, ExplicitJoin: explicit, ProfileID: "toy/p"}
+}
+
+func TestPlanHistoryMember(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	def := loadToy(t, toyHistDef)
+	work := fakeStore{root: filepath.Join(h.DataHome, "aprofile", "groups", "toy", "work"), name: "work"}
+	homeSt := fakeStore{root: filepath.Join(h.Root, ".toy"), home: true, name: "home"}
+
+	t.Run("correct links yield no step", func(t *testing.T) {
+		dir := filepath.Join(h.DataHome, "p1")
+		for _, e := range []string{"history.jsonl", "sessions", "todos"} {
+			testutil.WriteFile(t, filepath.Join(dir, "keep"), "")
+			if err := os.Symlink(work.EntryPath(e), filepath.Join(dir, e)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		steps, err := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range []string{"history.jsonl", "sessions", "todos"} {
+			if got := entryFor(steps, e); len(got) != 0 {
+				t.Errorf("%s: unexpected steps %v", e, kinds(got))
+			}
+		}
+	})
+
+	t.Run("wrong target relinks", func(t *testing.T) {
+		dir := filepath.Join(h.DataHome, "p2")
+		testutil.WriteFile(t, filepath.Join(dir, "keep"), "")
+		if err := os.Symlink(homeSt.EntryPath("sessions"), filepath.Join(dir, "sessions")); err != nil {
+			t.Fatal(err)
+		}
+		steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+		s := has(steps, layer.StepRelinkHistory, "sessions")
+		if s == nil || s.Source != work.EntryPath("sessions") || s.Confirm {
+			t.Fatalf("want unconfirmed relink-history sessions -> work store, got %v", kinds(steps))
+		}
+	})
+
+	t.Run("absent entries, data-dir store", func(t *testing.T) {
+		dir := filepath.Join(h.DataHome, "p3")
+		testutil.WriteFile(t, filepath.Join(work.root, "todos", "x.json"), "{}") // store side exists
+		steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+		if s := has(steps, layer.StepLinkHistory, "history.jsonl"); s == nil || s.Source != work.EntryPath("history.jsonl") {
+			t.Errorf("absent file entry must be linked (dangling until written): %v", kinds(steps))
+		}
+		if has(steps, layer.StepLinkHistory, "todos") == nil {
+			t.Errorf("todos: want link-history, got %v", kinds(steps))
+		}
+		if has(steps, layer.StepMkdir, work.EntryPath("todos")) != nil {
+			t.Error("todos store dir exists: no mkdir expected")
+		}
+		if has(steps, layer.StepMkdir, work.EntryPath("sessions")) == nil || has(steps, layer.StepLinkHistory, "sessions") == nil {
+			t.Errorf("sessions: want store-side mkdir and link-history, got %v", kinds(steps))
+		}
+		if has(steps, layer.StepMkdir, "sessions") != nil {
+			t.Error("a member must not get a private sessions directory")
+		}
+		// Non-history state stays private.
+		if has(steps, layer.StepMkdir, "logs") == nil {
+			t.Errorf("logs: want private mkdir, got %v", kinds(steps))
+		}
+		apply(t, steps, false)
+		for _, e := range []string{"history.jsonl", "sessions", "todos"} {
+			target, err := os.Readlink(filepath.Join(dir, e))
+			if err != nil || target != work.EntryPath(e) {
+				t.Errorf("%s: link = %q, %v", e, target, err)
+			}
+		}
+		again, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+		for _, s := range again {
+			if s.Mutating() {
+				t.Errorf("second plan must not change anything, got %s %s", s.Kind, s.Entry)
+			}
+		}
+	})
+
+	t.Run("home store missing dir", func(t *testing.T) {
+		dir := filepath.Join(h.DataHome, "p4")
+		// sync mode: the default setup is never written.
+		steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(homeSt, false))
+		for _, s := range steps {
+			if s.Kind == layer.StepMkdir && s.Note == "default setup" {
+				t.Fatalf("sync-mode plan contains a default setup mkdir: %s", s)
+			}
+		}
+		var rep *layer.Step
+		for i := range steps {
+			if steps[i].Kind == layer.StepReport && steps[i].Entry == "sessions" {
+				rep = &steps[i]
+			}
+		}
+		if rep == nil || !strings.Contains(rep.Note, "aprofile edit toy/p --group home") {
+			t.Errorf("want a report naming edit --group home, got %v", kinds(steps))
+		}
+		if has(steps, layer.StepLinkHistory, "sessions") != nil {
+			t.Error("sync mode must not link a missing home directory")
+		}
+		// The file entry is linked anyway.
+		if has(steps, layer.StepLinkHistory, "history.jsonl") == nil {
+			t.Errorf("history.jsonl: want link-history, got %v", kinds(steps))
+		}
+		// Explicit join: create it empty in the default location.
+		steps, _ = layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(homeSt, true))
+		mk := has(steps, layer.StepMkdir, homeSt.EntryPath("sessions"))
+		if mk == nil || mk.Note != "default setup" || has(steps, layer.StepLinkHistory, "sessions") == nil {
+			t.Errorf("explicit join: want default setup mkdir and link-history, got %v", kinds(steps))
+		}
+	})
+
+	t.Run("real entry is reported, relink replaces after confirm", func(t *testing.T) {
+		dir := filepath.Join(h.DataHome, "p5")
+		testutil.WriteFile(t, filepath.Join(dir, "sessions", "s.jsonl"), "{}")
+		steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+		var rep *layer.Step
+		for i := range steps {
+			if steps[i].Kind == layer.StepReport && steps[i].Entry == "sessions" {
+				rep = &steps[i]
+			}
+		}
+		if rep == nil || !strings.Contains(rep.Note, "aprofile edit toy/p --group work") {
+			t.Errorf("want a report naming edit --group work, got %v", kinds(steps))
+		}
+		opts := histOpts(work, false)
+		opts.Relink = true
+		steps, _ = layer.PlanWith(def, profile.ShareAll, h.Root, dir, opts)
+		if s := has(steps, layer.StepReplaceWithLink, "sessions"); s == nil || !s.Confirm || s.Source != work.EntryPath("sessions") {
+			t.Errorf("relink: want confirmed replace-with-link to the store, got %v", kinds(steps))
+		}
+	})
+
+	t.Run("link into the store for a non-history entry is fixed", func(t *testing.T) {
+		dir := filepath.Join(h.DataHome, "p6")
+		testutil.WriteFile(t, filepath.Join(dir, "keep"), "")
+		if err := os.Symlink(work.EntryPath("logs"), filepath.Join(dir, "logs")); err != nil {
+			t.Fatal(err)
+		}
+		steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+		if s := has(steps, layer.StepFixLink, "logs"); s == nil || !s.IsDir {
+			t.Errorf("want fix-link logs, got %v", kinds(steps))
+		}
+	})
+}
+
+// With no history store, a definition's history flags change nothing (SC-002).
+func TestPlanHistoryIsolatedUnchanged(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	hist := loadToy(t, toyHistDef)
+	plain := loadToy(t, toyNoHistDef)
+	testutil.WriteFile(t, filepath.Join(h.Root, ".toy", "NOTES.md"), "# n\n")
+	dirs := map[string]func(dir string){
+		"fresh": func(string) {},
+		"real entries": func(dir string) {
+			testutil.WriteFile(t, filepath.Join(dir, "sessions", "s.jsonl"), "{}")
+			testutil.WriteFile(t, filepath.Join(dir, "history.jsonl"), "x\n")
+		},
+		"leaking links": func(dir string) {
+			testutil.WriteFile(t, filepath.Join(dir, "keep"), "")
+			_ = os.Symlink(filepath.Join(h.Root, ".toy", "sessions"), filepath.Join(dir, "sessions"))
+			_ = os.Symlink(filepath.Join(h.Root, ".toy", "history.jsonl"), filepath.Join(dir, "history.jsonl"))
+		},
+	}
+	for name, seed := range dirs {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(h.DataHome, strings.ReplaceAll(name, " ", "-"))
+			seed(dir)
+			for _, opts := range []layer.PlanOptions{{}, {FixLinks: true}, {Relink: true}} {
+				a, err := layer.PlanWith(hist, profile.ShareAll, h.Root, dir, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, _ := layer.PlanWith(plain, profile.ShareAll, h.Root, dir, opts)
+				ja, _ := json.Marshal(a)
+				jb, _ := json.Marshal(b)
+				if string(ja) != string(jb) {
+					t.Errorf("opts %+v: plan with history flags differs for an isolated profile:\n%s\n%s", opts, ja, jb)
+				}
+			}
+		})
+	}
+}
+
+// Checkpoint 1 review: a store directory removed by hand is recreated for a correct
+// link (non-home store), and a relink to a missing home directory is reported in
+// sync mode instead of creating a dangling link.
+func TestPlanHistoryStoreDirRecreated(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	def := loadToy(t, toyHistDef)
+	work := fakeStore{root: filepath.Join(h.DataHome, "store"), name: "work"}
+	homeSt := fakeStore{root: filepath.Join(h.Root, ".toy"), home: true, name: "home"}
+	dir := filepath.Join(h.DataHome, "p")
+	testutil.WriteFile(t, filepath.Join(dir, "keep"), "")
+	if err := os.Symlink(work.EntryPath("sessions"), filepath.Join(dir, "sessions")); err != nil {
+		t.Fatal(err)
+	}
+	steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+	if has(steps, layer.StepMkdir, work.EntryPath("sessions")) == nil {
+		t.Errorf("missing store dir behind a correct link: want store-side mkdir, got %v", kinds(steps))
+	}
+	steps, _ = layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(homeSt, false))
+	if has(steps, layer.StepRelinkHistory, "sessions") != nil {
+		t.Errorf("sync mode must not relink to a missing home directory: %v", kinds(steps))
+	}
+	for _, s := range steps {
+		if s.Kind == layer.StepMkdir && s.Note == "default setup" {
+			t.Fatalf("sync-mode plan writes the default setup: %s", s)
+		}
+	}
+}
+
+// A non-history state entry that is a leaking link outside the store keeps the
+// spec 002 handling for members too.
+func TestPlanHistoryMemberOtherLeakUnchanged(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	def := loadToy(t, toyHistDef)
+	work := fakeStore{root: filepath.Join(h.DataHome, "store"), name: "work"}
+	dir := filepath.Join(h.DataHome, "p")
+	testutil.WriteFile(t, filepath.Join(dir, "keep"), "")
+	if err := os.Symlink(filepath.Join(h.Root, ".toy", "logs"), filepath.Join(dir, "logs")); err != nil {
+		t.Fatal(err)
+	}
+	steps, _ := layer.PlanWith(def, profile.ShareAll, h.Root, dir, histOpts(work, false))
+	if has(steps, layer.StepFixLink, "logs") != nil {
+		t.Error("a leak outside the store must only be reported without --fix-links")
+	}
+}

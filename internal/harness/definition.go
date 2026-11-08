@@ -202,6 +202,9 @@ type Definition struct {
 	// the environment it implies. `aprofile import cc-deck` reads it (FR-045); a
 	// backend the definition does not declare cannot be imported.
 	Backends map[string]Backend `yaml:"backends" json:"backends,omitempty"`
+	// HistoryNote is free text about version sensitivity of the history entries
+	// (spec 003), shown by harness show and help sharing.
+	HistoryNote string `yaml:"history_note,omitempty" json:"history_note,omitempty"`
 
 	// Source records, per field, where the effective value came from:
 	// "builtin" or an absolute file path. Populated by Load's override-merge; for a
@@ -248,6 +251,11 @@ type EntryRule struct {
 	// Database marks a rule whose entry is a database without a .sqlite/.db name;
 	// its companion files share its layer (FR-004).
 	Database bool `yaml:"database,omitempty" json:"database,omitempty"`
+	// History marks a state entry as history (spec 003): a member of a history group
+	// links it to the group store; an isolated profile keeps it private.
+	History bool `yaml:"history,omitempty" json:"history,omitempty"`
+	// Merge decides what a join does with a profile's existing history entry.
+	Merge MergeMode `yaml:"merge,omitempty" json:"merge,omitempty"`
 
 	// CompanionOf names the database rule a companion rule was derived from.
 	CompanionOf string `yaml:"-" json:"companion_of,omitempty"`
@@ -255,6 +263,53 @@ type EntryRule struct {
 	Deprecated bool `yaml:"-" json:"deprecated,omitempty"`
 	// Origin is "builtin" or the harnesses.d file the rule came from.
 	Origin string `yaml:"-" json:"origin,omitempty"`
+}
+
+// MergeMode is how a join treats a profile's existing history entry (spec 003).
+type MergeMode string
+
+const (
+	// MergePerFile moves each file whose relative path does not exist in the store,
+	// recursively, and sets aside the rest.
+	MergePerFile MergeMode = "per-file"
+	// MergeNone sets the whole entry aside. An empty merge field means none.
+	MergeNone MergeMode = "none"
+)
+
+// EffectiveMerge returns the rule's merge mode, with the empty value as none.
+func (r EntryRule) EffectiveMerge() MergeMode {
+	if r.Merge == "" {
+		return MergeNone
+	}
+	return r.Merge
+}
+
+// HistoryRules returns the classification rules declared as history, in order
+// (database companions included).
+func (d *Definition) HistoryRules() []EntryRule {
+	var out []EntryRule
+	for _, r := range d.Classification {
+		if r.History {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// SupportsGroups reports whether the harness supports history groups: its
+// definition declares at least one history entry (FR-003).
+func (d *Definition) SupportsGroups() bool { return len(d.HistoryRules()) > 0 }
+
+// HistoryRule returns the history rule for a profile-relative entry path, or nil.
+func (d *Definition) HistoryRule(rel string) *EntryRule {
+	rel = strings.TrimSuffix(filepath.ToSlash(rel), "/")
+	for i := range d.Classification {
+		r := &d.Classification[i]
+		if r.History && r.Path() == rel {
+			return r
+		}
+	}
+	return nil
 }
 
 // IsGlob reports whether the rule's entry contains glob metacharacters.

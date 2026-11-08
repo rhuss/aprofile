@@ -53,6 +53,11 @@ type copyReportJSON struct {
 	// Backup is the directory the replaced data of an existing target was copied to
 	// before an --overwrite copy (empty for a new target).
 	Backup string `json:"backup,omitempty"`
+	// Feature 003 (FR-018): the target's history group (copy never transfers
+	// history; the target is isolated unless --group), and a hint naming the flag
+	// when the source is a member and the target's harness has a group of that name.
+	HistoryGroup     string `json:"history_group"`
+	HistoryGroupHint string `json:"history_group_hint,omitempty"`
 }
 
 type copyFlags struct {
@@ -71,6 +76,8 @@ type copyFlags struct {
 	excludeHookSets []string
 	setHookSets     bool
 	setExclude      bool
+	// Feature 003: history group of a new target.
+	group string
 }
 
 // copyFlagsFromForm maps the copy form's values onto the copy flags, the same path
@@ -115,6 +122,7 @@ func newCopyCmd() *cobra.Command {
 	fl.StringVar(&f.color, "color", "", "override the carried color")
 	fl.StringVar(&f.icon, "icon", "", "override the carried icon")
 	fl.BoolVar(&f.asJSON, "json", false, "emit a machine-readable ConversionReport")
+	fl.StringVar(&f.group, "group", "", "history group of the target's harness for a new target (default: none; copy never transfers history)")
 	return cmd
 }
 
@@ -179,6 +187,21 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	if err := checkWrapperClash(a, dh, dn, ""); err != nil {
 		return err
 	}
+	// FR-018: --group names a group of the target's harness and is validated before
+	// anything is written (exit 2). An existing target keeps its membership, which
+	// changes only through edit --group.
+	if f.group != "" {
+		if targetExists && existingTarget.HistoryGroup != f.group {
+			return exitErrorf(ExitInvalidForLevel, "target %s is in history group %q; change it with: aprofile edit %s --group %s, then copy again",
+				existingTarget.ID(), existingTarget.HistoryGroup, existingTarget.ID(), f.group)
+		}
+		if !targetExists && layer.DirExists(dstConfigDir) {
+			return exitErrorf(ExitInvalidForLevel, "--group with an adopted config dir: its history must be merged or set aside first; copy without --group, then run: aprofile edit %s/%s --group %s (nothing changed)", dh, dn, f.group)
+		}
+		if _, err := a.checkGroupJoin(dstDef, f.group); err != nil {
+			return err
+		}
+	}
 	// Auth is validated before anything is written for the target (T067, T075).
 	var auth copyAuth
 	if sh == dh {
@@ -220,6 +243,16 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	}
 	target.Share = level
 	report.Share = string(level)
+	if !targetExists && f.group != "" {
+		target.HistoryGroup = f.group
+	}
+	report.HistoryGroup = target.HistoryGroup
+	if src.HistoryGroup != "" && target.HistoryGroup == "" && dstDef.SupportsGroups() {
+		if _, gerr := a.groups().Get(dh, src.HistoryGroup); gerr == nil {
+			report.HistoryGroupHint = fmt.Sprintf("source %s is in history group %s; the target is isolated (copy never transfers history); to share that history, copy with --group %s or run: aprofile edit %s/%s --group %s",
+				src.ID(), src.HistoryGroup, src.HistoryGroup, dh, dn, src.HistoryGroup)
+		}
+	}
 
 	// Hook sets travel with the copy when the target harness has a body for them
 	// (FR-007a); explicit flags replace them.
@@ -287,7 +320,9 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	// Prepare the target config dir for its level: empty credentials + state, owned
 	// dirs, seeded mixed files, links or own copies per category (idempotent; never
 	// touches existing credentials/state on overwrite).
-	if _, err := layer.PrepareConfigDir(dstDef, target, dstConfigDir, false); err != nil {
+	prep := a.prepareOptions(dstDef, target)
+	prep.ExplicitJoin = !targetExists && f.group != "" // a new target joins: an explicit join (FR-016)
+	if _, err := layer.PrepareConfigDirWith(dstDef, target, dstConfigDir, prep); err != nil {
 		return fmt.Errorf("prepare target config dir: %w", err)
 	}
 
@@ -695,6 +730,13 @@ func printCopyReport(a *app, r copyReportJSON) {
 	fmt.Fprintf(a.out, "copied %s -> %s (%s) (run: aprofile sync)\n", r.Source, r.Target, r.Mode)
 	if r.Backup != "" {
 		fmt.Fprintf(a.out, "  backed up the replaced data of %s to %s\n", r.Target, r.Backup)
+	}
+	if r.HistoryGroup != "" {
+		fmt.Fprintf(a.out, "  history group: %s\n", r.HistoryGroup)
+		fmt.Fprintln(a.out, "  "+concurrentUseNotice)
+	}
+	if r.HistoryGroupHint != "" {
+		fmt.Fprintf(a.out, "  hint: %s\n", r.HistoryGroupHint)
 	}
 	if len(r.MCPCarried) > 0 {
 		fmt.Fprintf(a.out, "  MCP servers carried: %s\n", strings.Join(r.MCPCarried, ", "))

@@ -68,3 +68,30 @@ Out-of-scope ideas captured from reviews and conversations, waiting for a brains
 - **Summary**: sync's summary says "0 changes" next to "completed with problems".
 
 > The summary line could count problems too, so a run with a missing hook doesn't read as fully up to date.
+
+### history-store-permissions
+
+- **Source**: deep-review
+- **Date**: 2026-11-07
+- **Reference**: 003-history-groups
+- **Summary**: Group stores and set-aside dirs are 0755 like profile dirs, yet they collect transcripts of several profiles.
+
+> Tighten to 0700 together with profile dirs if those ever change.
+
+### former-history-link-record
+
+- **Source**: deep-review
+- **Date**: 2026-11-07
+- **Reference**: 003-history-groups
+- **Summary**: Nothing records which links aprofile created as history links, so a home member's former history entry reclassified to a private category cannot be told apart from a hand-made leak.
+
+> A small per-profile record of history links would let sync detach former history links safely without weakening the spec 002 --fix-links contract.
+
+### join-removes-emptied-tree-principle
+
+- **Source**: deep-review
+- **Date**: 2026-11-07
+- **Reference**: 003-history-groups
+- **Summary**: Constitution Principle II does not name the join's removal of an emptied entry tree explicitly.
+
+> Consider naming it in the next constitution amendment.

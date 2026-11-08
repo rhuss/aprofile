@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -107,5 +108,15 @@ func TestFlagAddStoresFormValues(t *testing.T) {
 	}
 	if p.AuthRefs["CLAUDE_CODE_OAUTH_TOKEN"] != "env:TOK" {
 		t.Errorf("auth ref not stored as a reference: %+v", p.AuthRefs)
+	}
+}
+
+// spec 003 T034: the group a form collects is stored exactly as --group stores it.
+func TestAddGroupFlagStoresGroup(t *testing.T) {
+	e := newEnv(t)
+	writeFile(t, filepath.Join(e.root, ".claude", "projects", "p", "s.jsonl"), "{}")
+	e.run(nil, "add", "claude", "grp", "--auth-kind", "oauth-login", "--group", "home")
+	if !strings.Contains(readFile(t, e.profileStorePath("claude", "grp")), "history_group: home") {
+		t.Error("add --group home did not store history_group")
 	}
 }

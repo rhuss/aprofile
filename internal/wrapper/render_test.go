@@ -52,7 +52,8 @@ func TestRenderSetsConfigEnvAndContract(t *testing.T) {
 		"APROFILE_COLOR='blue'",
 		"APROFILE_ICON='W'",
 		"APROFILE_CONFIG_DIR='/data/profiles/claude/work'",
-		"APROFILE_SHARE='all'", // a profile without a stored level is all (FR-033)
+		"APROFILE_SHARE='all'",      // a profile without a stored level is all (FR-033)
+		"APROFILE_HISTORY_GROUP=''", // isolated: always set, empty (spec 003, FR-024)
 	}
 	for _, m := range must {
 		if !strings.Contains(s, m) {
@@ -137,14 +138,14 @@ func TestWrapperFullAProfileContract(t *testing.T) {
 	s := renderWork(t)
 	contractVars := []string{
 		"APROFILE_HARNESS", "APROFILE_NAME", "APROFILE_LABEL", "APROFILE_COLOR",
-		"APROFILE_ICON", "APROFILE_CONFIG_DIR", "APROFILE_SHARE", "APROFILE_SET_VARS",
+		"APROFILE_ICON", "APROFILE_CONFIG_DIR", "APROFILE_SHARE", "APROFILE_HISTORY_GROUP", "APROFILE_SET_VARS",
 	}
 	for _, name := range contractVars {
 		if !strings.Contains(s, name+"=") {
 			t.Errorf("wrapper missing contract variable assignment %q:\n%s", name, s)
 		}
 	}
-	if !strings.Contains(s, "export APROFILE_HARNESS APROFILE_NAME APROFILE_LABEL APROFILE_COLOR APROFILE_ICON APROFILE_CONFIG_DIR APROFILE_SHARE") {
+	if !strings.Contains(s, "export APROFILE_HARNESS APROFILE_NAME APROFILE_LABEL APROFILE_COLOR APROFILE_ICON APROFILE_CONFIG_DIR APROFILE_SHARE APROFILE_HISTORY_GROUP") {
 		t.Errorf("the always-set contract variables are not exported together:\n%s", s)
 	}
 	if !strings.Contains(s, "export APROFILE_SET_VARS") {
@@ -216,5 +217,35 @@ func TestRenderNoShellInjection(t *testing.T) {
 	}
 	if !strings.Contains(out, `ANTHROPIC_MODEL='$(touch /tmp/pwned)'`) {
 		t.Errorf("model value not safely single-quoted:\n%s", out)
+	}
+}
+
+// spec 003 FR-024: a member's wrapper exports its history group; the value is never
+// inherited from the caller.
+func TestRenderHistoryGroupContract(t *testing.T) {
+	p := &profile.Profile{Harness: "claude", Name: "lab", AuthKind: "oauth-login", HistoryGroup: "home"}
+	out, err := wrapper.Render(p, claudeDef(t), "/data/profiles/claude/lab")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "APROFILE_HISTORY_GROUP='home'") {
+		t.Errorf("wrapper lacks APROFILE_HISTORY_GROUP='home':\n%s", out)
+	}
+	env, err := wrapper.Environ(&profile.Profile{Harness: "claude", Name: "solo", AuthKind: "oauth-login"}, claudeDef(t),
+		"/data/profiles/claude/solo", wrapper.RenderOptions{}, []string{"PATH=/usr/bin:/bin", "APROFILE_HISTORY_GROUP=inherited"})
+	if err != nil {
+		t.Fatalf("Environ: %v", err)
+	}
+	found := false
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "APROFILE_HISTORY_GROUP=") {
+			found = true
+			if kv != "APROFILE_HISTORY_GROUP=" {
+				t.Errorf("Environ: %s, want empty for an isolated profile", kv)
+			}
+		}
+	}
+	if !found {
+		t.Error("Environ does not set APROFILE_HISTORY_GROUP")
 	}
 }

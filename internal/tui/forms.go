@@ -25,6 +25,15 @@ type FormValues struct {
 	Share           string
 	HookSets        []string
 	ExcludeHookSets []string
+	// Feature 003: the history group ("" for isolated).
+	HistoryGroup string
+}
+
+// GroupOption is one history group choice of the form: Value is the group name
+// ("" for isolated), Label the text shown.
+type GroupOption struct {
+	Value string
+	Label string
 }
 
 // ShareOption is one share level offered by the form, with the one-line
@@ -50,6 +59,9 @@ type ProfileFormConfig struct {
 	// hides the hook-set choices. EveryProfileSets are the ones that can be excluded.
 	HookSetOptions   []string
 	EveryProfileSets []string
+	// GroupOptions offers the history group choice (isolated, home, the harness's
+	// own groups); empty hides it (a harness without history entries).
+	GroupOptions []GroupOption
 }
 
 // Identity is the (harness, name) pair the add flow collects before the field form.
@@ -126,6 +138,9 @@ func RunProfileForm(in io.Reader, out io.Writer, cfg ProfileFormConfig) (FormVal
 		fields = append(fields, shareSelect(cfg.ShareOptions, &v.Share))
 	}
 	fields = append(fields, hookSetFields(cfg.HookSetOptions, cfg.EveryProfileSets, &v.HookSets, &v.ExcludeHookSets)...)
+	if len(cfg.GroupOptions) > 0 {
+		fields = append(fields, groupSelect(cfg.GroupOptions, &v.HistoryGroup))
+	}
 
 	form := huh.NewForm(huh.NewGroup(fields...))
 	ok, err := runForm(form, in, out)
@@ -153,6 +168,20 @@ func shareSelect(opts []ShareOption, value *string) huh.Field {
 			}
 			return "Fits: " + strings.Join(o.UseCases, "; ")
 		}, value).
+		Options(options...).
+		Value(value)
+}
+
+// groupSelect builds the history group choice, with the same rules as --group:
+// isolated, home, or a group made with aprofile group create.
+func groupSelect(opts []GroupOption, value *string) huh.Field {
+	var options []huh.Option[string]
+	for _, o := range opts {
+		options = append(options, huh.NewOption(o.Label, o.Value))
+	}
+	return huh.NewSelect[string]().
+		Title("History group (which profiles share this profile's conversation history)").
+		Description("Logins stay private in every group.").
 		Options(options...).
 		Value(value)
 }

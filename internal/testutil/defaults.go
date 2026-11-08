@@ -194,3 +194,44 @@ func DefaultDir(t *testing.T, home, harnessName string) string {
 	}
 	return def.DefaultPathUnder(home, "")
 }
+
+// HistorySessionID is the session id the history fixtures use.
+const HistorySessionID = "0b5e6a52-7d1c-4f3e-9a8b-1c2d3e4f5a6b"
+
+// HistoryEntries lists, per harness, the history fixtures research.md R1 (spec 003)
+// observed: session transcripts, prompt history, project memory and per-session
+// files. Paths are relative to a config dir (a profile's or the default setup's);
+// opencode has none (it does not support history groups).
+var HistoryEntries = map[string]map[string]string{
+	"claude": {
+		"projects/-tmp-demo/" + HistorySessionID + ".jsonl": `{"sessionId":"` + HistorySessionID + `"}` + "\n",
+		"projects/-tmp-demo/memory/MEMORY.md":               "# memory\n",
+		"history.jsonl":                                     `{"display":"profile prompt"}` + "\n",
+		"paste-cache/h1.txt":                                "pasted\n",
+		"file-history/" + HistorySessionID + "/a@v1":        "v1\n",
+		"todos/" + HistorySessionID + "-agent-x.json":       "[]\n",
+		"plans/slug.md":                                     "# plan\n",
+		"tasks/" + HistorySessionID + "/1.json":             "{}\n",
+	},
+	"codex": {
+		"sessions/2026/11/07/rollout-x-" + HistorySessionID + ".jsonl": `{"type":"session_meta"}` + "\n",
+		"session_index.jsonl":      `{"id":"` + HistorySessionID + `"}` + "\n",
+		"session_index.jsonl.lock": "",
+		"history.jsonl":            `{"text":"profile prompt"}` + "\n",
+	},
+	"pi": {
+		"agent/sessions/--tmp--/ts_" + HistorySessionID + ".jsonl": `{"type":"session","version":3}` + "\n",
+	},
+}
+
+// SeedHistory writes the history fixtures of harnessName under dir and returns the
+// relative paths it wrote. A harness without fixtures writes nothing.
+func SeedHistory(t *testing.T, dir, harnessName string) []string {
+	t.Helper()
+	var out []string
+	for rel, content := range HistoryEntries[harnessName] {
+		WriteFile(t, filepath.Join(dir, filepath.FromSlash(rel)), content)
+		out = append(out, rel)
+	}
+	return out
+}

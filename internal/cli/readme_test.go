@@ -16,6 +16,8 @@ func TestReadmeMatchesLevels(t *testing.T) {
 		"levels":      levelListMarkdown(),
 		"use cases":   useCaseMarkdown(),
 		"level table": levelTableMarkdown(),
+		// Spec 003 (FR-026): the history group use cases.
+		"history use cases": historyUseCaseMarkdown(),
 	}
 	if os.Getenv("APROFILE_PRINT_README") == "1" {
 		for _, k := range []string{"levels", "use cases", "level table"} {
@@ -34,6 +36,12 @@ func TestReadmeMatchesLevels(t *testing.T) {
 	}
 	guide := readme[strings.Index(readme, "## Choosing a share level"):]
 	if first := strings.Index(guide, alwaysPrivate); first < 0 || first > strings.Index(guide, "| # | Use case") {
-		t.Error("the guide must state up front that logins, history, sessions and memory are always private")
+		t.Error("the guide must state up front that logins are always private and history only shared in a history group")
+	}
+	// Spec 003: the README explains history groups and the wrapper variable.
+	for _, want := range []string{"## History groups", "aprofile group create", "--group home", "--no-group", "APROFILE_HISTORY_GROUP", "at the same time"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README lacks %q", want)
+		}
 	}
 }
