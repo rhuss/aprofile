@@ -44,4 +44,4 @@ All ranges below refer to the verified target checkout `docs/guide/.guide/cache/
 - No unsupported facts were added. Exact per-harness history contents are intentionally summarized instead of enumerated; the linked history-groups tutorial covers operation details.
 - The cc-prose workflow limitation is the only process concern. The page's prose was checked against the tutorial voice, guide terms, and no-dash constraint manually.
 
-Commit: pending.
+Commit: `f7d07d4e4ed4bea20afa9a688987c6096ae4e8b0`.
