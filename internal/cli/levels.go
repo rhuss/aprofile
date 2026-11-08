@@ -63,16 +63,6 @@ var historyUseCases = []useCase{
 		"Nothing from other conversations shows up"},
 }
 
-// historyUseCaseMarkdown renders the history group use cases for the README.
-func historyUseCaseMarkdown() string {
-	var b strings.Builder
-	b.WriteString("| # | Use case | Group | Why |\n|---|----------|-------|-----|\n")
-	for _, uc := range historyUseCases {
-		fmt.Fprintf(&b, "| %s | %s | `%s` | %s |\n", uc.ID, uc.Case, uc.Recommended, uc.Why)
-	}
-	return b.String()
-}
-
 // levelRow is one row of the level table: what each level does with a category.
 type levelRow struct {
 	Category string
@@ -110,34 +100,4 @@ func useCasesFor(s profile.Share) []useCase {
 		}
 	}
 	return out
-}
-
-// useCaseMarkdown renders the use-case table as Markdown, the exact form the
-// README carries (FR-012, SC-003; checked by readme_test.go).
-func useCaseMarkdown() string {
-	var b strings.Builder
-	b.WriteString("| # | Use case | Recommended | Why |\n|---|----------|-------------|-----|\n")
-	for _, uc := range useCases {
-		fmt.Fprintf(&b, "| %s | %s | `--share %s` | %s |\n", uc.ID, uc.Case, uc.Recommended, uc.Why)
-	}
-	return b.String()
-}
-
-// levelTableMarkdown renders the level table as Markdown for the README.
-func levelTableMarkdown() string {
-	var b strings.Builder
-	b.WriteString("| Category | `all` | `content` | `none` |\n|----------|-------|-----------|--------|\n")
-	for _, r := range levelTable {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", r.Category, r.All, r.Content, r.None)
-	}
-	return b.String()
-}
-
-// levelListMarkdown renders the levels with their one-line descriptions.
-func levelListMarkdown() string {
-	var b strings.Builder
-	for _, s := range profile.Shares {
-		fmt.Fprintf(&b, "- `%s`: %s\n", s, levelDescription(s))
-	}
-	return b.String()
 }
