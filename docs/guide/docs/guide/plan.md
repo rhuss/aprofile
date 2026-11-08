@@ -2,11 +2,11 @@
 
 <!-- Sources:
 aprofile:README.md:3-242
-claude-code:README.md:7
-codex:README.md:1
-opencode:README.md:10
-pi:README.md:13-21
+aprofile:internal/cli/root.go:96-104
+aprofile:specs/003-history-groups/spec.md:1-50
 -->
+
+> **Historical create plan:** This plan records the original isolated-profile scope. For the evolved guide scope, see the [evolved guide specification](spec.md) and the [2026-11-08 guide evolution plan](plans/2026-11-08-evolve.md). The source entries below were refreshed against the target source revision; line hints elsewhere in this preserved plan describe its original research and are not current verified recipes.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan page by page. Follow the task procedure and use checkbox syntax to track work.
 

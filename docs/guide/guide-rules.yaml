@@ -1,4 +1,7 @@
 rules:
+- glob: docs/guide/plan.md
+  require: ["Historical create plan", "evolved guide specification", "plans/2026-11-08-evolve.md"]
+  forbid: ["\\u2013|\\u2014"]
 - glob: docs/README.md
   require: ["^## What you get$", "^## What the parts are$", "^## How they fit$", "^## Ways to run it$", "^## Status and limits$", "^## Where to go next$", "history-groups\\.md"]
   forbid: ["\\u2013|\\u2014"]
