@@ -4,7 +4,7 @@ rules:
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## What you get$", "^## What the parts are$", "^## How they fit$", "^## Ways to run it$", "^## Status and limits$", "^## Where to go next$"]
 - glob: docs/overview/profile-basics.md
-  require: ["^## Why this matters$", "^## What a profile is$", "^## What stays private$", "^## What a share level changes$"]
+  require: ["^## Why this matters$", "^## What a profile is$", "^## What stays private$", "^## What a share level changes$", "history group", "history-groups\\.md"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Why this matters$", "^## What a profile is$", "^## What stays private$", "^## What a share level changes$"]
 - glob: docs/user/getting-started.md
