@@ -12,7 +12,7 @@ rules:
   forbid: ["\\u2013|\\u2014", "sk-[A-Za-z0-9]{8,}", "ghp_[A-Za-z0-9]{8,}"]
   require_order: ["^## Build aprofile$", "^## Create a profile$", "^## Sync and launch$"]
 - glob: docs/user/share-levels.md
-  require: ["`all`", "`content`", "`none`", "credentials", "runtime state", "^### History and sessions$"]
+  require: ["`all`", "`content`", "`none`", "credentials", "runtime state", "^### History and sessions$", "ungrouped", "grouped", "history-groups\\.md", "within one harness", "OpenCode"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Choose a level$", "^## What each level shares$", "^## Limits to know$"]
 - glob: docs/user/history-groups.md
