@@ -11,6 +11,7 @@
 
 - [Get started](user/getting-started.md)
 - [Compare share levels](user/share-levels.md)
+- [Share conversation history with a group](user/history-groups.md)
 - [Manage profiles](user/manage-profiles.md)
 - [Troubleshoot profiles](user/troubleshooting.md)
 
