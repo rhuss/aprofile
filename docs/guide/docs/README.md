@@ -1,7 +1,7 @@
 # aprofile User Guide
 
 <!-- Sources:
-aprofile:README.md:3-9,13-23,25-48,112-120,140,286
+aprofile:README.md:3-9,13-23,25-48,81,112-120,140,199-203,286
 aprofile:internal/cli/group.go:54-62
 claude-code:README.md:7
 codex:README.md:1
@@ -16,6 +16,8 @@ With aprofile, you can launch work, personal, and client accounts through named 
 
 ## What the parts are
 
+This guide calls a supported coding agent command-line program a **harness**.
+
 aprofile is a command-line tool for managing named accounts or configurations of coding tools. A **profile** is one account or configuration of one harness, identified by the harness and a name, such as `claude/work`.
 
 | Tool | What it does |
@@ -25,21 +27,21 @@ aprofile is a command-line tool for managing named accounts or configurations of
 | OpenCode | An open source AI coding agent. |
 | Pi | A minimal, extensible agent harness that you can customize with extensions, skills, prompt templates, and themes. |
 
-This guide calls a supported coding agent command-line program a **harness**. A **wrapper** is the launcher aprofile creates for a profile, such as `claude-work`.
+A **wrapper** is the launcher aprofile creates for a profile, such as `claude-work`.
 
 ## How they fit
 
-You create profiles, then run `aprofile sync` to prepare their configuration and write wrappers. A wrapper starts its harness with the profile's login, endpoint, and model, where configured. Each profile's **share level** controls how much of the harness's default setup it reuses.
+You create profiles, then run `./bin/aprofile sync` from the repository checkout root to prepare their configuration and write wrappers. A wrapper starts its harness with the profile's login, endpoint, and model, where configured. Each profile's **share level** controls how much of the harness's default setup it reuses.
 
 History is separate from share level. A profile in no history group keeps its history to itself, which is the default for new profiles. You can optionally put profiles of the same harness in a history group so they can resume one another's conversations. Group membership selects history; the share level continues to control setup reuse. Logins stay private in a group. See [History groups](user/history-groups.md) for details.
 
-Profile changes can leave wrappers stale. Run `aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
+Profile changes can leave wrappers stale. Run `./bin/aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
 
 ## Ways to run it
 
 Choose a share level for how much setup a profile should reuse: `content` reuses instructions and skills, `all` uses the default setup live, and `none` starts clean. Then choose history separately: leave the profile out of a group to keep its history isolated, or join a same-harness group to share its conversations. [Compare share levels](user/share-levels.md) and [learn about history groups](user/history-groups.md) before choosing.
 
-You can manage profiles with commands or use `aprofile ui` to browse and edit them. The same operations are available for scripts.
+You can manage profiles with `./bin/aprofile` commands or use `./bin/aprofile ui` to browse and edit them. The same operations are available for scripts.
 
 ## Status and limits
 

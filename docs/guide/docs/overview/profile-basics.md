@@ -1,7 +1,7 @@
 # Profile basics
 
 <!-- Sources:
-aprofile:README.md:3-9,13,32-48,64-73,112-120,124-126,140,224-229,286
+aprofile:README.md:3-9,13,32-48,64-73,81,112-120,124-126,140,203,224-229,286
 aprofile:go.mod:1-3
 aprofile:internal/cli/group.go:57-61
 aprofile:internal/harness/builtin/claude.yaml:92-104
@@ -31,7 +31,9 @@ A *harness* is a coding agent command-line program. aprofile supports four:
 
 A *profile* is one account or configuration of one harness, identified by the harness and a name, such as `claude/work`. A *wrapper* is the launcher aprofile creates for a profile. `claude-work`, for example, starts Claude Code with that profile's environment and configuration.
 
-Run `aprofile sync` after changing profiles so their wrappers reflect those changes. The built-in `home` history group uses the harness's default setup as its history store. A custom group keeps its history in aprofile's data directory.
+The *default setup* is the harness configuration you use outside an aprofile profile. aprofile can reuse parts of that setup, and the built-in `home` history group uses its history store. A custom group keeps its history in aprofile's data directory.
+
+Run `./bin/aprofile sync` from the repository checkout root after changing profiles so their wrappers reflect those changes.
 
 Profiles have two separate choices: a share level and history-group membership. The share level controls how much of the harness's default setup the profile uses. A *history group* is a named set of profiles of one harness that share one conversation history. A profile in no group keeps its history to itself. Group membership does not change the share level.
 
@@ -39,7 +41,7 @@ For example, put `claude/work` and `claude/personal` in different history groups
 
 ## What stays private
 
-History is private to each profile unless you choose to share it through a history group. Group members share designated history entries, while credentials and other runtime state remain per profile. Runtime state includes items such as sessions, logs, and caches. Settings continue to follow the profile's share level. Copying a profile does not copy its history or sessions.
+History is private to each profile unless you choose to share it through a history group. Group members share the history entries that the harness marks for sharing; credentials and other runtime state, such as process state, logs, and caches, remain per profile. Settings continue to follow the profile's share level. Copying a profile does not copy its history.
 
 This separation means two profiles can share setup without sharing conversations. It also means two profiles can share history while keeping their account details separate. For the membership choices and commands, see [History groups](../user/history-groups.md).
 
@@ -49,11 +51,11 @@ A *share level* controls how much of the harness's default setup a profile uses.
 
 | Share level | What it means for you |
 | --- | --- |
-| `all` | Uses the default setup live, including its settings. Credentials, runtime state, and owned data remain private. |
+| `all` | Uses the default setup live, including its settings. Credentials, non-history runtime state, and owned data remain private. |
 | `content` | Reuses instructions and other content. The profile gets its own settings, copied from the default setup once. |
 | `none` | Starts clean without borrowing the default setup's content or settings. |
 
-New profiles use `content` unless you have changed aprofile's `default_share` setting. Share level decides what setup a profile reuses; history-group membership separately decides which profiles share designated history. Codex CLI and OpenCode also read skills from shared locations outside the profile configuration, so even `none` cannot isolate those locations. `aprofile show` and `aprofile doctor` report them.
+New profiles use `content` unless you have changed aprofile's `default_share` setting. Share level decides what setup a profile reuses; history-group membership separately decides which profiles share designated history. Codex CLI and OpenCode also read skills from shared locations outside the profile configuration, so even `none` cannot isolate those locations. `./bin/aprofile show` and `./bin/aprofile doctor` report them.
 
 History groups work with Claude Code, Codex CLI, and Pi. OpenCode does not support them. Running the same conversation through two group members at once can interleave its transcript, and a history group does not convert conversations between different harnesses. aprofile runs on Linux and macOS and builds from source with the Go version recorded in its `go.mod` file.
 

@@ -1,7 +1,7 @@
 # Get started
 
 <!-- Sources:
-aprofile:README.md:3-5,13-40,114-120,203,249-254
+aprofile:README.md:3-9,13-40,114-120,203,249-254
 url:https://github.com/rhuss/aprofile
 aprofile:go.mod:1-4
 aprofile:Makefile:1-10
@@ -16,7 +16,9 @@ aprofile:internal/wrapper/wrapper.go:124-160,213-226
 claude-code:README.md:7
 -->
 
-You'll build aprofile from source, create an isolated `claude-work` profile, and launch Claude Code through its wrapper. The profile uses its own configuration directory, and its history stays private while it belongs to no history group.
+aprofile is a command-line tool for managing profiles of coding agents. Claude Code is a coding tool that runs in your terminal and works on your codebase. A profile keeps one account's configuration separate; a wrapper is the named launcher aprofile creates for it. This walkthrough builds aprofile, creates the `claude/work` profile, and launches its `claude-work` wrapper. That keeps you from switching configuration directories by hand. The profile's history stays private while it belongs to no history group.
+
+The commands below assume you are in the aprofile repository checkout root. Run manager commands as `./bin/aprofile`; launch profile wrappers such as `claude-work` directly.
 
 ## Build aprofile
 
@@ -96,7 +98,7 @@ Claude Code defines four authentication kinds: `api-key`, `auth-token`, and `oau
 
 ## Sync and launch
 
-Run `sync` to prepare the profile configuration and write its wrapper. Changes to a profile can leave wrappers stale until you run `aprofile sync` again.
+Run `sync` to prepare the profile configuration and write its wrapper. Changes to a profile can leave wrappers stale until you run `./bin/aprofile sync` again.
 
 1. Sync the profile.
 
@@ -128,4 +130,4 @@ Run `sync` to prepare the profile configuration and write its wrapper. Changes t
 
    Check: Claude Code opens in your terminal. This is an interactive check. The wrapper replaces itself with Claude Code and forwards the arguments you pass to it.
 
-After the first launch works, you can optionally choose which profiles share conversation history in [History groups](history-groups.md). A new profile starts isolated, with its history to itself.
+After the first launch works, continue with [Compare share levels](share-levels.md), then [Share conversation history with a group](history-groups.md). You can later [manage profiles](manage-profiles.md), [troubleshoot problems](troubleshooting.md), or look up syntax in the [command reference](../reference/commands.md). A new profile starts isolated, with its history to itself.

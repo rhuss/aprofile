@@ -9,7 +9,11 @@ aprofile:internal/cli/copy.go:100-126
 aprofile:internal/cli/login.go:23-38
 aprofile:internal/cli/import.go:16-53
 aprofile:internal/cli/registry.go:11-48
+aprofile:internal/cli/hooksets.go:22-70,150-205,208-212,264-301,304-315
+aprofile:internal/cli/mcp.go:100-111
 -->
+
+The commands below show their syntax. From a source checkout, run them as `./bin/aprofile <command>` from the repository root.
 
 ## Profile commands
 

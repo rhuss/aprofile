@@ -54,7 +54,7 @@ aprofile:specs/003-history-groups/spec.md:1-50
 - The README clone URL may be unavailable. The getting-started page uses only a URL the author confirms, or gives build steps from an existing source checkout.
 - Authentication examples use secret references such as `env:WORK_TOKEN`; they never contain a secret value.
 - `aprofile sync` is required after profile changes that leave wrappers stale.
-- Credentials and runtime state remain private at every share level; each level's content, settings, hooks, and plugin behavior must match the pinned source.
+- Credentials and non-history runtime state remain private at every share level. Designated history entries follow group membership; content, settings, hooks, and plugin behavior follow the selected share level.
 - Codex and OpenCode read some skills from paths under `$HOME`, outside the profile configuration directory; explain the documented limit when describing share levels.
 
 ---

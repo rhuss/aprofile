@@ -43,7 +43,7 @@ Users can keep unrelated accounts separate while letting selected profiles conti
 
 ### Status and limits
 
-aprofile runs on Linux and macOS and builds from source with Go 1.24 or newer. History groups are supported for Claude Code, Codex, and Pi; OpenCode does not support them. Running one conversation simultaneously through multiple members can interleave its transcript. This feature does not convert conversations between harnesses. (Source: `aprofile:README.md:11-23,112-142,284-286`; `aprofile:internal/harness/builtin/claude.yaml`; `aprofile:internal/harness/builtin/codex.yaml`; `aprofile:internal/harness/builtin/opencode.yaml`; `aprofile:internal/harness/builtin/pi.yaml`.)
+aprofile runs on Linux and macOS and builds from source with Go <!-- guide:attr aprofile-go-minimum -->1.24.0<!-- /guide:attr --> or newer. History groups are supported for Claude Code, Codex, and Pi; OpenCode does not support them. Running one conversation simultaneously through multiple members can interleave its transcript. This feature does not convert conversations between harnesses. (Source: `aprofile:README.md:11-23,112-142,284-286`; `aprofile:internal/harness/builtin/claude.yaml`; `aprofile:internal/harness/builtin/codex.yaml`; `aprofile:internal/harness/builtin/opencode.yaml`; `aprofile:internal/harness/builtin/pi.yaml`.)
 
 ## The guide
 
