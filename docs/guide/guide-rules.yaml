@@ -28,6 +28,6 @@ rules:
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Inspect the profile$", "^## Run doctor$", "^## Follow a reported fix$"]
 - glob: docs/reference/commands.md
-  require: ["aprofile add", "aprofile list", "aprofile show", "aprofile edit", "aprofile sync", "aprofile doctor", "--help"]
+  require: ["aprofile add", "aprofile list", "aprofile show", "aprofile edit", "aprofile sync", "aprofile doctor", "--help", "aprofile group list", "aprofile group show", "aprofile group create", "aprofile group delete", "cannot be renamed.*aprofile group rename", "--group", "--no-group", "history-groups\\.md"]
   forbid: ["\\u2013|\\u2014"]
   require_order: ["^## Profile commands$", "^## Sharing, hooks, and MCP$", "^## Diagnostics and help$"]
