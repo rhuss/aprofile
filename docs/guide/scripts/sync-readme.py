@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Publish the guide introduction at the repository root with rebased links."""
+"""Publish the guide introduction at the repository root with rebased links.
+
+README.md may start with a hand-written introduction. Only the region between
+BEGIN and END is generated; everything outside it is kept as written. A README
+without the markers is replaced as a whole and gets the markers.
+"""
 
 import argparse
 import os
@@ -12,6 +17,8 @@ GUIDE = Path(__file__).resolve().parents[1]
 REPO = GUIDE.parent.parent
 SOURCE = GUIDE / "docs/README.md"
 OUTPUT = REPO / "README.md"
+BEGIN = "<!-- guide:begin -->\n"
+END = "<!-- guide:end -->\n"
 
 # Inline links/images and reference definitions, with optional angle brackets.
 DEST = r"(<[^>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)"
@@ -61,11 +68,21 @@ def render(source: str) -> str:
             line = re.sub(r"\x00(\d+)\x00", lambda m: code[int(m[1])], line)
             lines.append(line)
     header = (
-        "<!-- Generated from docs/guide/docs/README.md. Edit that file and run\n"
-        "     make -C docs/guide readme from the repository root. -->\n\n"
+        "<!-- Generated from docs/guide/docs/README.md up to guide:end. Edit that file and\n"
+        "     run make -C docs/guide readme from the repository root. The text above\n"
+        "     guide:begin is hand-written and kept as it is. -->\n\n"
     )
     footer = "\n## Project information\n\n[Project details and licensing](docs/README.md).\n"
     return header + "".join(lines).rstrip() + "\n" + footer
+
+
+def split(readme: str):
+    """Return (before, region, after) around the generated region, or None."""
+    start = readme.find(BEGIN)
+    end = readme.find(END, start + len(BEGIN)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        return None
+    return readme[:start], readme[start + len(BEGIN):end], readme[end + len(END):]
 
 
 def main() -> int:
@@ -75,12 +92,22 @@ def main() -> int:
     mode.add_argument("--check", action="store_true")
     args = parser.parse_args()
     expected = render(SOURCE.read_text())
+    current = OUTPUT.read_text() if OUTPUT.exists() else ""
+    parts = split(current)
     if args.write:
-        if not OUTPUT.exists() or OUTPUT.read_text() != expected:
-            OUTPUT.write_text(expected)
+        if parts is None:
+            updated = BEGIN + expected + END
+        else:
+            before, _, after = parts
+            updated = before + BEGIN + expected + END + after
+        if updated != current:
+            OUTPUT.write_text(updated)
         print("README.md: up to date")
         return 0
-    if not OUTPUT.exists() or OUTPUT.read_text() != expected:
+    if parts is None:
+        print(f"README.md has no generated region ({BEGIN.strip()} ... {END.strip()}); run make -C docs/guide readme", file=sys.stderr)
+        return 1
+    if parts[1] != expected:
         print("README.md is stale; run make -C docs/guide readme", file=sys.stderr)
         return 1
     print("README.md: up to date")

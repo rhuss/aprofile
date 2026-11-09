@@ -1,5 +1,49 @@
-<!-- Generated from docs/guide/docs/README.md. Edit that file and run
-     make -C docs/guide readme from the repository root. -->
+# aprofile
+
+Give each account and endpoint of your coding agents its own command.
+
+Claude Code, Codex, OpenCode and pi each keep their login, settings and history in a single directory. If you use one of them with more than one account (work and personal, a client, a company gateway, a local model), you probably switch that directory or a few environment variables by hand. Pick the wrong one and you are logged in as the wrong person, or you find a work conversation in your personal history. aprofile gives every account its own copy of that directory and a command to start it, and you decide what the profiles share.
+
+Profiles and groups are named `<harness>/<name>`, for example `claude/work`; `aprofile add` takes the two parts as separate words.
+
+## Two accounts on one machine
+
+```sh
+# Create a profile for each account; each one signs in on first start
+aprofile add claude work --auth-kind oauth-login
+aprofile add claude personal --auth-kind oauth-login --group home   # join the built-in "home" group: share history with plain claude
+
+# Write the launcher commands (claude-work, claude-personal) and put them on your PATH
+aprofile sync
+
+claude-work       # work account, with its own conversation history
+claude-personal   # personal account; can resume conversations started with plain claude
+```
+
+## A company endpoint for your team
+
+Each developer runs the same few commands once:
+
+```sh
+# A profile that talks to the company gateway with a token from your environment
+aprofile add claude corp --endpoint https://llm.example.com \
+  --auth-kind auth-token --auth-key env:CORP_LLM_TOKEN --model team-default
+
+# Optional: a "work" group, so corp and your other work profiles (say, a client
+# account) continue each other's conversations, apart from your personal ones
+aprofile group create claude/work
+aprofile edit claude/corp --group work
+aprofile sync
+
+claude-corp       # company endpoint and model; shares history with work profiles only
+```
+
+Logins always stay inside their profile. Per profile, you choose whether instructions, skills and settings come from your normal setup or stay separate. The guide below explains the details.
+
+<!-- guide:begin -->
+<!-- Generated from docs/guide/docs/README.md up to guide:end. Edit that file and
+     run make -C docs/guide readme from the repository root. The text above
+     guide:begin is hand-written and kept as it is. -->
 
 # aprofile User Guide
 
@@ -67,3 +111,4 @@ This guide describes the sources pinned on <!-- guide:attr baseline-date -->2026
 ## Project information
 
 [Project details and licensing](docs/README.md).
+<!-- guide:end -->
