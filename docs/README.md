@@ -104,7 +104,7 @@ IDE extensions write lock files into the config dir of the session that started 
 | `aprofile settings pull <h>/<n> [key...]` | Refresh a `content` profile's settings from the default setup (merge, or `--replace`). |
 | `aprofile hook-sets list\|show\|import\|reapply` | Manage the hook-set library. |
 | `aprofile help sharing` | The share-level guide in the terminal. |
-| `aprofile registry path` / `registry export --format omarchy` | Print the registry location, or export Omarchy accounts files. A harness without `omarchy_provider` in its definition has no Omarchy entries; its profiles are skipped with a note. |
+| `aprofile registry path` | Print the registry location. |
 | `aprofile import cc-deck` | One-time import of existing cc-deck profiles (never modifies cc-deck files). The report, `--dry-run` included, names each credential file it copies from outside cc-deck's own folders (path only). A cc-deck `backend` maps to environment variables through the harness definition's `backends` block; a profile with a backend the definition does not declare is skipped. |
 | `aprofile doctor` | Check for configuration problems (see below). |
 | `aprofile ui` | Browse and edit profiles interactively. |

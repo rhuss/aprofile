@@ -196,7 +196,6 @@ func runHarnessShow(cmd *cobra.Command, name string, asJSON bool) error {
 		line("skills_location", "skills_location", d.SkillsLocation.Path)
 	}
 	line("plugin_mechanism", "plugin_mechanism", d.PluginMechanism)
-	line("omarchy_provider", "omarchy_provider", d.OmarchyProvider)
 	line("capabilities", "capabilities", strings.Join(d.Capabilities, ", "))
 	if d.ExecHook != nil {
 		line("exec_hook", "exec_hook", strings.Join(d.ExecHook.Operations, ", "))

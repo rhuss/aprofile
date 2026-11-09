@@ -18,7 +18,6 @@ config_env:
 
 default_config_location: "~/.pi"
 plugin_mechanism: "settings.json"
-omarchy_provider: pi
 
 capabilities: [login, mcp]
 

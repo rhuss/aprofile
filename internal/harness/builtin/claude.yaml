@@ -20,7 +20,6 @@ default_locations:
   ".claude.json": "~/.claude.json"
 model_var: ANTHROPIC_MODEL
 endpoint_var: ANTHROPIC_BASE_URL
-omarchy_provider: anthropic
 plugin_mechanism: "enabledPlugins in settings.json"
 
 capabilities: [login, oauth-token, native-profiles, mcp]

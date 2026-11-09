@@ -188,7 +188,6 @@ type Definition struct {
 	MCP             *MCPLocation    `yaml:"mcp" json:"mcp,omitempty"`
 	SkillsLocation  *SkillsLocation `yaml:"skills_location" json:"skills_location,omitempty"`
 	PluginMechanism string          `yaml:"plugin_mechanism" json:"plugin_mechanism,omitempty"`
-	OmarchyProvider string          `yaml:"omarchy_provider" json:"omarchy_provider,omitempty"`
 	Capabilities    []string        `yaml:"capabilities" json:"capabilities,omitempty"`
 	ExecHook        *ExecHook       `yaml:"exec_hook" json:"exec_hook,omitempty"`
 	// DefaultLocations maps a profile-relative prefix to its default-setup location,

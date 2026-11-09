@@ -51,7 +51,6 @@ Profile changes can leave wrappers stale until `aprofile sync` runs. Only `sync`
 | `aprofile mcp list <harness>/<name>` | List a profile's MCP servers. Add `--json` for machine-readable output. |
 | `aprofile mcp copy <from-harness>/<name> <to-harness>/<name> [server...]` | Convert selected MCP servers from one profile into another. `--overwrite` replaces servers already in the target. |
 | `aprofile registry path` | Print the registry file location. |
-| `aprofile registry export` | Export the registry in another tool's format. `--format omarchy` selects the supported format; `--output-dir` overrides the output directory. |
 
 Groups cannot be renamed; the hidden `aprofile group rename` command only explains this limitation. Create a new group, move members with `edit --group`, then delete the old group. History groups select history within one harness. See [History groups](../user/history-groups.md) for full procedures. Compare [share levels](../user/share-levels.md) before changing profile sharing. See [Manage profiles](../user/manage-profiles.md) for hook sets, MCP servers, and command procedures.
 

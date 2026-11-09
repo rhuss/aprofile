@@ -311,11 +311,6 @@ func validate(d *Definition) (field, msg string) {
 			}
 		}
 	}
-	// The registry export joins the provider into a file path (<dir>/<provider>.json),
-	// so it must be a plain name: no separator, no "..", nothing to escape the dir.
-	if d.OmarchyProvider != "" && !NameValid(d.OmarchyProvider) {
-		return "omarchy_provider", fmt.Sprintf("%q must match ^[a-z][a-z0-9-]{0,62}[a-z0-9]$", d.OmarchyProvider)
-	}
 	if d.LoginCommand != nil {
 		for _, a := range d.LoginCommand.Args {
 			if a == "" || strings.ContainsAny(a, "\x00\n\r") {
@@ -668,7 +663,7 @@ func markSource(d *Definition, origin string) {
 var allFieldNames = []string{
 	"name", "binary", "wrapper_prefix", "config_env", "default_config_location",
 	"model_var", "endpoint_var", "auth_kinds", "auth_clears", "default_auth_kind", "login_command", "classification",
-	"config_patches", "mcp", "skills_location", "plugin_mechanism", "omarchy_provider",
+	"config_patches", "mcp", "skills_location", "plugin_mechanism",
 	"capabilities", "exec_hook", "default_locations", "share_policy", "hooks", "home_escapes",
 	"backends", "history_note",
 }

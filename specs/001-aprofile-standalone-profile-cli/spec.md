@@ -537,7 +537,9 @@ confirm `aprofile list --json` shows it with the entered values.
   wrapper path, plus a format version. The registry MUST NOT contain timestamps or other values
   that change without a profile change, so an unchanged `sync` rewrites nothing. Writes MUST be
   atomic. `aprofile registry path` MUST print the registry's location.
-- **FR-031**: `aprofile registry export --format omarchy` MUST, only on explicit request, write
+- **FR-031** (withdrawn 2026-11-09: the Omarchy export and the `omarchy_provider` definition
+  field were removed; registration with corgi is redesigned in brainstorm 003):
+  `aprofile registry export --format omarchy` MUST, only on explicit request, write
   one Omarchy-format accounts file per provider (`{accounts:[{id,label,home,primary}]}`) to
   `$XDG_STATE_HOME/omarchy/agents/accounts/<provider>.json` (fallback `~/.local/state`,
   overridable with `--output-dir`). The provider comes from the harness definition, `home` is the

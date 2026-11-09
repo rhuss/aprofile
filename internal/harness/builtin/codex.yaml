@@ -16,7 +16,6 @@ default_config_location: "~/.codex"
 # `--model` flag, which passes through the wrapper). Endpoint follows the OpenAI
 # SDK convention Codex honors.
 endpoint_var: OPENAI_BASE_URL
-omarchy_provider: openai
 plugin_mechanism: "config.toml"
 
 capabilities: [login, native-profiles, mcp]
