@@ -29,7 +29,6 @@ Last updated: 2026-11-09
 - Fate of a group store when its last member leaves. (from #002)
 - How `copy` treats group membership. (from #002)
 - How a profile leaves `home` to stop sharing with the default setup. (from #002)
-- Should the Claude wrapper still export the variables the folder carries, or only clear them? (from #003)
 - Codex: `auth` command block versus `env_key` in the same provider block. (from #003)
 - Launch settings for a profile at share level `all` (linked default settings): refuse, warn, or require `content`? (from #003)
 - Removing owned `env` entries when launch settings or the auth kind change. (from #003)

@@ -178,11 +178,13 @@ stay unchanged. Given up: the `ANTHROPIC_MODEL=x claude-…` habit and one-run e
   Principle V drops caller overrides through the environment (see Decision); version 2.0.0.
 - **Wrappers stop offering environment overrides:** no `${VAR:-default}`, no
   `APROFILE_SET_VARS` session cleanup; every variable a profile sets is cleared and set fixed.
+- **Clear-only for folder-carried variables:** for a harness whose folder carries the launch
+  settings (Claude), the wrapper only clears those variables and does not export them; the folder
+  is the single source. Variables the folder cannot carry stay set by the wrapper (harnesses
+  without self-contained folders; Codex's `-c model=…`). Chosen by the author for debuggability.
 
 ## Open Questions
 
-- Should the Claude wrapper still export the variables the folder now carries (harmless
-  duplication), or only clear them and leave the folder as the single source?
 - Codex: does the `auth` block conflict with `env_key` in the same provider block? The wrapper
   still sets `OPENAI_API_KEY`; decide which one the profile keeps.
 - A profile at share level `all` links `settings.json` to the default setup. If such a profile ever
