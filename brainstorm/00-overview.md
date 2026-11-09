@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-11-07
+Last updated: 2026-11-09
 
 ## Sessions
 
@@ -8,6 +8,7 @@ Last updated: 2026-11-07
 |---|------|-------|--------|------|-------|
 | 001 | 2026-11-02 | aprofile-standalone-profile-cli | active | - | - |
 | 002 | 2026-11-07 | history-groups | active | - | - |
+| 003 | 2026-11-09 | corgi-integration | active | - | - |
 
 ## Open Threads
 
@@ -18,7 +19,6 @@ Last updated: 2026-11-07
 - OpenCode: which lever isolates sessions and auth per profile, `OPENCODE_DB` or `XDG_DATA_HOME`? Needs verification on a current release. (from #001)
 - Skills for Codex, OpenCode and pi live in `~/.agents/skills`, outside any profile dir. Per-profile location or accepted as shared? (from #001)
 - Is separate cost tracking satisfied by separate state dirs, or should aprofile report per-profile usage itself? (from #001)
-- Registry format: adopt Omarchy's schema verbatim for corgi, or an own schema plus an Omarchy export? (from #001)
 - Distribution: Homebrew tap and GoReleaser. (from #001)
 - Slice two, absorbing cc-setup, is a separate spec; the cc-deck decoupling is a separate brainstorm in the cc-deck repository. (from #001)
 - Exact history entry list per harness: which entries are shared history and which are per-process runtime state? (from #002)
@@ -29,6 +29,13 @@ Last updated: 2026-11-07
 - Fate of a group store when its last member leaves. (from #002)
 - How `copy` treats group membership. (from #002)
 - How a profile leaves `home` to stop sharing with the default setup. (from #002)
+- Does Claude Code apply `ANTHROPIC_BASE_URL` and model aliases from the `settings.json` `env` block early enough for gateway model discovery? (from #003)
+- Does a caller override of a wrapper variable still win when the same variable is in the `env` block? (from #003)
+- Codex: verify `/model` saves into `config.toml`; wrapper `-m` versus a caller's `-m`. (from #003)
+- Codex: `auth` command block versus `env_key` in the same provider block. (from #003)
+- Launch settings for a profile at share level `all` (linked default settings): refuse, warn, or require `content`? (from #003)
+- Removing owned `env` entries when launch settings or the auth kind change. (from #003)
+- Corgi default accounts (`claude/private` via the daemon, `~/.codex`): hide or keep? (from #003)
 
 ## Parked Ideas
 
