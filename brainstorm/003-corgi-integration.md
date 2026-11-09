@@ -71,9 +71,25 @@ aprofile.
   `cwd`. Verified against a local dummy server with `OPENAI_API_KEY` unset: Codex sent the file
   content as `Bearer` on both `GET /v1/models` and `POST /v1/responses`. `config.toml` holds only
   the command; the key stays in its file.
-- `/model` most likely saves into `config.toml` by default: the binary contains "failed to persist
-  model selection" next to a "for this session only" variant. Not verified interactively.
+- `/model` saves into `config.toml` by default. Verified in the interactive interface (tmux, dummy
+  catalog): the picker offers "enter default · s session"; Enter rewrote `model` and added
+  `model_reasoning_effort`. `s` keeps the choice for the session only.
 - `-m` and `-c model=…` beat `config.toml`. The Codex wrappers set no model today.
+- A top-level `-m` from the wrapper plus a top-level `-m` from the caller fails: "the argument
+  '--model <MODEL>' cannot be used multiple times". `-c model=<profile model>` does not conflict: a
+  caller's `-m` (top level or after `exec`) or a later `-c model=…` wins over it.
+
+**Claude `settings.json` `env` block, verified on 2.1.319** (dummy server, fresh
+`CLAUDE_CONFIG_DIR`, empty environment):
+- Applied before gateway model discovery: `GET /v1/models` went to the `env` block's
+  `ANTHROPIC_BASE_URL`, carrying the `apiKeyHelper` key as both `x-api-key` and `Bearer`.
+- Model aliases from the block apply: `--model haiku` sent `ANTHROPIC_DEFAULT_HAIKU_MODEL`'s value.
+- The `env` block beats the caller's environment: with `ANTHROPIC_MODEL` and `ANTHROPIC_BASE_URL`
+  also set by the caller, requests still used the block's model and endpoint.
+- The block's `ANTHROPIC_MODEL` beats the `model` key that `/model` writes: with `"model":
+  "picked-model"` in the same file, requests used the block's model. So a Claude folder alone
+  already starts every launch from the profile's model; only stock Corgi's display (which reads
+  the `model` key) can show a stale pick.
 
 **Corgi color.** Tal's draft PR [#74](https://github.com/tals/corgi/pull/74) ("tricks: add
 programmable UI customizations", implements [#44](https://github.com/tals/corgi/issues/44))
@@ -109,9 +125,9 @@ sidebar rail. A Trick can match `directory` to the registry's `config_dir`.
 
 Approach A. Principle II is amended so aprofile may own the launch keys (model, endpoint, model
 aliases, key helper) inside a harness's settings file. The drift for launches from the folder alone
-is accepted: through the wrapper (shell or patched Corgi) every launch starts from the profile's
-model; through the folder alone (stock Corgi) the next launch and the picker follow the last
-`/model` pick.
+is accepted. After verification it is smaller than expected: Claude folders start every launch
+from the profile's model even without the wrapper (only stock Corgi's displayed model can be
+stale); Codex folders launched without the wrapper follow the last `/model` pick saved as default.
 
 ## Key Requirements
 
@@ -123,7 +139,8 @@ model; through the folder alone (stock Corgi) the next launch and the picker fol
   `apiKeyHelper` command that reads the key file. aprofile owns only those entries and
   `apiKeyHelper`; the author's own `env` entries (MLflow and others) stay.
 - **Codex folders:** a `[model_providers.<name>.auth]` block with a command that reads the key
-  file. The Codex wrapper passes the profile's model with `-m` (or `-c model=…`).
+  file. The Codex wrapper passes the profile's model with `-c model=…`, not `-m`, so a caller's
+  `-m` still works.
 - **Registry:** `model` field added, the profile's configured model, never the last `/model` pick.
   Additive, `format_version` stays 1, with a note (Principle V: public interface).
 - **No literal secrets** in `settings.json` or `config.toml`; only commands that read the key file.
@@ -141,12 +158,11 @@ model; through the folder alone (stock Corgi) the next launch and the picker fol
 
 ## Open Questions
 
-- Does Claude Code apply `ANTHROPIC_BASE_URL` and the model aliases from the `settings.json` `env`
-  block early enough for gateway model discovery? Verify on 2.1.319.
-- Precedence between the `env` block and the process environment: does a wrapper's caller
-  override (`${VAR:-default}`) still win when the same variable is in the `env` block?
-- Codex: verify interactively that `/model` saves into `config.toml`, and how the wrapper's `-m`
-  interacts with a caller passing `-m` too.
+- Caller overrides for Claude: the `env` block beats the caller's environment, so
+  `ANTHROPIC_MODEL=x claude-work-deepseek` and `ANTHROPIC_BASE_URL=…` overrides stop working once
+  the variables live in the block (Principle V promises them). `--model` still overrides the model
+  for one run; the endpoint has no flag. Accept and amend Principle V (overrides through flags),
+  keep some variables out of the block, or another way?
 - Codex: does the `auth` block conflict with `env_key` in the same provider block? The wrapper
   still sets `OPENAI_API_KEY`; decide which one the profile keeps.
 - A profile at share level `all` links `settings.json` to the default setup. If such a profile ever
