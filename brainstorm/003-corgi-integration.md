@@ -129,6 +129,26 @@ is accepted. After verification it is smaller than expected: Claude folders star
 from the profile's model even without the wrapper (only stock Corgi's displayed model can be
 stale); Codex folders launched without the wrapper follow the last `/model` pick saved as default.
 
+Principle V loses its caller-override rule (constitution 2.0.0, MAJOR: a guarantee is removed).
+The `env` block beats the caller's environment, which breaks `${VAR:-default}` overrides. Instead
+of working around that (the wrapper translating overrides into `--settings`, dropped as too clever
+and wrapper-only), the rule goes:
+
+- Simplicity: the wrapper's session-capture and `APROFILE_SET_VARS` cleanup exist only for this
+  rule and can go.
+- Least surprise: a stale exported `ANTHROPIC_MODEL` no longer changes a profile's model, matching
+  "every launch starts from the profile's model".
+- Debuggability: one source for a profile's settings (the folder) instead of wrapper default,
+  caller environment and folder.
+- Idiom: one-run changes use the harness's own flags (`claude --model`, `codex -m`); an endpoint is
+  part of a profile's identity, so a different endpoint is a different profile.
+
+Proposed rule text: "A profile's settings are fixed for every launch: the folder (or, for harnesses
+without self-contained folders, the wrapper) is the single source. One-run changes go through the
+harness's own flags. Wrappers clear every variable a profile sets, so inherited values never leak
+into a launch." Exec-style wrappers, pull-only integration and the registry as public interface
+stay unchanged. Given up: the `ANTHROPIC_MODEL=x claude-…` habit and one-run endpoint overrides.
+
 ## Key Requirements
 
 - **Every launch starts from the profile's model** when started through the wrapper. Stated by the
@@ -155,14 +175,14 @@ stale); Codex folders launched without the wrapper follow the last `/model` pick
 - **Constitution:** Principle II gains the owned launch keys in the settings file; Principle I
   (harness knowledge is data) gets the key locations into the harness definitions. Claude's
   proposal: settings files become mixed files with declared owned keys, like `.claude.json`.
+  Principle V drops caller overrides through the environment (see Decision); version 2.0.0.
+- **Wrappers stop offering environment overrides:** no `${VAR:-default}`, no
+  `APROFILE_SET_VARS` session cleanup; every variable a profile sets is cleared and set fixed.
 
 ## Open Questions
 
-- Caller overrides for Claude: the `env` block beats the caller's environment, so
-  `ANTHROPIC_MODEL=x claude-work-deepseek` and `ANTHROPIC_BASE_URL=…` overrides stop working once
-  the variables live in the block (Principle V promises them). `--model` still overrides the model
-  for one run; the endpoint has no flag. Accept and amend Principle V (overrides through flags),
-  keep some variables out of the block, or another way?
+- Should the Claude wrapper still export the variables the folder now carries (harmless
+  duplication), or only clear them and leave the folder as the single source?
 - Codex: does the `auth` block conflict with `env_key` in the same provider block? The wrapper
   still sets `OPENAI_API_KEY`; decide which one the profile keeps.
 - A profile at share level `all` links `settings.json` to the default setup. If such a profile ever
