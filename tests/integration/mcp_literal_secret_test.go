@@ -10,8 +10,8 @@ import (
 
 // Canaries planted in MCP args and url (T061, FR-035).
 const (
-	argCanary = "ghp_CANARYARGLEAK00000000000000000000000"
-	urlCanary = "sk-ant-api03-CANARYURLLEAK000000000000"
+	argCanary = "ghp_CANARYARGLEAK00000000000000000000000" // betterleaks:allow
+	urlCanary = "sk-ant-api03-CANARYURLLEAK000000000000"   // betterleaks:allow
 )
 
 // claudeArgsURLJSON holds literal secrets in an args element and a url query

@@ -1,0 +1,11 @@
+# Gitleaks-compatible configuration.
+#
+# This repository tests a secret scanner, so test files deliberately contain
+# canary values that match the same patterns. Exclude test sources only; all
+# production code and documentation remain scanned.
+[allowlist]
+  description = "Test fixtures contain deliberate canaries"
+  paths = [
+    '''_test.go$''',
+    '''(?:^|/)tests/''',
+  ]
