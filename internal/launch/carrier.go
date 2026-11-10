@@ -46,8 +46,11 @@ const (
 	KindModel    = "model"
 	KindEndpoint = "endpoint"
 	KindKey      = "key"
-	extraPrefix  = "extra:"
-	hookPrefix   = "hook:"
+	// KindAuthClearing names the auth-clearing wrapper-only report item (spec 005
+	// FR-005); it is never a Setting.
+	KindAuthClearing = "auth-clearing"
+	extraPrefix      = "extra:"
+	hookPrefix       = "hook:"
 )
 
 // Setting is one launch setting of a profile with its carrier.

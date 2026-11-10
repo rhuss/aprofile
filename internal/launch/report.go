@@ -44,6 +44,11 @@ func (r StatusReport) Folder() FolderReport {
 			f.EnvDependent = append(f.EnvDependent, s.Ref.Value)
 		}
 	}
+	// Spec 005 FR-005: auth clearing is the one wrapper-only item that is not a
+	// launch setting.
+	if r.AuthClearing != "" {
+		f.WrapperOnly = append(f.WrapperOnly, WrapperOnly{Setting: KindAuthClearing, Reason: r.AuthClearing})
+	}
 	switch {
 	case len(f.WrapperOnly) > 0:
 		f.Status = FolderNotSelfContained

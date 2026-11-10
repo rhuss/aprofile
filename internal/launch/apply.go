@@ -31,6 +31,28 @@ type StatusReport struct {
 	Err      error
 	// Linked names the folder_launch files that are links (into the default setup).
 	Linked map[string]bool
+	// AuthClearing is the reason the folder cannot neutralize the auth-clearing list
+	// for an interactive-login profile ("" when it can or need not): spec 005 FR-005.
+	// It is a reporting fact, never a launch setting.
+	AuthClearing Reason
+}
+
+// authClearingGap returns ReasonShareAll when the folder of an interactive-login
+// profile (an auth kind that sets no variables) cannot carry the neutralizing
+// entries because its env file is linked to the default setup (spec 005 FR-005,
+// FR-006); otherwise "".
+func authClearingGap(p *profile.Profile, def *harness.Definition, doc Doc) Reason {
+	if def.FolderLaunch == nil || def.FolderLaunch.Env == "" || len(def.UnsetAuthVars()) == 0 {
+		return ""
+	}
+	kind, ok := def.AuthKind(p.AuthKind)
+	if !ok || len(kind.VarNames()) != 0 {
+		return ""
+	}
+	if envCarrier(p, def, doc) != ReasonShareAll {
+		return ""
+	}
+	return ReasonShareAll
 }
 
 // HookEnv returns the exec hook's env output for a profile when the definition
@@ -155,11 +177,14 @@ func Status(p *profile.Profile, def *harness.Definition, configDir, recPath stri
 	rep := StatusReport{Sync: SyncUnknown, Linked: map[string]bool{}}
 	rec, err := Load(recPath)
 	if err != nil {
-		rep.Settings = Decide(p, def, ReadDoc(def, configDir))
+		doc := ReadDoc(def, configDir)
+		rep.Settings = Decide(p, def, doc)
+		rep.AuthClearing = authClearingGap(p, def, doc)
 		rep.Err = err
 		return rep, err
 	}
 	doc := ReadDocFor(def, configDir, rec)
+	rep.AuthClearing = authClearingGap(p, def, doc)
 	for f, fd := range doc.Files {
 		if fd.Linked {
 			rep.Linked[f] = true

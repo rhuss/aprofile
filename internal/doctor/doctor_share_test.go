@@ -10,6 +10,7 @@ import (
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/cc-deck/aprofile/internal/secret"
 	"github.com/cc-deck/aprofile/internal/testutil"
 )
 
@@ -113,5 +114,57 @@ func TestDoctorShareChecks(t *testing.T) {
 	}
 	if HasProblems([]Finding{{Message: "x", Severity: SeverityInfo}}) {
 		t.Error("information alone is not a problem")
+	}
+}
+
+// Spec 005 FR-005, FR-006: an interactive-login Claude profile at share level all
+// gets an information finding that auth clearing is wrapper-only, with a fix naming
+// the wrapper and the share level change; an api-key profile at all does not.
+func TestDoctorAuthClearingAtShareAll(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	testutil.SeedDefaults(t, h, "claude")
+	paths, _ := config.ResolvePaths()
+	set, _ := harness.Load(paths.HarnessesDir())
+	store := profile.NewStore(paths)
+	_ = prepared(t, paths, set, store, "claude", "private", profile.ShareAll)
+
+	keyRef, err := secret.ParseReference("file:/keys/k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyed := &profile.Profile{Harness: "claude", Name: "keyed", Share: profile.ShareAll, AuthKind: "api-key",
+		AuthRefs: map[string]secret.Reference{"ANTHROPIC_API_KEY": keyRef}}
+	if err := store.Save(keyed); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := set.Get("claude")
+	if _, err := layer.PrepareConfigDir(def, keyed, paths.ProfileConfigDir("claude", "keyed"), false); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := Run(paths, set, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Finding
+	for _, f := range findings {
+		if strings.Contains(f.Message, "auth-clearing") {
+			got = append(got, f)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("auth-clearing findings = %+v, want one for claude/private", got)
+	}
+	f := got[0]
+	if f.Profile != "claude/private" || f.Severity != SeverityInfo {
+		t.Errorf("finding = %+v, want an info finding for claude/private", f)
+	}
+	if f.Message != "auth-clearing is wrapper-only: share level all: settings.json is linked" {
+		t.Errorf("message = %q", f.Message)
+	}
+	wantFix := "start the profile through its wrapper " + def.WrapperName("private") +
+		", or give it its own settings: aprofile edit claude/private --share content"
+	if f.Fix != wantFix {
+		t.Errorf("fix = %q, want %q", f.Fix, wantFix)
 	}
 }
