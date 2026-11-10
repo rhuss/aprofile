@@ -296,3 +296,54 @@ func execSh(t *testing.T, command string, args []string) string {
 	}
 	return string(out)
 }
+
+// Spec 005 US1: an interactive-login profile with its own settings file carries an
+// empty entry for every name on the auth-clearing list after sync; the dry run
+// lists them without values and a second sync changes nothing.
+func TestLaunchClaudeLoginNeutralizes(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "work-login", "--auth-kind", "oauth-login", "--share", "content")
+	settings := filepath.Join(e.configDir("claude", "work-login"), "settings.json")
+
+	dry := e.run(nil, "sync", "--dry-run")
+	for _, want := range []string{
+		"claude/work-login: settings.json: set env CLAUDE_CODE_USE_VERTEX",
+		"claude/work-login: settings.json: set env ANTHROPIC_API_KEY",
+	} {
+		if !strings.Contains(dry, want) {
+			t.Errorf("sync --dry-run lacks %q:\n%s", want, dry)
+		}
+	}
+	if data, err := os.ReadFile(settings); err == nil && strings.Contains(string(data), "CLAUDE_CODE_USE_VERTEX") {
+		t.Error("sync --dry-run wrote the settings file")
+	}
+
+	e.run(nil, "sync")
+	env := envBlock(t, readSettings(t, settings))
+	for _, name := range []string{
+		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+		"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION",
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+	} {
+		if got, ok := env[name]; !ok || got != "" {
+			t.Errorf("env.%s = %v (present %v), want empty", name, got, ok)
+		}
+	}
+	for name, v := range env {
+		if v != "" {
+			t.Errorf("env.%s = %v: a login profile places only empty entries", name, v)
+		}
+	}
+
+	dataDir := filepath.Join(e.root, ".local", "share", "aprofile")
+	before := snapshotMtimes(t, dataDir)
+	out := e.run(nil, "sync")
+	if !strings.Contains(out, "0 changes") && !strings.Contains(out, "already up to date") {
+		t.Errorf("second sync reports changes:\n%s", out)
+	}
+	for p, mt := range snapshotMtimes(t, dataDir) {
+		if before[p] != mt {
+			t.Errorf("%s rewritten by an unchanged sync", p)
+		}
+	}
+}

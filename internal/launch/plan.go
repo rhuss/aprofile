@@ -193,9 +193,13 @@ func desiredState(def *harness.Definition, settings []Setting, canCarryEnv bool)
 	// whether or not it carries the key, except names the profile supplies itself
 	// (spec 005 FR-002): an empty folder entry would beat the value the wrapper sets.
 	if canCarryEnv {
+		// Supplied names: every launch variable of the profile (model, endpoint, extra
+		// and exec-hook variables, whichever carrier) and the variable of a key the
+		// wrapper carries. A folder-carried key's own variable stays blanked: the key
+		// command serves it (spec 004 research R2).
 		supplied := map[string]bool{}
 		for _, s := range settings {
-			if s.IsVariable() {
+			if s.IsVariable() || (s.Kind == KindKey && s.Carrier == CarrierWrapper && s.Variable != "") {
 				supplied[s.Variable] = true
 			}
 		}

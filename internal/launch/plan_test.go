@@ -715,3 +715,74 @@ func TestPlanLoginDefinitionWithoutFolderLaunch(t *testing.T) {
 		t.Errorf("record not emptied: %+v", res.NewRecord)
 	}
 }
+
+// Spec 005 FR-002: names the profile supplies through the wrapper are never blanked.
+func TestPlanWrapperSuppliedNamesNotBlanked(t *testing.T) {
+	d := builtin(t, "claude")
+	all := d.UnsetAuthVars()
+	check := func(name string, p *profile.Profile, skip map[string]string) {
+		t.Helper()
+		res := plan(t, p, d, settingsDoc(t, `{}`), launch.Record{})
+		env := envOf(t, res)
+		for _, v := range all {
+			got, ok := env[v]
+			if want, skipped := skip[v]; skipped {
+				if want == "" && ok {
+					t.Errorf("%s: env.%s = %v must not be placed", name, v, got)
+				}
+				if want != "" && got != want {
+					t.Errorf("%s: env.%s = %v, want %q", name, v, got, want)
+				}
+				continue
+			}
+			if !ok || got != "" {
+				t.Errorf("%s: env.%s = %v (present %v), want empty", name, v, got, ok)
+			}
+		}
+	}
+
+	tok := &profile.Profile{Harness: "claude", Name: "tok", AuthKind: "oauth-token", Share: profile.ShareContent,
+		AuthRefs: map[string]secret.Reference{"CLAUDE_CODE_OAUTH_TOKEN": ref(t, "env:TOK")}}
+	check("oauth-token", tok, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": ""})
+
+	cleared := &profile.Profile{Harness: "claude", Name: "key", AuthKind: "api-key", Share: profile.ShareContent,
+		AuthRefs: map[string]secret.Reference{"ANTHROPIC_API_KEY": ref(t, "env:ANTHROPIC_API_KEY")}}
+	expect(t, launch.Decide(cleared, d, settingsDoc(t, `{}`)), launch.KindKey, launch.CarrierWrapper, launch.ReasonClearedSource)
+	check("api-key cleared-source", cleared, map[string]string{"ANTHROPIC_API_KEY": ""})
+
+	vertex := loginProfile(profile.ShareContent)
+	vertex.ExtraEnv = []profile.ExtraEnvVar{{Name: "CLAUDE_CODE_USE_VERTEX", Value: "1"}}
+	check("login with extra switch", vertex, map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"})
+
+	// A folder-carried key: its own variable is blanked, the key command serves it
+	// (spec 004 FR-006a unchanged).
+	folderKey := claudeProfile(t)
+	folderKey.Model, folderKey.Endpoint, folderKey.ExtraEnv = "", "", nil
+	check("folder-carried api-key", folderKey, nil)
+}
+
+// Spec 005 edge case: an auth kind change from a folder-carried api-key to an
+// oauth-token removes the empty entry for the new kind's own variable.
+func TestPlanAuthKindChangeToOAuthToken(t *testing.T) {
+	d := builtin(t, "claude")
+	p := claudeProfile(t)
+	p.Model, p.Endpoint, p.ExtraEnv = "", "", nil
+	m, rec := placedSettings(t, p, d, `{}`)
+	if got, ok := m["env"].(map[string]any)["CLAUDE_CODE_OAUTH_TOKEN"]; !ok || got != "" {
+		t.Fatalf("api-key profile: env.CLAUDE_CODE_OAUTH_TOKEN = %v (present %v)", got, ok)
+	}
+	p.AuthKind = "oauth-token"
+	p.AuthRefs = map[string]secret.Reference{"CLAUDE_CODE_OAUTH_TOKEN": ref(t, "env:TOK")}
+	res := plan(t, p, d, settingsDoc(t, encodeSettings(t, m)), rec)
+	ks := stepKinds(res)
+	if ks["settings.json#env.CLAUDE_CODE_OAUTH_TOKEN"] != string(launch.StepRemove) || ks["settings.json#apiKeyHelper"] != string(launch.StepRemove) {
+		t.Errorf("steps = %v", ks)
+	}
+	env := envOf(t, res)
+	if _, ok := env["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
+		t.Error("the token variable is still blanked")
+	}
+	if got, ok := env["ANTHROPIC_API_KEY"]; !ok || got != "" {
+		t.Errorf("env.ANTHROPIC_API_KEY = %v (present %v), want empty", got, ok)
+	}
+}
