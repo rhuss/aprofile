@@ -350,6 +350,36 @@ func TestLevelChangeLaunchSettings(t *testing.T) {
 	}
 }
 
+// Spec 005 edge case: a login profile without launch settings still carries
+// neutralizing entries, so a level change to all drops its launch record and says
+// so, and a change back lets the next sync place the entries again.
+func TestLevelChangeLoginNeutralizing(t *testing.T) {
+	e := newEnv(t)
+	testutil.SeedDefaultsAt(t, e.root, "claude")
+	e.run(nil, "add", "claude", "login", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "sync")
+	rec := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude", "login.json")
+	if _, err := os.Stat(rec); err != nil {
+		t.Fatalf("no launch record after sync: %v", err)
+	}
+	const toAll = "launch settings become wrapper-only (settings.json is linked)"
+	const fromAll = "launch settings will be placed into settings.json by the next sync"
+	if out := e.run(nil, "edit", "claude/login", "--share", "all", "--yes"); !strings.Contains(out, toAll) {
+		t.Errorf("applied change lacks %q:\n%s", toAll, out)
+	}
+	if _, err := os.Stat(rec); !os.IsNotExist(err) {
+		t.Error("the record was not dropped")
+	}
+	if out := e.run(nil, "edit", "claude/login", "--share", "content", "--yes"); !strings.Contains(out, fromAll) {
+		t.Errorf("applied change lacks %q:\n%s", fromAll, out)
+	}
+	e.run(nil, "sync")
+	env, _ := readSettings(t, filepath.Join(e.configDir("claude", "login"), "settings.json"))["env"].(map[string]any)
+	if got, ok := env["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v (present %v), want empty after the change from all", got, ok)
+	}
+}
+
 // Feature 004 (research R6): rename moves the launch record, remove --purge deletes it.
 func TestLaunchRecordFollowsRenameAndPurge(t *testing.T) {
 	e := newEnv(t)
