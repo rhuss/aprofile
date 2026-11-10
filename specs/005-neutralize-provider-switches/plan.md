@@ -78,7 +78,7 @@ internal/launch/
 ├── apply.go           # Status: compute the share-level-all login gap
 ├── report.go          # Folder(): append the auth-clearing wrapper-only item; SettingName/ReasonText for it
 ├── plan_test.go       # login, oauth-token, wrapper-key, extra-var, all, idempotence cases
-└── report_test.go     # folder status and wrapper-only item
+└── apply_test.go      # folder status and wrapper-only item
 internal/doctor/doctor.go       # launchFindings: special fix text for auth-clearing
 internal/cli/list_show.go       # show text: nothing new beyond the wrapper-only line (verify)
 internal/harness/builtin/codex.yaml  # comment recording research R2
