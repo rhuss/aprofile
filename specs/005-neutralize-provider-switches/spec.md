@@ -161,8 +161,11 @@ exported against a logging stub, and record which endpoint and credential it use
 - A profile's own settings file already holds a non-empty entry for a name on the auth-clearing
   list that aprofile did not place (copied once from the default setup, pulled with `settings
   pull`, or added by hand). The profile's empty entry replaces it, `sync` names the entry (never
-  its value), and the replaced value is not restored later (spec 004 FR-004). A profile that wants
-  a provider switch sets it with `--env`, which exempts the name.
+  its value), and the replaced value is not restored later (spec 004 FR-004). Because this can
+  silently move a profile to another provider, `sync` also prints a separate note whenever an empty
+  entry overwrites a non-empty value in the profile's own file (a replaced user entry or a hand
+  edit of a placed entry), naming the variable and the fix `aprofile edit <id> --env NAME=<value>`.
+  A profile that wants a provider switch sets it with `--env`, which exempts the name.
 - A profile changes from share level `all` to `content` or `none`: the next `sync` places the
   neutralizing entries into the new own settings file. Changing to `all` drops the record and the
   entries go with the replaced file (spec 004 FR-008a).

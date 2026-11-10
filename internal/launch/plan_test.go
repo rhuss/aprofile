@@ -615,6 +615,20 @@ func TestPlanLoginRestoresDeletedEntry(t *testing.T) {
 	if got, ok := envOf(t, res)["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
 		t.Errorf("restored entry = %v (present %v)", got, ok)
 	}
+	// A deleted entry dropped no value: no replaced-value note.
+	if strings.Contains(strings.Join(res.Notes, "\n"), "is replaced by an empty entry") {
+		t.Errorf("unexpected note for a deleted entry: %q", res.Notes)
+	}
+
+	// A hand-set value in a placed entry is restored to empty, with the note.
+	m["env"].(map[string]any)["CLAUDE_CODE_USE_VERTEX"] = "1"
+	res = plan(t, p, d, settingsDoc(t, encodeSettings(t, m)), rec)
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_VERTEX"]; k != string(launch.StepRestore) {
+		t.Errorf("step = %q, want restore", k)
+	}
+	if !strings.Contains(strings.Join(res.Notes, "\n"), "own env CLAUDE_CODE_USE_VERTEX is replaced by an empty entry") {
+		t.Errorf("notes = %q, want the replaced-value note", res.Notes)
+	}
 }
 
 // Spec 005 edge case (spec 004 FR-004): a user's own provider switch in the
@@ -632,6 +646,23 @@ func TestPlanLoginReplacesUserSwitch(t *testing.T) {
 	rec, _ := json.Marshal(res.NewRecord)
 	if strings.Contains(string(steps)+string(rec), "vertex-secret-1") {
 		t.Error("the user's value leaked into a step or the record")
+	}
+	// The dropped value gets its own note with the way to keep it, never the value.
+	notes := strings.Join(res.Notes, "\n")
+	if !strings.Contains(notes, "own env CLAUDE_CODE_USE_VERTEX is replaced") ||
+		!strings.Contains(notes, "aprofile edit claude/login --env CLAUDE_CODE_USE_VERTEX=<value>") {
+		t.Errorf("notes = %q, want the replaced-value note with the edit hint", res.Notes)
+	}
+	if strings.Contains(notes, "vertex-secret-1") {
+		t.Error("the user's value leaked into a note")
+	}
+
+	// A user entry that is already empty (or null) loses nothing: no note.
+	for _, v := range []string{`""`, `null`} {
+		res := plan(t, loginProfile(profile.ShareContent), d, settingsDoc(t, `{"env":{"CLAUDE_CODE_USE_VERTEX":`+v+`}}`), launch.Record{})
+		if strings.Contains(strings.Join(res.Notes, "\n"), "is replaced by an empty entry") {
+			t.Errorf("user value %s: unexpected note %q", v, res.Notes)
+		}
 	}
 }
 

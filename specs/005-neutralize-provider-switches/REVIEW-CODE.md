@@ -83,3 +83,14 @@ Fix commits: 60dd564, 649d8d3.
 Details: [review-findings.md](review-findings.md).
 
 Final checks: `GOFLAGS=-count=1 make test` passed, `go vet ./...` clean, `gofmt -l` empty.
+
+## Resolution of Ambiguous Findings (2026-11-10)
+
+- **Upgrade replaces a profile's own provider switch (Important):** decided 1b. `sync` now prints a
+  separate note whenever an empty neutralizing entry overwrites a non-empty value in the profile's
+  own settings file (a replaced user entry or a hand edit of a placed entry), naming the variable,
+  never its value, with the fix `aprofile edit <id> --env NAME=<value>`. Covered by
+  `TestPlanLoginReplacesUserSwitch` and `TestPlanLoginRestoresDeletedEntry`; verified end to end in
+  a throwaway `HOME` (note shown, fix hint restores the value, second `sync` makes 0 changes).
+- **`settings pull --replace` lists "removed: env" (Minor):** decided follow-up; tracked in
+  `brainstorm/idea-inbox.md` as `settings-pull-ignore-placed-entries`.

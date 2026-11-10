@@ -148,7 +148,7 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 			if keyHere && kc.Form == harness.KeyFormProviderAuth {
 				return res, fmt.Errorf("%s: cannot place launch settings: the provider-auth form needs a TOML file", f)
 			}
-			if err := planJSON(&res, fl, f, fd, rec, want, envHere, keyHere); err != nil {
+			if err := planJSON(&res, p.ID(), fl, f, fd, rec, want, envHere, keyHere); err != nil {
 				return res, err
 			}
 		}
@@ -258,6 +258,12 @@ func placeKind(exists, equal, recorded bool) (StepKind, bool) {
 	}
 }
 
+// jsonEmptyValue reports whether raw is null or the empty JSON string.
+func jsonEmptyValue(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	return bytes.Equal(t, []byte("null")) || bytes.Equal(t, []byte(`""`))
+}
+
 // jsonStringEqual reports whether raw is the JSON string s.
 func jsonStringEqual(raw json.RawMessage, s string) bool {
 	var v any
@@ -268,7 +274,7 @@ func jsonStringEqual(raw json.RawMessage, s string) bool {
 	return ok && str == s
 }
 
-func planJSON(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, envHere, keyHere bool) error {
+func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, envHere, keyHere bool) error {
 	handled := map[string]bool{} // record locations the env and key steps decided
 	top := map[string]json.RawMessage{}
 	for k, v := range fd.JSON {
@@ -303,6 +309,13 @@ func planJSON(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 			res.NewRecord.Entries = append(res.NewRecord.Entries, Entry{File: f, Location: loc})
 			if !ok {
 				continue
+			}
+			if exists && e.value == "" && !jsonEmptyValue(cur) {
+				// A neutralizing entry drops a non-empty value in the profile's own
+				// file (a user entry it replaces, or a hand edit of a placed entry it
+				// restores): say so on its own line, naming the variable but never its
+				// value, with the way to keep it (spec 005 review finding).
+				res.Notes = append(res.Notes, fmt.Sprintf("%s: the profile's own env %s is replaced by an empty entry, so a launch from the folder no longer uses it; to keep it, set it on the profile: aprofile edit %s --env %s=<value>", f, e.name, id, e.name))
 			}
 			raw, _ := json.Marshal(e.value)
 			envObj[e.name] = raw
