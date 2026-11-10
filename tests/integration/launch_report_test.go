@@ -184,3 +184,70 @@ func TestLaunchReportShow(t *testing.T) {
 		}
 	}
 }
+
+// Spec 005 US3: an interactive-login profile at share level all reports auth
+// clearing as wrapper-only in show (text and --json) and doctor (information,
+// exit status unaffected); sync writes nothing into the linked settings.json. An
+// api-key profile at all gets no such item.
+func TestLaunchReportAuthClearingAtAll(t *testing.T) {
+	e := newEnv(t)
+	def := e.writeDefaultClaudeSettings(`{"theme":"dark"}`)
+	key := e.keyFile("k", "sk-auth-clearing-canary\n")
+	e.run(nil, "add", "claude", "private", "--share", "all", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude", "keyed", "--share", "all", "--auth-kind", "api-key", "--auth-key", "file:"+key)
+	e.run(nil, "sync")
+	if data, _ := os.ReadFile(def); string(data) != `{"theme":"dark"}` {
+		t.Errorf("sync wrote into the linked default settings.json: %s", data)
+	}
+
+	f := e.folder("claude/private")
+	if f.Status != "not-self-contained" || len(f.WrapperOnly) != 1 ||
+		f.WrapperOnly[0].Setting != "auth-clearing" || f.WrapperOnly[0].Variable != "" || f.WrapperOnly[0].Reason != "share-all" {
+		t.Errorf("claude/private folder: %+v", f)
+	}
+	if f := e.folder("claude/keyed"); reasonOf(f, "auth-clearing") != "" {
+		t.Errorf("claude/keyed must not report auth-clearing: %+v", f)
+	}
+	text := e.run(nil, "show", "claude/private")
+	for _, want := range []string{
+		"folder:         not self-contained",
+		"wrapper-only: auth-clearing (share level all: settings.json is linked)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("show text lacks %q:\n%s", want, text)
+		}
+	}
+
+	dj, _, derr := e.tryRunSplit(nil, "doctor", "--json")
+	var findings struct {
+		Findings []struct {
+			Profile, Severity, Message, Fix string
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(dj), &findings); err != nil {
+		t.Fatalf("doctor --json: %v\n%s", err, dj)
+	}
+	var got []string
+	for _, f := range findings.Findings {
+		if strings.Contains(f.Message, "auth-clearing") {
+			got = append(got, f.Profile+" "+f.Severity+" "+f.Message+" | "+f.Fix)
+		}
+		if f.Severity == "problem" && f.Profile == "claude/private" {
+			t.Errorf("unexpected problem for claude/private: %+v", f)
+		}
+	}
+	want := "claude/private info auth-clearing is wrapper-only: share level all: settings.json is linked | " +
+		"start the profile through its wrapper claude-private, or give it its own settings: aprofile edit claude/private --share content"
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("doctor auth-clearing findings = %q, want [%q]", got, want)
+	}
+	if derr != nil {
+		t.Errorf("doctor exit status changed by information findings: %v", derr)
+	}
+	for _, args := range [][]string{{"show", "claude/keyed", "--json"}, {"doctor", "--json"}} {
+		so, se, _ := e.tryRunSplit(nil, args...)
+		if strings.Contains(so+se, "sk-auth-clearing-canary") {
+			t.Errorf("%v printed the key", args)
+		}
+	}
+}

@@ -58,7 +58,7 @@ every behavior change; tests are written first in each story and must fail befor
 - [X] T012 [P] [US3] Add failing tests in `internal/doctor/doctor_share_test.go`: info finding `auth-clearing is wrapper-only: share level all: settings.json is linked` with fix `start the profile through its wrapper <wrapper>, or give it its own settings: aprofile edit <id> --share content`; severity `info`; no such finding for an `api-key` profile at `all`
 - [X] T013 [US3] Implement the report item: in `internal/launch/apply.go` `Status`, set a new `StatusReport` field (for example `AuthClearing Reason`) to `ReasonShareAll` when `def.FolderLaunch != nil && def.FolderLaunch.Env != ""`, the env file is linked (helper from T002 is false), the profile's auth kind is defined by the definition (`def.AuthKind(p.AuthKind)` found; an unknown kind gets no item) and its `VarNames()` is empty and `def.UnsetAuthVars()` is not empty; in `internal/launch/report.go` `Folder()`, append `WrapperOnly{Setting: "auth-clearing", Reason: r.AuthClearing}` when set; add a `KindAuthClearing = "auth-clearing"` constant; `SettingName()` returns it unchanged; never touch `DecideWith`
 - [X] T014 [US3] In `internal/doctor/doctor.go` `launchFindings`, use the special fix text for the `auth-clearing` item (T012), keeping severity info
-- [ ] T015 [US3] Add an integration test in `tests/integration/launch_report_test.go`: `oauth-login` profile at `all` → `show` text and `--json` per contracts/cli.md, `doctor --json` info finding, `sync` writes nothing into the linked `settings.json`
+- [X] T015 [US3] Add an integration test in `tests/integration/launch_report_test.go`: `oauth-login` profile at `all` → `show` text and `--json` per contracts/cli.md, `doctor --json` info finding, `sync` writes nothing into the linked `settings.json`
 
 **Checkpoint**: US1 to US3 green.
 
@@ -66,7 +66,7 @@ every behavior change; tests are written first in each story and must fail befor
 
 **Goal**: record research R2 (FR-008); FR-009's "unchanged" branch applies.
 
-- [ ] T016 [P] [US4] Add a comment above `launch_clear` (or the auth kinds) in `internal/harness/builtin/codex.yaml`: verified with Codex 0.167.0 on 2026-11-10 that a login profile launched from `CODEX_HOME` alone ignores exported `OPENAI_API_KEY` and `OPENAI_BASE_URL` (specs/005-neutralize-provider-switches/research.md R2), so the folder needs no neutralization; check that definition-loading tests still pass
+- [X] T016 [P] [US4] Add a comment above `launch_clear` (or the auth kinds) in `internal/harness/builtin/codex.yaml`: verified with Codex 0.167.0 on 2026-11-10 that a login profile launched from `CODEX_HOME` alone ignores exported `OPENAI_API_KEY` and `OPENAI_BASE_URL` (specs/005-neutralize-provider-switches/research.md R2), so the folder needs no neutralization; check that definition-loading tests still pass
 
 ## Phase 7: Polish & Cross-Cutting
 
