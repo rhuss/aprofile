@@ -10,6 +10,7 @@ Last updated: 2026-11-10
 | 002 | 2026-11-07 | history-groups | active | - | - |
 | 003 | 2026-11-09 | corgi-integration | active | - | - |
 | 005 | 2026-11-10 | companion-tool-files | active | - | - |
+| 006 | 2026-11-10 | neutralize-provider-switches | active | - | - |
 
 ## Open Threads
 
@@ -36,6 +37,9 @@ Last updated: 2026-11-10
 - Corgi default accounts (`claude/private` via the daemon, `~/.codex`): hide or keep? (from #003)
 - Where rules for companion tool files live: built-in definitions, user `harnesses.d`, or companion fragments? (from #005)
 - Should aprofile take Corgi's `.corgi-hooks.lock` when writing `settings.json` or `config.toml`? (from #005)
+- Does a ChatGPT-login Codex profile honor an exported `OPENAI_API_KEY` or `OPENAI_BASE_URL`? (from #006)
+- Does a login profile with only neutralizing entries count as "self-contained" in `show`/`list`? (from #006)
+- Wording and fix hint of the `show`/`doctor` warning for `all` login profiles. (from #006)
 
 ## Parked Ideas
 
