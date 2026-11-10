@@ -39,8 +39,8 @@ back to the default provider). Codex has no `env` block in `config.toml`.
 - Q: Does a login profile at `content` or `none` whose folder holds only neutralizing entries count
   as self-contained? → A: Yes; neutralizing entries do not change the status rules of spec 004
   FR-020.
-- Q: Do `list`, `show` and `doctor` all reflect the FR-005 status for a login profile at `all`?
-  → A: Yes; all three use the same folder status, so `list` shows "not self-contained" too.
+- Q: Which commands report the FR-005 gap for a login profile at `all`? → A: `show` and `doctor`
+  only (the brainstorm decision); `list` has no self-containment status and gains none.
 - Q: How does the FR-005 wrapper-only item appear in `show --json`? → A: As a wrapper-only setting
   named `auth-clearing` with no variable and the existing reason `share-all`.
 
@@ -168,13 +168,18 @@ exported against a logging stub, and record which endpoint and credential it use
   neutralizing entries into the new own settings file. Changing to `all` drops the record and the
   entries go with the replaced file (spec 004 FR-008a).
 - A profile's auth kind changes (for example from `api-key` to `oauth-token`): the next `sync`
-  removes the empty entry for the new kind's own variable and places the one for the old kind's.
+  removes the empty entry for the new kind's own variable when that variable is wrapper-carried,
+  and places entries for names the profile no longer supplies.
 - A profile's extra variables change so a name on the list is newly supplied or no longer
   supplied: the next `sync` removes or places the empty entry.
 - A profile's own settings file does not parse: `sync` fails for that file as spec 004 FR-009a
   describes; nothing is written.
-- Existing profiles: right after upgrading, every `content` and `none` profile without a folder
-  key is reported stale until the next `sync` places the new entries.
+- Existing profiles: right after upgrading, every `content` and `none` profile of a harness with a
+  folder `env` location (today Claude Code) that has no folder key is reported stale until the
+  next `sync` places the new entries. Profiles of other harnesses are unaffected.
+- A user adds empty entries for the clearing list to their default setup's settings file by hand,
+  so a profile at `all` sees them through the link: this workaround is out of scope; spec 004
+  FR-020b keeps reporting such entries, and FR-005 keeps reporting the profile.
 - A user's harness definition override changes the auth-clearing list: the next `sync` follows the
   new list.
 
@@ -199,21 +204,29 @@ exported against a logging stub, and record which endpoint and credential it use
   MUST yield the same files (Constitution Principle II).
 - **FR-004**: For a profile at share level `all`, aprofile MUST NOT write neutralizing entries
   (spec 004 FR-008 unchanged).
+- **FR-004a**: Before implementation relies on it, the team MUST verify on a current Claude Code
+  release that an interactive-login profile whose settings file holds empty entries for the whole
+  auth-clearing list (including `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and
+  `CLAUDE_CODE_OAUTH_TOKEN`), launched from the folder alone with `CLAUDE_CODE_USE_VERTEX=1`
+  exported, uses its login against the default provider, and record the result in the feature's
+  research notes. If it does not, the feature stops at that point and the spec is revised.
 
-**Reporting**
+**Reporting (amends spec 004 FR-001 and FR-020)**
 
 - **FR-005**: For a profile at share level `all` with an interactive login kind (an auth kind that
-  sets no variables, such as `oauth-login` or `chatgpt-login`) whose harness clears auth variables,
-  `list`, `show` (text and `--json`) and `doctor` MUST report the folder as not self-contained;
-  `show` MUST list auth clearing as wrapper-only (in `--json`: setting `auth-clearing`, no variable,
-  reason `share-all`) with the reason share level `all` (the settings file is linked to the default
-  setup), and `doctor` MUST report the same as information with a fix naming the profile's wrapper
+  sets no variables, such as `oauth-login`) of a harness that declares a folder `env` location
+  (today Claude Code), `show` (text and `--json`) and `doctor` MUST report the folder as not
+  self-contained. Auth clearing becomes the one wrapper-only item that is not a launch setting
+  (spec 004 FR-001 keeps it out of the launch settings): `show` MUST list auth clearing as
+  wrapper-only (in `--json`: setting `auth-clearing`, no variable, reason `share-all`) with the
+  reason share level `all` (the settings file is linked to the default setup), and `doctor` MUST report the same as information with a fix naming the profile's wrapper
   and `aprofile edit --share content`.
-- **FR-005a**: A profile at `content` or `none` whose folder holds only neutralizing entries (no
-  other launch settings) MUST be reported as self-contained; neutralizing entries do not change
-  the status rules of spec 004 FR-020.
-- **FR-006**: Profiles at share level `all` with any other auth kind MUST NOT get the FR-005
-  message.
+- **FR-005a**: Neutralizing entries alone never make a folder not self-contained: a profile at
+  `content` or `none` whose folder holds only neutralizing entries (no other launch settings)
+  MUST be reported as self-contained.
+- **FR-006**: Profiles at share level `all` with any other auth kind, and profiles of harnesses
+  without a folder `env` location (Codex is covered by FR-008 and FR-009 alone), MUST NOT get the
+  FR-005 message. `list` output is unchanged.
 - **FR-007**: Messages and `--json` output MUST name variables and entries, never values
   (Constitution Principle IV).
 
@@ -229,8 +242,9 @@ exported against a logging stub, and record which endpoint and credential it use
 
 **Documentation**
 
-- **FR-010**: Spec 004 FR-006a and the user documentation (README and the Corgi guide) MUST
-  describe the widened neutralization and the gap at share level `all` for login profiles.
+- **FR-010**: Spec 004 (FR-001, FR-006a and FR-020, as amendment notes) and the user
+  documentation (README and the Corgi guide) MUST describe the widened neutralization, the
+  `auth-clearing` wrapper-only item and the gap at share level `all` for login profiles.
 
 ### Key Entities
 
@@ -246,13 +260,15 @@ exported against a logging stub, and record which endpoint and credential it use
 ### Measurable Outcomes
 
 - **SC-001**: For every Claude profile at share level `content` or `none`, whatever its auth kind,
-  a launch from the folder alone with any name from the auth-clearing list exported uses the same
-  provider as a launch through the wrapper.
+  the folder's settings file holds an empty entry for every name on the auth-clearing list the
+  profile does not supply (checked automatically), and the one manual check of FR-004a shows a
+  folder launch of a login profile with `CLAUDE_CODE_USE_VERTEX=1` exported uses the login's
+  default provider.
 - **SC-002**: For every profile, a launch through the wrapper behaves exactly as before the change
   (no supplied value is lost).
 - **SC-003**: `sync` run twice in a row changes nothing on the second run, for every profile.
-- **SC-004**: Every interactive-login profile at share level `all` is reported as not
-  self-contained by `show` and `list`, and `doctor` names the gap without changing its exit status.
+- **SC-004**: Every interactive-login Claude profile at share level `all` is reported as not
+  self-contained by `show`, and `doctor` names the gap without changing its exit status.
 - **SC-005**: No file aprofile writes or prints contains a value from the launching environment or
   a profile secret.
 
@@ -267,5 +283,12 @@ exported against a logging stub, and record which endpoint and credential it use
 - Replacing a user's own entry for a name on the auth-clearing list follows spec 004 FR-004; such
   entries are already reported as problems today (spec 004 FR-020b), with the fix to set them on
   the profile.
+- Neutralizing entries are placed launch entries in the sense of Constitution Principles II and
+  III, as spec 004 FR-006a already treats them; the plan's Constitution Check confirms this, and a
+  PATCH amendment naming them explicitly is optional.
+- Claude Code passes its `env` block on to the processes it starts, so child processes of a folder
+  launch see the neutralized names as set to an empty value, where a wrapper launch leaves them
+  unset. Tools that treat empty as unset (the usual convention for these variables) see no
+  difference.
 - Fixing Corgi to launch through the wrapper is out of scope (Constitution Principle V: aprofile
   never requires changes in Corgi).
