@@ -70,8 +70,8 @@ every behavior change; tests are written first in each story and must fail befor
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T017 [P] Add amendment notes to `specs/004-corgi-integration/spec.md` at FR-001, FR-006a and FR-020 pointing to spec 005 (neutralization for every own settings file; `auth-clearing` as the one wrapper-only item that is not a launch setting)
-- [ ] T018 [P] Update `docs/guide/docs/user/corgi.md`: what the folder neutralizes for every profile with its own settings, and that a login profile at share level `all` inherits exported provider switches when started from the folder alone (fix: wrapper or `--share content`); add a short note to `README.md` only if it describes folder launches
+- [X] T017 [P] Add amendment notes to `specs/004-corgi-integration/spec.md` at FR-001, FR-006a and FR-020 pointing to spec 005 (neutralization for every own settings file; `auth-clearing` as the one wrapper-only item that is not a launch setting)
+- [X] T018 [P] Update `docs/guide/docs/user/corgi.md`: what the folder neutralizes for every profile with its own settings, and that a login profile at share level `all` inherits exported provider switches when started from the folder alone (fix: wrapper or `--share content`); add a short note to `README.md` only if it describes folder launches
 - [ ] T019 Run `make test` and `go vet ./...`; run quickstart.md steps 2 and 3 in a throwaway `HOME`; confirm no value appears in any output (FR-007); list quickstart step 4 (real-login folder launch, FR-004a) as a manual check before merge in the RUNBOOK
 
 ## Dependencies & Execution Order

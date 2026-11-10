@@ -85,6 +85,8 @@ History is separate from share level. A profile in no history group keeps its hi
 
 Profile changes can leave wrappers stale. Run `./bin/aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
 
+Tools such as Corgi can also start a profile from its folder alone. `sync` writes the launch settings the folder can hold, and for Claude profiles with their own settings it blocks provider switches and keys exported by the launching tool. A Claude login profile at share level `all` gets no such protection; [Register profiles with Corgi](docs/guide/docs/user/corgi.md) explains the details.
+
 ## Ways to run it
 
 Choose a share level for how much setup a profile should reuse: `content` reuses instructions and skills, `all` uses the default setup live, and `none` starts clean. Then choose history separately: leave the profile out of a group to keep its history isolated, or join a same-harness group to share its conversations. [Compare share levels](docs/guide/docs/user/share-levels.md) and [learn about history groups](docs/guide/docs/user/history-groups.md) before choosing.

@@ -2,7 +2,9 @@
 
 <!-- Sources:
 aprofile:specs/004-corgi-integration/spec.md
+aprofile:specs/005-neutralize-provider-switches/spec.md
 aprofile:internal/launch/carrier.go
+aprofile:internal/launch/plan.go
 aprofile:internal/harness/builtin/claude.yaml
 aprofile:internal/harness/builtin/codex.yaml
 -->
@@ -47,6 +49,16 @@ The registry (`./bin/aprofile registry path`) lists every profile with its `conf
 - Delete saved custom commands that started a wrapper or exported keys; the folder now carries those settings.
 - Hide default rows that duplicate a named profile.
 
+## What the folder blocks from the launching environment
+
+A launching tool can carry stale exports, such as `CLAUDE_CODE_USE_VERTEX=1` or `ANTHROPIC_API_KEY` from an old shell. The wrapper clears these before it starts the harness. For a folder launch, `aprofile sync` writes an empty `env` entry into the profile's own `settings.json` for each provider switch and auth variable on Claude Code's clearing list. Claude Code treats an empty entry as unset, so the exported value has no effect. This applies to every Claude profile at share level `content` or `none`, whatever its auth kind, so a Claude subscription login stays on its login.
+
+Names the profile sets itself are left alone: its extra variables (a provider switch set with `--env` keeps its value), exec-hook variables and the token or key the wrapper supplies (`CLAUDE_CODE_OAUTH_TOKEN` of an `oauth-token` profile).
+
+A login profile at share level `all` cannot get these entries, because its `settings.json` is the linked default setup, which aprofile never writes. Started from the folder alone, it inherits whatever provider switches and keys the launching tool exports. `show` lists `wrapper-only: auth-clearing` for it and `doctor` reports the gap as information. Start such a profile through its wrapper, or give it its own settings with `./bin/aprofile edit claude/<name> --share content` and run `./bin/aprofile sync`.
+
+Codex needs no such entries: a Codex login profile started from `CODEX_HOME` alone ignores exported `OPENAI_API_KEY` and `OPENAI_BASE_URL`.
+
 ## What stays with the wrapper
 
 Some settings cannot live in the folder. They are named by `show` and `doctor` with the reason:
@@ -56,6 +68,7 @@ Some settings cannot live in the folder. They are named by `show` and `doctor` w
 | An extra variable given as a reference (`env:`/`file:`) | Writing it into the folder would turn it into a literal secret |
 | A Claude `oauth-token` key | The harness cannot read it through a key command |
 | Any Claude Code setting of a profile at share level `all` | Its `settings.json` is linked to the default setup, which aprofile never writes (a Codex `config.toml` is never linked, so Codex keys stay in the folder) |
+| Auth clearing of a Claude login profile at share level `all` (`auth-clearing`) | The linked `settings.json` cannot hold the empty entries that block exported provider switches and keys |
 | A Codex key without a custom provider in `config.toml` | The folder has no provider block to carry it |
 | A key read from a variable aprofile clears (`env:ANTHROPIC_AUTH_TOKEN`, `env:OPENAI_API_KEY`) | The folder would read an emptied variable |
 | The Codex model | Codex saves `/model` picks into `config.toml`, so the wrapper passes `-c model="..."` instead |
