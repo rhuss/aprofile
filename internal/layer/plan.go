@@ -677,7 +677,7 @@ func categoryNote(l harness.Layer) string {
 // held (event names and group counts for a hooks object). An invalid document is
 // an error naming the file.
 func withoutKey(data []byte, key, file string) ([]byte, string, error) {
-	m, err := decodeJSONObject(data)
+	m, err := DecodeJSONObject(data)
 	if err != nil {
 		return nil, "", fmt.Errorf("%s is not valid JSON: %w", file, err)
 	}
@@ -717,7 +717,7 @@ func summarizeHooks(raw json.RawMessage) string {
 }
 
 func checkJSON(data []byte, file string) error {
-	if _, err := decodeJSONObject(data); err != nil {
+	if _, err := DecodeJSONObject(data); err != nil {
 		return fmt.Errorf("%s is not valid JSON: %w", file, err)
 	}
 	return nil

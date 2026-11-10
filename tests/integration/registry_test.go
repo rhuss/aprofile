@@ -49,7 +49,7 @@ func TestScenario4RegistryAndEnvContract(t *testing.T) {
 	if len(reg.Profiles) != 2 {
 		t.Fatalf("want 2 registry profiles, got %d", len(reg.Profiles))
 	}
-	for _, field := range []string{"harness", "name", "label", "color", "icon", "auth_kind", "primary", "config_dir", "wrapper_path"} {
+	for _, field := range []string{"harness", "name", "label", "color", "icon", "auth_kind", "model", "primary", "config_dir", "wrapper_path"} {
 		if _, ok := reg.Profiles[0][field]; !ok {
 			t.Errorf("registry entry missing field %q", field)
 		}
@@ -67,10 +67,48 @@ func TestScenario4RegistryAndEnvContract(t *testing.T) {
 		"STUB_ENV: APROFILE_COLOR=blue",
 		"STUB_ENV: APROFILE_ICON=W",
 		"STUB_ENV: APROFILE_CONFIG_DIR=" + e.configDir("claude", "work"),
-		"STUB_ENV: APROFILE_SET_VARS=ANTHROPIC_MODEL",
 	} {
 		if !strings.Contains(out, v) {
 			t.Errorf("wrapper env missing %q\n%s", v, out)
 		}
+	}
+	// The profile folder carries the model and APROFILE_SET_VARS (spec 004 FR-014).
+	if strings.Contains(out, "STUB_ENV: APROFILE_SET_VARS=") || strings.Contains(out, "STUB_ENV: ANTHROPIC_MODEL=") {
+		t.Errorf("wrapper exports folder-carried variables:\n%s", out)
+	}
+}
+
+// Feature 004 US3: the registry carries each profile's configured model, from the
+// profile store only; a /model-style change in settings.json does not change it.
+func TestRegistryModelFromProfileStore(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw-model")
+	e.run(nil, "add", "claude", "plain", "--auth-kind", "oauth-login")
+	e.run(nil, "sync")
+	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
+	m := readSettings(t, settings)
+	m["model"] = "haiku"
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(settings, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.run(nil, "sync")
+	raw, err := os.ReadFile(strings.TrimSpace(e.run(nil, "registry", "path")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg struct {
+		FormatVersion int              `json:"format_version"`
+		Profiles      []map[string]any `json:"profiles"`
+	}
+	if err := json.Unmarshal(raw, &reg); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]any{}
+	for _, p := range reg.Profiles {
+		got[p["name"].(string)] = p["model"]
+	}
+	if reg.FormatVersion != 1 || got["work"] != "gw-model" || got["plain"] != "" {
+		t.Errorf("registry models = %v (format %d)", got, reg.FormatVersion)
 	}
 }

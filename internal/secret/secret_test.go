@@ -128,3 +128,16 @@ func TestResolveShellFileFailClosed(t *testing.T) {
 func quoteForTest(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+func TestShellQuote(t *testing.T) {
+	cases := map[string]string{
+		"plain":    "'plain'",
+		"it's":     `'it'\''s'`,
+		"$(rm -x)": "'$(rm -x)'",
+	}
+	for in, want := range cases {
+		if got := secret.ShellQuote(in); got != want {
+			t.Errorf("ShellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+}

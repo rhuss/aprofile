@@ -77,7 +77,7 @@ func TestRenderAuthVarsSetAndOthersUnset(t *testing.T) {
 	// The reference source is captured into a temp BEFORE the auth vars are cleared, so a
 	// reference that reads from an auth variable still sees the caller's value after the
 	// unset (FR-028a).
-	capLine := `_aprofile_authsrc_CLAUDE_CODE_OAUTH_TOKEN="${WORK_TOKEN-}"`
+	capLine := `_aprofile_src_WORK_TOKEN="${WORK_TOKEN-}"`
 	capIdx := strings.Index(s, capLine)
 	// ANTHROPIC_API_KEY appears only in the auth-clearing unset line (it is an auth var,
 	// not a model/endpoint var cleared by the nested-session cleanup), so it anchors the
@@ -89,10 +89,10 @@ func TestRenderAuthVarsSetAndOthersUnset(t *testing.T) {
 		t.Errorf("reference captured after the unset (collision risk):\n%s", s)
 	}
 	// Selected kind's var is resolved fail-closed from the captured temp and assigned.
-	if !strings.Contains(s, `if [ -z "${_aprofile_authsrc_CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then`) {
+	if !strings.Contains(s, `if [ -z "${_aprofile_src_WORK_TOKEN:-}" ]; then`) {
 		t.Errorf("auth var not resolved fail-closed from the captured temp:\n%s", s)
 	}
-	if !strings.Contains(s, `CLAUDE_CODE_OAUTH_TOKEN="${_aprofile_authsrc_CLAUDE_CODE_OAUTH_TOKEN}"`) {
+	if !strings.Contains(s, `CLAUDE_CODE_OAUTH_TOKEN="${_aprofile_src_WORK_TOKEN}"`) {
 		t.Errorf("auth var not assigned from the captured temp:\n%s", s)
 	}
 	// Competing auth kinds' vars are unset.
@@ -101,21 +101,18 @@ func TestRenderAuthVarsSetAndOthersUnset(t *testing.T) {
 	}
 }
 
-func TestRenderModelEndpointOverridable(t *testing.T) {
+// Feature 004 (FR-013): a wrapper-carried setting (here: the profile is at share
+// level all, so settings.json is linked and the wrapper carries everything) is set
+// unconditionally; a caller's value never overrides it.
+func TestRenderWrapperCarriedSetUnconditionally(t *testing.T) {
 	s := renderWork(t)
-	// model/endpoint are caller-overridable: only set when unset/empty, with the
-	// default rendered as a shell-quoted literal.
-	if !strings.Contains(s, `if [ -z "${ANTHROPIC_MODEL:-}" ]; then`) {
-		t.Errorf("model not caller-overridable:\n%s", s)
+	if strings.Contains(s, `${ANTHROPIC_MODEL:-}`) || strings.Contains(s, `${ANTHROPIC_BASE_URL:-}`) || strings.Contains(s, "if [ -z \"${TEAM") {
+		t.Errorf("wrapper still offers caller overrides:\n%s", s)
 	}
-	if !strings.Contains(s, "ANTHROPIC_MODEL='sonnet'") {
-		t.Errorf("model default not shell-quoted:\n%s", s)
-	}
-	if !strings.Contains(s, `if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then`) {
-		t.Errorf("endpoint not caller-overridable:\n%s", s)
-	}
-	if !strings.Contains(s, "ANTHROPIC_BASE_URL='https://api.example.com'") {
-		t.Errorf("endpoint default not shell-quoted:\n%s", s)
+	for _, want := range []string{"ANTHROPIC_MODEL='sonnet'", "ANTHROPIC_BASE_URL='https://api.example.com'", "export ANTHROPIC_MODEL"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("wrapper lacks %q:\n%s", want, s)
+		}
 	}
 }
 
@@ -196,12 +193,22 @@ func TestRenderLiteralExtraShellQuoted(t *testing.T) {
 	}
 }
 
-func TestRenderNestedProfileCleanup(t *testing.T) {
+// Feature 004 (FR-014): every wrapper clears the inherited APROFILE_SET_VARS names
+// and the definition's launch_clear names unconditionally, without comparing profile
+// names.
+func TestRenderUnconditionalCleanup(t *testing.T) {
 	s := renderWork(t)
-	// When started inside a different profile's session, inherited set vars are
-	// cleared (FR-027).
-	if !strings.Contains(s, "APROFILE_SET_VARS") || !strings.Contains(s, "unset") {
-		t.Errorf("missing nested-profile cleanup:\n%s", s)
+	if strings.Contains(s, "_aprofile_prev_name") || strings.Contains(s, "APROFILE_NAME:-") {
+		t.Errorf("cleanup still compares profile names:\n%s", s)
+	}
+	if !strings.Contains(s, `for _v in ${_aprofile_prev_setvars}; do`) {
+		t.Errorf("missing cleanup of inherited APROFILE_SET_VARS:\n%s", s)
+	}
+	line := unsetLine(t, s, "ANTHROPIC_DEFAULT_FABLE_MODEL")
+	for _, v := range []string{"ANTHROPIC_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "TEAM", "APROFILE_SET_VARS"} {
+		if !strings.Contains(" "+line+" ", " "+v+" ") {
+			t.Errorf("cleanup unset line lacks %s: %s", v, line)
+		}
 	}
 }
 

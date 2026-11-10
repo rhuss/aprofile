@@ -20,6 +20,7 @@ import (
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/hooksets"
+	"github.com/cc-deck/aprofile/internal/launch"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
@@ -114,6 +115,7 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store) ([]Finding
 		findings = append(findings, fitFindings(def, p)...)
 		findings = append(findings, isolationFindings(def, configDir, p.ID(), p.ShareLevel() != profile.ShareNone, hs)...)
 		findings = append(findings, shareFindings(paths, def, p, lib, configDir, hs)...)
+		findings = append(findings, launchFindings(paths, def, p, configDir)...)
 		findings = append(findings, setAsideFindings(paths, p)...)
 		findings = append(findings, binaryFindings(def, p.ID())...)
 		findings = append(findings, wrapperFindings(paths, def, p)...)
@@ -200,7 +202,7 @@ func undeclaredKeyFindings(d *harness.Definition) []Finding {
 func shareFindings(paths *config.Paths, def *harness.Definition, p *profile.Profile, lib map[string]*hooksets.Set, configDir string, hs layer.HistoryStore) []Finding {
 	var out []Finding
 	id := p.ID()
-	if entries, err := layer.TreatmentsWith(def, p, "", configDir, hs); err == nil {
+	if entries, err := layer.TreatmentsWithPlaced(def, p, "", configDir, hs, launch.LoadPlaced(paths.ManagedLaunchPath(p.Harness, p.Name))); err == nil {
 		for _, e := range entries {
 			if hs != nil && e.Treatment == layer.TreatmentLinked && strings.HasPrefix(e.Reason, "history group ") {
 				// A member's history entry (spec 003, FR-021).
@@ -628,6 +630,35 @@ func setAsideFindings(paths *config.Paths, p *profile.Profile) []Finding {
 		out = append(out, Finding{Profile: p.ID(), Severity: SeverityInfo,
 			Message: fmt.Sprintf("set-aside history from a history group join: %s (%d items); the harness never reads it", r.Dir, len(r.Items)),
 			Fix:     "move items back by hand if you need them; aprofile remove --purge deletes it with the profile"})
+	}
+	return out
+}
+
+// launchFindings reports the profile folder's launch settings (spec 004 FR-020 to
+// FR-020b): as information whether it is self-contained and each wrapper-only
+// setting with its reason; as problems a stale folder and launch entries aprofile
+// did not place. Names only, never values.
+func launchFindings(paths *config.Paths, def *harness.Definition, p *profile.Profile, configDir string) []Finding {
+	id := p.ID()
+	st, err := launch.Status(p, def, configDir, paths.ManagedLaunchPath(p.Harness, p.Name))
+	if err != nil {
+		return []Finding{{Profile: id, Message: fmt.Sprintf("cannot tell whether the profile folder is current: %v", err),
+			Fix: "fix the file, then run: aprofile sync"}}
+	}
+	f := st.Folder()
+	out := []Finding{{Profile: id, Severity: SeverityInfo, Message: "profile folder: " + f.StatusText(),
+		Fix: "details: aprofile show " + id}}
+	for _, w := range f.WrapperOnly {
+		out = append(out, Finding{Profile: id, Severity: SeverityInfo,
+			Message: fmt.Sprintf("%s is wrapper-only: %s", w.SettingName(), launch.ReasonText(w.Reason, p, def)),
+			Fix:     "start the profile through its wrapper " + def.WrapperName(p.Name) + " to apply it"})
+	}
+	if st.Sync == launch.SyncStale {
+		out = append(out, Finding{Profile: id, Message: "profile folder is stale", Fix: "run: aprofile sync"})
+	}
+	for _, e := range st.Unplaced {
+		msg, fix, _ := st.UnplacedText(e)
+		out = append(out, Finding{Profile: id, Message: msg, Fix: fix})
 	}
 	return out
 }

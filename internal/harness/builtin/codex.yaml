@@ -12,10 +12,26 @@ config_env:
   CODEX_HOME: "."
 
 default_config_location: "~/.codex"
-# Codex has no dedicated model env var (model is set in config.toml or via the
-# `--model` flag, which passes through the wrapper). Endpoint follows the OpenAI
-# SDK convention Codex honors.
+# Codex has no dedicated model env var. The wrapper passes the profile's model as a
+# configuration override before the caller's arguments (feature 004, research R4,
+# Codex 0.167.0): -c model="…" beats config.toml, a caller's -m wins over it, and
+# the value is a quoted TOML string so 1.5 is not read as a number. aprofile never
+# writes model into config.toml, because /model saves the pick there.
+model_arg: ["-c", "model={model:toml}"]
+# Endpoint follows the OpenAI SDK convention Codex honors.
 endpoint_var: OPENAI_BASE_URL
+launch_clear: [OPENAI_BASE_URL]
+
+# The key a profile folder carries (feature 004, research R3, Codex 0.167.0): an
+# `auth` command block in the provider table the top-level model_provider selects.
+# Codex refuses auth together with env_key, so env_key is replaced (recorded and
+# restored when the auth block goes).
+folder_launch:
+  key_command:
+    location: "config.toml#model_providers"
+    form: provider-auth
+    selector: model_provider
+    replaces: [env_key]
 plugin_mechanism: "config.toml"
 
 capabilities: [login, native-profiles, mcp]
@@ -28,6 +44,7 @@ auth_kinds:
     vars: {} # interactive login; credentials land in auth.json
   - name: api-key
     vars: { OPENAI_API_KEY: ref }
+    folder_key: true # the provider auth command carries it (research R3)
 
 # `aprofile login` runs `codex login` with the profile's environment (FR-039).
 login_command:

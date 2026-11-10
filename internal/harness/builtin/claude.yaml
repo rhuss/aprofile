@@ -22,6 +22,28 @@ model_var: ANTHROPIC_MODEL
 endpoint_var: ANTHROPIC_BASE_URL
 plugin_mechanism: "enabledPlugins in settings.json"
 
+# Launch settings the profile folder carries (feature 004, specs/004-corgi-integration
+# research.md R1 and R2, verified with Claude Code 2.1.319 on 2026-11-09): Claude
+# Code applies the env block of settings.json before gateway model discovery, the
+# block beats the launching environment and its ANTHROPIC_MODEL beats the model key
+# /model writes; apiKeyHelper output is sent as API key and as bearer token, so it
+# serves api-key and auth-token (oauth-token is a different mechanism).
+folder_launch:
+  env: "settings.json#env"
+  key_command:
+    location: "settings.json#apiKeyHelper"
+    form: shell
+# Launch variables a profile session may leave in the environment (Claude Code
+# exports the env block into the processes it starts); every wrapper clears them.
+launch_clear:
+  - ANTHROPIC_MODEL
+  - ANTHROPIC_BASE_URL
+  - ANTHROPIC_DEFAULT_OPUS_MODEL
+  - ANTHROPIC_DEFAULT_SONNET_MODEL
+  - ANTHROPIC_DEFAULT_HAIKU_MODEL
+  - ANTHROPIC_DEFAULT_FABLE_MODEL
+  - CLAUDE_CODE_SUBAGENT_MODEL
+
 capabilities: [login, oauth-token, native-profiles, mcp]
 
 # Env-based auth is the safe default (per-profile, Keychain-independent).
@@ -29,8 +51,10 @@ default_auth_kind: auth-token
 auth_kinds:
   - name: api-key
     vars: { ANTHROPIC_API_KEY: ref }
+    folder_key: true
   - name: auth-token
     vars: { ANTHROPIC_AUTH_TOKEN: ref }
+    folder_key: true
   - name: oauth-token
     vars: { CLAUDE_CODE_OAUTH_TOKEN: ref }
   - name: oauth-login
@@ -279,7 +303,10 @@ classification:
   # scripts that settings.json hooks run (walkthrough observation, RUNBOOK Step 7).
   - { entry: "hooks/", layer: content }
   # Settings: written by Claude Code at runtime (permissions, enabledPlugins,
-  # statusLine). settings.json holds no owned keys, so it is linkable at all.
+  # statusLine). settings.json holds no owned keys, so it is linkable at all. The
+  # launch entries aprofile places (env entries, apiKeyHelper; feature 004) are
+  # owned only where the profile has its own settings.json; a file linked at all
+  # carries none, so it stays linkable (Constitution Principle III, 2.0.0).
   - { entry: "settings.json", layer: settings }
   - { entry: "settings.local.json", layer: settings }
   # Installed plugin code and install records.

@@ -44,7 +44,7 @@ type profileFlags struct {
 
 func (f *profileFlags) bind(cmd *cobra.Command) {
 	fl := cmd.Flags()
-	fl.StringVar(&f.model, "model", "", "model to set via the harness's model variable")
+	fl.StringVar(&f.model, "model", "", "model for the profile (set through the harness's model variable or launch argument)")
 	fl.StringVar(&f.endpoint, "endpoint", "", "API base URL (endpoint) for the harness")
 	fl.StringVar(&f.authKind, "auth-kind", "", "authentication kind (see the harness definition)")
 	fl.StringVar(&f.authKey, "auth-key", "", "secret reference for the auth kind: env:NAME or file:/abs/path")
@@ -247,7 +247,7 @@ func profileFormConfig(a *app, def *harness.Definition, f *profileFlags) tui.Pro
 	}
 	cfg := tui.ProfileFormConfig{
 		AuthKinds:        kinds,
-		SupportsModel:    def.ModelVar != "",
+		SupportsModel:    def.CarriesModel(),
 		SupportsEndpoint: def.EndpointVar != "",
 		Values:           formValuesFromFlags(f),
 		ShareOptions:     shareOptions(f.share),
@@ -350,11 +350,11 @@ func applyValueFlags(p *profile.Profile, def *harness.Definition, f *profileFlag
 		return err
 	}
 
-	// FR-003: model/endpoint are only settable for a harness whose definition declares
-	// the backing env variable. Error here rather than silently storing a value the
-	// wrapper would drop. Documented limitation: in slice one OpenCode and pi declare
-	// neither and Codex declares only the endpoint (see research.md).
-	if f.model != "" && def.ModelVar == "" {
+	// FR-003: model/endpoint are only settable for a harness whose definition can
+	// carry them (a model variable or, since spec 004, a model launch argument).
+	// Error here rather than silently storing a value the wrapper would drop.
+	// OpenCode and pi declare neither.
+	if f.model != "" && !def.CarriesModel() {
 		return fmt.Errorf("harness %q has no model variable; --model is not supported for it", def.Name)
 	}
 	if f.endpoint != "" && def.EndpointVar == "" {

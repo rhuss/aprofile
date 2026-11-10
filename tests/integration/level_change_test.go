@@ -284,3 +284,121 @@ func coveredBy(path string, listed []string) bool {
 	}
 	return false
 }
+
+// Feature 004 FR-008a: a level change to all drops the launch record (settings.json
+// becomes a link) and makes the launch settings wrapper-only; a change from all lets
+// the next sync place them. Both the dry run and the applied change say so.
+func TestLevelChangeLaunchSettings(t *testing.T) {
+	e := newEnv(t)
+	testutil.SeedDefaultsAt(t, e.root, "claude")
+	key := e.keyFile("w", "sk-level\n")
+	e.run(nil, "add", "claude", "work", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--share", "content", "--model", "gw")
+	e.run(nil, "sync")
+	rec := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude", "work.json")
+	if _, err := os.Stat(rec); err != nil {
+		t.Fatalf("no launch record after sync: %v", err)
+	}
+	const toAll = "launch settings become wrapper-only (settings.json is linked)"
+	const fromAll = "launch settings will be placed into settings.json by the next sync"
+	dry := e.run(nil, "edit", "claude/work", "--share", "all", "--dry-run")
+	if !strings.Contains(dry, toAll) {
+		t.Errorf("dry run lacks %q:\n%s", toAll, dry)
+	}
+	if _, err := os.Stat(rec); err != nil {
+		t.Error("the dry run dropped the record")
+	}
+	out := e.run(nil, "edit", "claude/work", "--share", "all", "--yes")
+	if !strings.Contains(out, toAll) {
+		t.Errorf("applied change lacks %q:\n%s", toAll, out)
+	}
+	if _, err := os.Stat(rec); !os.IsNotExist(err) {
+		t.Error("the record was not dropped")
+	}
+	e.run(nil, "sync")
+	if w, err := e.runWrapper("claude-work", nil); err != nil || !strings.Contains(w, "STUB_ENV: ANTHROPIC_MODEL=gw") {
+		t.Errorf("at all the wrapper carries the model: %v\n%s", err, w)
+	}
+	// FR-008: the settings file is a link and the default setup's file holds no
+	// launch entries, so it stays linkable for every other profile.
+	if fi, err := os.Lstat(filepath.Join(e.configDir("claude", "work"), "settings.json")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("settings.json is not a link at all: %v", err)
+	}
+	def := readSettings(t, filepath.Join(e.root, ".claude", "settings.json"))
+	if _, has := def["apiKeyHelper"]; has {
+		t.Errorf("the default settings.json got an apiKeyHelper: %v", def)
+	}
+	if env, _ := def["env"].(map[string]any); env != nil {
+		for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "APROFILE_SET_VARS"} {
+			if _, has := env[k]; has {
+				t.Errorf("the default settings.json got env %s: %v", k, env)
+			}
+		}
+	}
+
+	dry = e.run(nil, "edit", "claude/work", "--share", "content", "--dry-run")
+	if !strings.Contains(dry, fromAll) {
+		t.Errorf("dry run lacks %q:\n%s", fromAll, dry)
+	}
+	out = e.run(nil, "edit", "claude/work", "--share", "content", "--yes")
+	if !strings.Contains(out, fromAll) {
+		t.Errorf("applied change lacks %q:\n%s", fromAll, out)
+	}
+	e.run(nil, "sync")
+	m := readSettings(t, filepath.Join(e.configDir("claude", "work"), "settings.json"))
+	if env, _ := m["env"].(map[string]any); env["ANTHROPIC_MODEL"] != "gw" {
+		t.Errorf("sync did not place the launch settings after the change from all: %v", m)
+	}
+}
+
+// Feature 004 (research R6): rename moves the launch record, remove --purge deletes it.
+func TestLaunchRecordFollowsRenameAndPurge(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw")
+	e.run(nil, "sync")
+	recDir := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude")
+	if _, err := os.Stat(filepath.Join(recDir, "work.json")); err != nil {
+		t.Fatalf("no record: %v", err)
+	}
+	e.run(nil, "rename", "claude/work", "job", "--force")
+	if _, err := os.Stat(filepath.Join(recDir, "work.json")); !os.IsNotExist(err) {
+		t.Error("rename left the old record")
+	}
+	if _, err := os.Stat(filepath.Join(recDir, "job.json")); err != nil {
+		t.Errorf("rename did not move the record: %v", err)
+	}
+	if out := e.run(nil, "sync"); strings.Contains(out, "replaced user entry") {
+		t.Errorf("after rename the entries must still count as placed:\n%s", out)
+	}
+	e.run(nil, "remove", "claude", "job", "--purge", "--yes")
+	if _, err := os.Stat(filepath.Join(recDir, "job.json")); !os.IsNotExist(err) {
+		t.Error("purge left the record")
+	}
+}
+
+// A launch record that cannot be read does not undo a share level change that is
+// already applied: the change is saved and the record problem is a warning.
+func TestLevelChangeCorruptLaunchRecordKeepsLevel(t *testing.T) {
+	e := newEnv(t)
+	testutil.SeedDefaultsAt(t, e.root, "claude")
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw")
+	e.run(nil, "sync")
+	rec := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude", "work.json")
+	if err := os.WriteFile(rec, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := e.tryRunSplit(nil, "edit", "claude/work", "--share", "all", "--yes")
+	if err != nil {
+		t.Fatalf("edit failed on a corrupt launch record: %v\n%s\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "launch record not updated") || !strings.Contains(stderr, "remove "+rec) {
+		t.Errorf("no warning naming the launch record:\n%s", stderr)
+	}
+	// The named remedy works: after removing the record, sync succeeds.
+	if err := os.Remove(rec); err != nil {
+		t.Fatal(err)
+	}
+	e.run(nil, "sync")
+	if data, _ := os.ReadFile(e.profileFile("claude", "work")); !strings.Contains(string(data), "share: all") {
+		t.Errorf("the share level was not saved:\n%s", data)
+	}
+}

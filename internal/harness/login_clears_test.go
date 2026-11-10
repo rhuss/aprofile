@@ -142,8 +142,6 @@ func TestAuthClearsValidation(t *testing.T) {
 		"bad name":   base + "auth_clears: [\"1BAD\"]\n",
 		"config_env": base + "auth_clears: [AC_DIR]\n",
 		"contract":   base + "auth_clears: [APROFILE_NAME]\n",
-		"model_var":  base + "auth_clears: [AC_MODEL]\n",
-		"endpoint":   base + "auth_clears: [AC_URL]\n",
 	}
 	for name, src := range cases {
 		set := harness.LoadFromBytes(map[string][]byte{"ac.yaml": []byte(src)})

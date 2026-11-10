@@ -36,6 +36,7 @@ aprofile edit claude/corp --group work
 aprofile sync
 
 claude-corp       # company endpoint and model; shares history with work profiles only
+claude-corp --model other-model   # one run with another model (exported variables never override a profile)
 ```
 
 Logins always stay inside their profile. Per profile, you choose whether instructions, skills and settings come from your normal setup or stay separate. The guide below explains the details.

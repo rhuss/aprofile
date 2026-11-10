@@ -369,6 +369,8 @@ confirm `aprofile list --json` shows it with the entered values.
   FR-022), and `doctor` and `show` report it. A model or endpoint stored for a harness whose
   definition declares no backing variable is dropped from the wrapper; `doctor` reports it as a
   problem, `sync` as a note, and `show` lists it. Each report names the `aprofile edit` fix.
+  *Superseded in part by spec 004 (FR-002a, FR-023): a harness whose definition declares
+  `model_arg` (Codex) carries the model as a launch argument, so its model is no longer dropped.*
 - **FR-006a**: `rename` MUST move the profile file and config dir together, and MUST fail without
   changes when the new (harness, name) already exists. It MUST refuse while a harness process
   started for that profile is running, unless `--force` is given.
@@ -491,6 +493,8 @@ confirm `aprofile list --json` shows it with the entered values.
   a `pre-launch` operation. Before starting the harness, a wrapper MUST check with a shell
   builtin that its profile config dir exists; if it does not (for example after a `rename`
   before the next `sync`), it MUST exit non-zero and tell the user to run `aprofile sync`.
+  *Superseded in part by spec 004 (FR-012 to FR-016): wrappers pass a Codex model as a launch
+  argument before the caller's arguments and leave folder-carried settings to the folder.*
 - **FR-027**: Wrappers MUST set model, endpoint and extra variables only when the caller has not
   already set them. When the calling environment carries an `APROFILE_NAME` or `APROFILE_HARNESS`
   that differs from the wrapper's own profile (a wrapper started inside another profile's
@@ -501,6 +505,8 @@ confirm `aprofile list --json` shows it with the entered values.
   space-separated list of the model, endpoint and extra variable names it set. Auth variables are not caller-overridable: the wrapper MUST set the
   profile's own auth variables from their references and MUST unset the auth variables of every
   other auth kind, regardless of what the calling shell exports.
+  *Superseded by spec 004 (FR-012 to FR-016): no caller overrides; every wrapper clears inherited
+  launch variables unconditionally and sets wrapper-only settings unconditionally.*
 - **FR-028**: Artifacts aprofile authors (wrappers, the registry, the profile store, harness
   definitions, command output and `--json` output) MUST NOT contain secret values aprofile itself
   derived from a profile setting; the only files aprofile writes that hold such secrets are
@@ -537,6 +543,7 @@ confirm `aprofile list --json` shows it with the entered values.
   wrapper path, plus a format version. The registry MUST NOT contain timestamps or other values
   that change without a profile change, so an unchanged `sync` rewrites nothing. Writes MUST be
   atomic. `aprofile registry path` MUST print the registry's location.
+  *Extended by spec 004 (FR-018): every entry also carries `model`.*
 - **FR-031** (withdrawn 2026-11-09: the Omarchy export and the `omarchy_provider` definition
   field were removed; registration with corgi is redesigned in brainstorm 003):
   `aprofile registry export --format omarchy` MUST, only on explicit request, write

@@ -190,6 +190,13 @@ func (p *Paths) ManagedHooksPath(harness, name string) string {
 	return filepath.Join(p.DataDir, "managed-hooks", harness, name+".json")
 }
 
+// ManagedLaunchPath is the record of launch entries aprofile placed into one
+// profile's harness files (feature 004, research R6). Like the hooks record it lives
+// in aprofile's data dir, so the harness's files carry no marker.
+func (p *Paths) ManagedLaunchPath(harness, name string) string {
+	return filepath.Join(p.DataDir, "managed-launch", harness, name+".json")
+}
+
 // LoadSettings reads the global settings file from configDir. A missing file is
 // not an error: it returns zero-valued Settings.
 func LoadSettings(configDir string) (*Settings, error) {

@@ -291,10 +291,10 @@ func validate(d *Definition) (field, msg string) {
 			}
 		}
 	}
-	// auth_clears is unset after the config_env redirect and before the overridable
-	// model/endpoint values, so it must not name a variable the wrapper owns
-	// otherwise: clearing a redirect would break isolation, clearing the model or
-	// endpoint variable would make it silently non-overridable.
+	// auth_clears is unset after the config_env redirect, so it must not name a
+	// variable the wrapper owns otherwise: clearing a redirect would break isolation.
+	// (Since feature 004 the model and endpoint variables are no longer
+	// caller-overridable, so clearing them is allowed.)
 	for _, v := range d.AuthClears {
 		if !secret.ValidEnvVarName(v) {
 			return "auth_clears", fmt.Sprintf("variable %q must match [A-Za-z_][A-Za-z0-9_]*", v)
@@ -302,14 +302,14 @@ func validate(d *Definition) (field, msg string) {
 		if strings.HasPrefix(v, "APROFILE_") {
 			return "auth_clears", fmt.Sprintf("variable %q is an aprofile contract variable", v)
 		}
-		if v == d.ModelVar || v == d.EndpointVar {
-			return "auth_clears", fmt.Sprintf("variable %q is the model or endpoint variable", v)
-		}
 		for _, e := range d.ConfigEnv {
 			if e.Var == v {
 				return "auth_clears", fmt.Sprintf("variable %q is a config_env redirect", v)
 			}
 		}
+	}
+	if field, msg := validateLaunchFields(d); msg != "" {
+		return field, msg
 	}
 	if d.LoginCommand != nil {
 		for _, a := range d.LoginCommand.Args {
@@ -401,6 +401,95 @@ func validate(d *Definition) (field, msg string) {
 	}
 	if msg := validateBackends(d); msg != "" {
 		return "backends", msg
+	}
+	return "", ""
+}
+
+// validateLaunchFields checks the feature 004 fields (contracts/harness-definition.md):
+// folder_launch locations are file#key with a classified file, the key command form
+// is known and provider-auth names a selector, launch_clear names are valid and not
+// owned by the wrapper otherwise, model_arg holds exactly one placeholder, and
+// folder_key needs a key command. It returns the offending field and a message.
+func validateLaunchFields(d *Definition) (field, msg string) {
+	classified := func(file string) bool {
+		for _, r := range d.Classification {
+			if !r.IsGlob() && r.Path() == file {
+				return true
+			}
+		}
+		return false
+	}
+	checkLoc := func(what, loc string) string {
+		file, key := locFile(loc), locKey(loc)
+		if !strings.Contains(loc, "#") || file == "" || key == "" {
+			return fmt.Sprintf("%s %q must be file#key", what, loc)
+		}
+		if !entryPathSafe(file) {
+			return fmt.Sprintf("%s %q: the file must be a relative path within the profile dir", what, loc)
+		}
+		if !classified(file) {
+			return fmt.Sprintf("%s %q: file %s is not classified", what, loc, file)
+		}
+		return ""
+	}
+	if fl := d.FolderLaunch; fl != nil {
+		if fl.Env != "" {
+			if m := checkLoc("env", fl.Env); m != "" {
+				return "folder_launch", m
+			}
+		}
+		if kc := fl.KeyCommand; kc != nil {
+			if m := checkLoc("key_command.location", kc.Location); m != "" {
+				return "folder_launch", m
+			}
+			switch kc.Form {
+			case KeyFormShell:
+				if kc.Selector != "" || len(kc.Replaces) > 0 {
+					return "folder_launch", "key_command: selector and replaces are only valid with form provider-auth"
+				}
+			case KeyFormProviderAuth:
+				if kc.Selector == "" {
+					return "folder_launch", "key_command: form provider-auth needs a selector"
+				}
+				for _, r := range kc.Replaces {
+					if r == "" || r == "auth" {
+						return "folder_launch", fmt.Sprintf("key_command: replaces entry %q is invalid", r)
+					}
+				}
+			default:
+				return "folder_launch", fmt.Sprintf("key_command: form %q must be shell or provider-auth", kc.Form)
+			}
+		}
+	}
+	for _, v := range d.LaunchClear {
+		if !secret.ValidEnvVarName(v) {
+			return "launch_clear", fmt.Sprintf("variable %q must match [A-Za-z_][A-Za-z0-9_]*", v)
+		}
+		if strings.HasPrefix(v, "APROFILE_") {
+			return "launch_clear", fmt.Sprintf("variable %q is an aprofile contract variable", v)
+		}
+		for _, e := range d.ConfigEnv {
+			if e.Var == v {
+				return "launch_clear", fmt.Sprintf("variable %q is a config_env redirect", v)
+			}
+		}
+	}
+	if len(d.ModelArg) > 0 {
+		n := 0
+		for _, a := range d.ModelArg {
+			if strings.ContainsAny(a, "\x00\n\r") {
+				return "model_arg", fmt.Sprintf("argument %q must be single-line", a)
+			}
+			n += strings.Count(a, ModelArgTOML) + strings.Count(a, ModelArgRaw)
+		}
+		if n != 1 {
+			return "model_arg", fmt.Sprintf("must contain %s or %s exactly once", ModelArgTOML, ModelArgRaw)
+		}
+	}
+	for _, ak := range d.AuthKinds {
+		if ak.FolderKey && (d.FolderLaunch == nil || d.FolderLaunch.KeyCommand == nil) {
+			return "auth_kinds", fmt.Sprintf("auth kind %q: folder_key needs folder_launch.key_command", ak.Name)
+		}
 	}
 	return "", ""
 }
@@ -665,7 +754,7 @@ var allFieldNames = []string{
 	"model_var", "endpoint_var", "auth_kinds", "auth_clears", "default_auth_kind", "login_command", "classification",
 	"config_patches", "mcp", "skills_location", "plugin_mechanism",
 	"capabilities", "exec_hook", "default_locations", "share_policy", "hooks", "home_escapes",
-	"backends", "history_note",
+	"backends", "history_note", "folder_launch", "launch_clear", "model_arg",
 }
 
 func asFieldError(err error) (fieldError, bool) {

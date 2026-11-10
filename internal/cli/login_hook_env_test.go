@@ -43,9 +43,8 @@ func recordLogin(t *testing.T) *[]string {
 	return &got
 }
 
-// M8 (FR-011, FR-027, FR-039): login runs with the wrapper's environment, which
-// includes the exec hook's env variables (caller-overridable, listed in
-// APROFILE_SET_VARS). The hook gets the full input (model, endpoint).
+// M8 (FR-011, FR-039): login runs with the wrapper's environment, which includes
+// the exec hook's env variables (set unconditionally, listed in APROFILE_SET_VARS). The hook gets the full input (model, endpoint).
 func TestLoginEnvIncludesHookEnv(t *testing.T) {
 	h := testutil.HermeticHome(t)
 	testutil.WriteFile(t, filepath.Join(h.ConfigHome, "aprofile", "harnesses.d", "claude.yaml"),
@@ -65,12 +64,30 @@ func TestLoginEnvIncludesHookEnv(t *testing.T) {
 	if m["HOOK_REGION"] != "eu-west" || m["HOOK_FROM"] != "from-shell" {
 		t.Errorf("login env lacks the hook's variables: HOOK_REGION=%q HOOK_FROM=%q", m["HOOK_REGION"], m["HOOK_FROM"])
 	}
-	if sv := " " + m["APROFILE_SET_VARS"] + " "; !strings.Contains(sv, " HOOK_REGION ") || !strings.Contains(sv, " HOOK_FROM ") {
-		t.Errorf("APROFILE_SET_VARS = %q, want the hook's variables listed", m["APROFILE_SET_VARS"])
+	// The folder carries the model (share level content), so it also carries
+	// APROFILE_SET_VARS; the login environment does not export it (spec 004 FR-014).
+	if _, has := m["APROFILE_SET_VARS"]; has {
+		t.Errorf("APROFILE_SET_VARS = %q exported although the folder carries it", m["APROFILE_SET_VARS"])
+	}
+	if _, has := m["ANTHROPIC_MODEL"]; has {
+		t.Error("the folder-carried model must not be in the login environment")
 	}
 	data, _ := os.ReadFile(in)
 	if !strings.Contains(string(data), "model=opus\n") {
 		t.Errorf("the env hook should get the profile's model:\n%s", data)
+	}
+
+	// At share level all the wrapper carries everything and lists the hook's
+	// variables in APROFILE_SET_VARS.
+	if out, err := runCLI(t, "add", "claude", "shared", "--auth-kind", "oauth-login", "--model", "opus", "--share", "all"); err != nil {
+		t.Fatalf("add: %v\n%s", err, out)
+	}
+	if out, err := runCLI(t, "login", "claude/shared"); err != nil {
+		t.Fatalf("login: %v\n%s", err, out)
+	}
+	m = envMap(*got)
+	if sv := " " + m["APROFILE_SET_VARS"] + " "; !strings.Contains(sv, " HOOK_REGION ") || !strings.Contains(sv, " HOOK_FROM ") || !strings.Contains(sv, " ANTHROPIC_MODEL ") {
+		t.Errorf("APROFILE_SET_VARS = %q, want the model and the hook's variables listed", m["APROFILE_SET_VARS"])
 	}
 }
 

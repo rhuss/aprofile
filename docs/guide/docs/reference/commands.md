@@ -19,7 +19,7 @@ The commands below show their syntax. From a source checkout, run them as `./bin
 
 | Command | Purpose |
 |---|---|
-| `aprofile add <harness> <name>` | Create a profile. Common options include `--share`, `--group`, `--hook-sets`, `--exclude-hook-sets`, `--model`, `--endpoint`, `--auth-kind`, `--auth-key`, `--env`, `--env-literal`, `--color`, `--icon`, `--label`, `--primary`, `--herdr-agent`, and `--adopt`. |
+| `aprofile add <harness> <name>` | Create a profile. Common options include `--share`, `--group`, `--hook-sets`, `--exclude-hook-sets`, `--model`, `--endpoint`, `--auth-kind`, `--auth-key`, `--env`, `--env-literal`, `--color`, `--icon`, `--label`, `--primary`, `--herdr-agent`, and `--adopt`. `--model` works for every harness that can carry a model: Claude Code (through `ANTHROPIC_MODEL`) and Codex (passed as `-c model="..."`). |
 | `aprofile list` | List profiles by harness. Add `--json` for machine-readable output. |
 | `aprofile show <harness>/<name>` | Show share level, config entry treatment, hook sets, and credential status without credential values. |
 | `aprofile edit <harness>/<name>` | Change profile fields. `--group <group>` joins or moves history membership; `--no-group` leaves it. They cannot be combined. Use `--dry-run` to preview and `--yes` to confirm data changes without prompting. |

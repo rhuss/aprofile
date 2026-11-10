@@ -147,6 +147,13 @@ func (p *Profile) Validate() error {
 	if err := ValidateIcon(p.Icon); err != nil {
 		return fmt.Errorf("profile %s: %w", p.ID(), err)
 	}
+	// A model is passed to some harnesses as a TOML string argument (spec 004
+	// FR-016); a control character cannot be one, and no model name has one.
+	for _, r := range p.Model {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("profile %s: model must not contain control characters", p.ID())
+		}
+	}
 	if p.Share != "" && !p.Share.Valid() {
 		return fmt.Errorf("profile %s: share level %q must be all, content or none", p.ID(), p.Share)
 	}

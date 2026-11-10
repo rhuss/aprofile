@@ -19,6 +19,7 @@ import (
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/hooksets"
+	"github.com/cc-deck/aprofile/internal/launch"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/registry"
@@ -53,6 +54,7 @@ type Result struct {
 	Problems         []string // reported, non-fatal issues (FR-022)
 	Notes            []string // reported conditions that changed nothing (FR-018: unclassified/leaking links)
 	HookChanges      int      // managed hook entries placed or removed
+	LaunchChanges    int      // launch entries placed, restored or removed (spec 004)
 	// Profiles is the per-profile plan (dry run) or outcome, sorted by profile id;
 	// it backs `sync --json` (FR-041).
 	Profiles []ProfilePlan
@@ -114,7 +116,7 @@ func newProfilePlan(id string) *ProfilePlan {
 // Changed reports whether the sync changed anything.
 func (r *Result) Changed() bool {
 	return len(r.WrappersWritten) > 0 || len(r.WrappersRemoved) > 0 ||
-		r.ConfigDirChanges > 0 || r.RegistryChanged || r.Path.Changed || r.HookChanges > 0
+		r.ConfigDirChanges > 0 || r.RegistryChanged || r.Path.Changed || r.HookChanges > 0 || r.LaunchChanges > 0
 }
 
 // HasProblems reports whether any profile/definition failed to load or clashed.
@@ -358,6 +360,14 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			}
 		}
 
+		// Launch settings the profile folder carries (spec 004 FR-003): placed after
+		// the config dir, hooks and write-config, before the wrapper, which takes the
+		// same carrier decision. A file that cannot take them leaves the wrapper and
+		// registry entry unchanged (FR-009a).
+		if !syncLaunch(paths, def, p, configDir, opts, res, pp, problem, problemOnce, note) {
+			continue
+		}
+
 		content, err := wrapper.Expected(p, def, configDir)
 		switch {
 		case errors.Is(err, harness.ErrHookNotFound):
@@ -392,6 +402,7 @@ func Run(paths *config.Paths, set *harness.Set, store *profile.Store, settings *
 			Color:       p.Color,
 			Icon:        p.Icon,
 			AuthKind:    p.AuthKind,
+			Model:       p.Model,
 			Primary:     p.Primary,
 			ConfigDir:   configDir,
 			WrapperPath: wrapperPath,
@@ -542,6 +553,68 @@ func syncPatches(def *harness.Definition, p *profile.Profile, configDir string, 
 			res.ConfigDirChanges++
 		}
 	}
+}
+
+// Launch step actions in sync --json (contracts/cli.md).
+const (
+	ActionLaunchSet         = "launch-set"
+	ActionLaunchRemove      = "launch-remove"
+	ActionLaunchReplaceUser = "launch-replace-user"
+)
+
+// syncLaunch places the profile's folder-carried launch settings (spec 004 FR-003 to
+// FR-006a, FR-021). It reports each step by entry name, never a value, and returns
+// false when the profile must keep its wrapper and registry entry unchanged.
+func syncLaunch(paths *config.Paths, def *harness.Definition, p *profile.Profile, configDir string, opts Options, res *Result, pp *ProfilePlan,
+	problem func(id, msg string), problemOnce func(key, id, msg string), note func(id, msg string)) bool {
+	// Called for every definition: one whose folder_launch was removed still has
+	// its placed entries removed (FR-005); without a record it is a no-op.
+	lr, err := launch.Apply(p, def, configDir, paths.ManagedLaunchPath(p.Harness, p.Name), opts.DryRun)
+	for _, n := range lr.Notes {
+		note(p.ID(), p.ID()+": "+n)
+	}
+	switch {
+	case errors.Is(err, harness.ErrHookNotFound):
+		problemOnce(def.Name+" env", p.ID(), fmt.Sprintf("harness %s: %v; the wrappers and registry entries of its profiles are left unchanged", def.Name, err))
+		return false
+	case err != nil:
+		problem(p.ID(), fmt.Sprintf("%s: %v; wrapper and registry entry left unchanged", p.ID(), err))
+		return false
+	}
+	for _, s := range lr.Steps {
+		line, action := LaunchStepText(s)
+		pp.ConfigDir.Steps = append(pp.ConfigDir.Steps, StepPlan{Action: action, Path: s.File, Note: s.Location, Mutating: true})
+		res.Changes = append(res.Changes, fmt.Sprintf("%s: %s: %s", p.ID(), s.File, line))
+		res.LaunchChanges++
+	}
+	if opts.DryRun {
+		for _, f := range lr.Reencoded {
+			note(p.ID(), fmt.Sprintf("%s: %s is re-encoded: comments are dropped", p.ID(), f))
+		}
+	}
+	return true
+}
+
+// LaunchStepText renders a launch step as its text line (without profile and file)
+// and its sync --json action: "set env NAME", "replaced user entry env NAME",
+// "removed apiKeyHelper", "set model_providers.p.auth (replaces env_key)".
+func LaunchStepText(s launch.Step) (line, action string) {
+	what := s.Location
+	if name, ok := strings.CutPrefix(s.Location, "env."); ok {
+		what = "env " + name
+	}
+	switch s.Kind {
+	case launch.StepRemove:
+		line, action = "removed "+what, ActionLaunchRemove
+	case launch.StepReplaceUser:
+		line, action = "replaced user entry "+what, ActionLaunchReplaceUser
+	default:
+		line, action = "set "+what, ActionLaunchSet
+	}
+	if s.Note != "" {
+		line += " (" + s.Note + ")"
+	}
+	return line, action
 }
 
 // syncWriteConfig calls the exec hook's write-config operation (FR-011). It is not

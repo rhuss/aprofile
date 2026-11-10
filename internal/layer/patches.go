@@ -164,7 +164,7 @@ func loadPatchDoc(configDir, file string) *patchDoc {
 		}
 		return doc
 	}
-	if doc.json, err = decodeJSONObject(doc.orig); err != nil {
+	if doc.json, err = DecodeJSONObject(doc.orig); err != nil {
 		doc.err = fmt.Errorf("config patch %s: not a valid JSON object, left unchanged: %w", file, err)
 	}
 	return doc
@@ -206,7 +206,7 @@ func mergeJSONObject(dst map[string]json.RawMessage, patch map[string]any, prefi
 		pv := patch[k]
 		if pm, ok := pv.(map[string]any); ok {
 			if raw, exists := dst[k]; exists && isJSONObject(raw) {
-				sub, err := decodeJSONObject(raw)
+				sub, err := DecodeJSONObject(raw)
 				if err != nil {
 					return nil, err
 				}

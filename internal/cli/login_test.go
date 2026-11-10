@@ -124,32 +124,29 @@ func TestLoginEnvNestedSessionCleanup(t *testing.T) {
 	}
 }
 
-// T075: within the same profile's session (or outside any), caller values of
-// model, endpoint and extra variables win, as in the wrapper.
-func TestLoginEnvCallerOverridesInSameProfile(t *testing.T) {
+// Feature 004 (FR-013, replaces T075's caller overrides): caller values of model,
+// endpoint and extra variables never win, inside the same profile's session or
+// outside any; the login environment matches the wrapper.
+func TestLoginEnvNoCallerOverrides(t *testing.T) {
 	def := builtinDef(t, "claude")
 	p := &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-login", Model: "opus",
 		ExtraEnv: []profile.ExtraEnvVar{{Name: "TEAM", Value: "platform", Literal: true}}}
 	for _, caller := range [][]string{
 		{"APROFILE_NAME=work", "APROFILE_HARNESS=claude", "APROFILE_SET_VARS=TEAM", "ANTHROPIC_MODEL=haiku", "TEAM=mine"},
 		{"ANTHROPIC_MODEL=haiku", "TEAM=mine"},
+		{"TEAM="},
 	} {
 		env, err := loginEnv(p, def, "/cfg", nil, caller)
 		if err != nil {
 			t.Fatal(err)
 		}
 		m := envMap(env)
-		if m["ANTHROPIC_MODEL"] != "haiku" || m["TEAM"] != "mine" {
-			t.Errorf("caller overrides lost (%v): model=%q team=%q", caller, m["ANTHROPIC_MODEL"], m["TEAM"])
+		if m["ANTHROPIC_MODEL"] != "opus" || m["TEAM"] != "platform" {
+			t.Errorf("caller value won (%v): model=%q team=%q", caller, m["ANTHROPIC_MODEL"], m["TEAM"])
 		}
 		if m["APROFILE_SET_VARS"] != "ANTHROPIC_MODEL TEAM" {
 			t.Errorf("APROFILE_SET_VARS = %q", m["APROFILE_SET_VARS"])
 		}
-	}
-	// An empty caller value counts as unset, like ${VAR:-} in the wrapper.
-	env, _ := loginEnv(p, def, "/cfg", nil, []string{"TEAM="})
-	if envMap(env)["TEAM"] != "platform" {
-		t.Errorf("empty caller value should not win: %v", envMap(env)["TEAM"])
 	}
 }
 

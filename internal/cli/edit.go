@@ -13,6 +13,7 @@ import (
 
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/hooksets"
+	"github.com/cc-deck/aprofile/internal/launch"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
@@ -222,9 +223,9 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 		p.Label = f.label
 	}
 	if changed("model") {
-		// FR-003: only settable for a harness whose definition declares a model var
-		// (see research.md). Error rather than store a value the wrapper would drop.
-		if f.model != "" && def.ModelVar == "" {
+		// FR-003: only settable for a harness whose definition can carry a model (a
+		// model variable or launch argument). Error rather than store a dropped value.
+		if f.model != "" && !def.CarriesModel() {
 			return fmt.Errorf("harness %q has no model variable; --model is not supported for it", def.Name)
 		}
 		p.Model = f.model
@@ -387,6 +388,12 @@ func (a *app) changeShare(cmd *cobra.Command, p *profile.Profile, def *harness.D
 	for _, s := range preview.Steps {
 		fmt.Fprintln(a.out, "  "+s.String())
 	}
+	// Spec 004 FR-008a: what the level change means for the launch settings the
+	// profile folder carries.
+	launchEffects, linkedNow := launchLevelEffects(def, p, from, to)
+	for _, l := range launchEffects {
+		fmt.Fprintln(a.out, "  "+l)
+	}
 	if replaces {
 		fmt.Fprintln(a.out, "profile data replaced: yes (backed up first; marked [replaces profile data])")
 	} else {
@@ -452,7 +459,80 @@ func (a *app) changeShare(cmd *cobra.Command, p *profile.Profile, def *harness.D
 			fmt.Fprintf(a.errOut, "aprofile: warning: hook set %s\n", m)
 		}
 	}
+	// A file that is now a link holds no aprofile-owned entries: drop them from the
+	// launch record (spec 004 FR-008a).
+	// The level change is already applied here, so a record that cannot be updated
+	// is a warning, not a failure. A readable record is cleaned by the next sync
+	// anyway (the planner never records a linked file); an unreadable one makes sync
+	// fail for the profile until it is removed, so the warning names it.
+	if len(linkedNow) > 0 {
+		recPath := a.paths.ManagedLaunchPath(p.Harness, p.Name)
+		if err := dropLaunchRecordFiles(recPath, linkedNow); err != nil {
+			fmt.Fprintf(a.errOut, "aprofile: warning: profile %s: launch record not updated: %v; fix or remove %s, then run: aprofile sync\n", p.ID(), err, recPath)
+		}
+	}
 	return true, nil
+}
+
+// launchLevelEffects returns the plan lines for the launch settings of a share level
+// change and the folder_launch files that become links (spec 004 FR-008a). A
+// profile without launch settings gets no lines.
+func launchLevelEffects(def *harness.Definition, p *profile.Profile, from, to profile.Share) (lines, linkedNow []string) {
+	if def.FolderLaunch == nil || len(launch.Decide(p, def, launch.Doc{Files: map[string]launch.FileDoc{}})) == 0 {
+		return nil, nil
+	}
+	linkedAt := func(rule *harness.EntryRule, level profile.Share) bool {
+		return rule.Layer.Borrowable() && def.Treatment(rule.Layer, string(level)) == harness.TreatLink
+	}
+	seen := map[string]bool{}
+	for _, f := range []string{def.FolderLaunch.EnvFile(), keyCommandFile(def)} {
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		for i := range def.Classification {
+			r := &def.Classification[i]
+			if r.IsGlob() || r.Path() != f {
+				continue
+			}
+			switch was, now := linkedAt(r, from), linkedAt(r, to); {
+			case !was && now:
+				lines = append(lines, fmt.Sprintf("launch settings become wrapper-only (%s is linked)", f))
+				linkedNow = append(linkedNow, f)
+			case was && !now:
+				lines = append(lines, fmt.Sprintf("launch settings will be placed into %s by the next sync", f))
+			}
+		}
+	}
+	return lines, linkedNow
+}
+
+func keyCommandFile(def *harness.Definition) string {
+	if def.FolderLaunch == nil || def.FolderLaunch.KeyCommand == nil {
+		return ""
+	}
+	return def.FolderLaunch.KeyCommand.File()
+}
+
+// dropLaunchRecordFiles removes the record entries of the given files.
+func dropLaunchRecordFiles(path string, files []string) error {
+	rec, err := launch.Load(path)
+	if err != nil {
+		return err
+	}
+	drop := map[string]bool{}
+	for _, f := range files {
+		drop[f] = true
+	}
+	kept := rec.Entries[:0]
+	for _, e := range rec.Entries {
+		if !drop[e.File] {
+			kept = append(kept, e)
+		}
+	}
+	rec.Entries = kept
+	_, err = rec.Save(path)
+	return err
 }
 
 // sameSteps reports whether two plans list the same steps, in order.
@@ -601,10 +681,14 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 
 	newConfigDir := a.paths.ProfileConfigDir(h, newName)
 	oldRecord, newRecord := a.paths.ManagedHooksPath(h, n), a.paths.ManagedHooksPath(h, newName)
+	oldLaunch, newLaunch := a.paths.ManagedLaunchPath(h, n), a.paths.ManagedLaunchPath(h, newName)
 	oldCreds, newCreds := a.paths.CredentialsDir(h, n), a.paths.CredentialsDir(h, newName)
 	// Checked before anything moves, so a refused rename changes nothing.
 	if _, err := os.Stat(newRecord); err == nil {
 		return fmt.Errorf("a managed-hooks record already exists at %s; remove it if no profile uses it", newRecord)
+	}
+	if _, err := os.Stat(newLaunch); err == nil {
+		return fmt.Errorf("a managed-launch record already exists at %s; remove it if no profile uses it", newLaunch)
 	}
 	if layer.DirExists(oldConfigDir) && layer.DirExists(newConfigDir) {
 		return fmt.Errorf("a config dir already exists at %s", newConfigDir)
@@ -631,6 +715,10 @@ func runRename(cmd *cobra.Command, ref, newName string, force bool) error {
 	// sync still knows which hook entries it placed (FR-028).
 	if err := moveRecord(oldRecord, newRecord); err != nil {
 		return err
+	}
+	// So does the record of the launch entries it placed (spec 004, research R6).
+	if err := launch.Move(oldLaunch, newLaunch); err != nil {
+		return fmt.Errorf("move managed-launch record: %w", err)
 	}
 	// The credential files import copied for this profile move with it, and the
 	// profile's references into that dir follow (FR-006a).
@@ -792,6 +880,9 @@ func runRemove(cmd *cobra.Command, h, n string, purge, yes bool) error {
 		// would let a later profile of the same name claim the user's own groups.
 		if err := os.Remove(a.paths.ManagedHooksPath(h, n)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove managed-hooks record: %w", err)
+		}
+		if err := launch.Delete(a.paths.ManagedLaunchPath(h, n)); err != nil {
+			return fmt.Errorf("remove managed-launch record: %w", err)
 		}
 		fmt.Fprintf(a.out, "removed profile %s/%s and purged its config dir; %s (run: aprofile sync)\n", h, n, oldWrapperNote(a, h, n))
 	} else {

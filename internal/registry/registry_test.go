@@ -82,7 +82,7 @@ func TestNoSecretsInRegistry(t *testing.T) {
 	}
 	allowed := map[string]bool{
 		"harness": true, "name": true, "label": true, "color": true, "icon": true,
-		"auth_kind": true, "primary": true, "config_dir": true, "wrapper_path": true, "share": true,
+		"auth_kind": true, "model": true, "primary": true, "config_dir": true, "wrapper_path": true, "share": true,
 		"history_group": true,
 	}
 	for _, p := range raw.Profiles {
@@ -96,8 +96,9 @@ func TestNoSecretsInRegistry(t *testing.T) {
 
 // TestRegistrySchemaMatchesContract pins the public registry schema documented in
 // contracts/registry-and-env.md (FR-030): the top level is exactly
-// {format_version, profiles}, and each profile carries exactly the eleven documented
-// fields (share was added additively by feature 002 and history_group by feature 003,
+// {format_version, profiles}, and each profile carries exactly the twelve documented
+// fields (share was added additively by feature 002, history_group by feature 003 and
+// model by feature 004,
 // both at format_version 1). A change here is a breaking change that must bump FormatVersion.
 func TestRegistrySchemaMatchesContract(t *testing.T) {
 	data, err := registry.Marshal(sampleEntries())
@@ -122,7 +123,7 @@ func TestRegistrySchemaMatchesContract(t *testing.T) {
 	if reg.FormatVersion != registry.FormatVersion {
 		t.Errorf("format_version = %d, want %d", reg.FormatVersion, registry.FormatVersion)
 	}
-	wantFields := []string{"harness", "name", "label", "color", "icon", "auth_kind", "primary", "config_dir", "wrapper_path", "share", "history_group"}
+	wantFields := []string{"harness", "name", "label", "color", "icon", "auth_kind", "model", "primary", "config_dir", "wrapper_path", "share", "history_group"}
 	for _, p := range reg.Profiles {
 		if len(p) != len(wantFields) {
 			t.Errorf("profile has %d fields, want exactly %d (%v): %v", len(p), len(wantFields), wantFields, keysOf(p))
@@ -166,5 +167,28 @@ func TestReadMissingFile(t *testing.T) {
 	}
 	if len(reg.Profiles) != 0 {
 		t.Error("missing registry should be empty")
+	}
+}
+
+// Feature 004 FR-018: model sits after auth_kind, is "" when unset, and the format
+// version stays 1.
+func TestRegistryModelField(t *testing.T) {
+	entries := []registry.Entry{
+		{Harness: "claude", Name: "a", AuthKind: "api-key", Model: "gw-model"},
+		{Harness: "claude", Name: "b", AuthKind: "oauth-login"},
+	}
+	data, err := registry.Marshal(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if registry.FormatVersion != 1 {
+		t.Errorf("format version = %d, want 1", registry.FormatVersion)
+	}
+	if !strings.Contains(s, `"model": "gw-model"`) || !strings.Contains(s, `"model": ""`) {
+		t.Errorf("model field missing or not empty when unset:\n%s", s)
+	}
+	if i, j, k := strings.Index(s, `"auth_kind"`), strings.Index(s, `"model"`), strings.Index(s, `"primary"`); !(i < j && j < k) {
+		t.Errorf("field order: model must follow auth_kind and precede primary:\n%s", s)
 	}
 }

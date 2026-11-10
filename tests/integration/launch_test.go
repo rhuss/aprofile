@@ -38,14 +38,18 @@ func TestScenario1Launch(t *testing.T) {
 		"STUB_ENV: APROFILE_COLOR=blue",
 		"STUB_ENV: APROFILE_ICON=W",
 		"STUB_ENV: APROFILE_CONFIG_DIR=" + e.configDir("claude", "work"),
-		"STUB_ENV: ANTHROPIC_MODEL=X",
-		"STUB_ENV: ANTHROPIC_BASE_URL=Y",
 		"STUB_ENV: CLAUDE_CODE_OAUTH_TOKEN=secret-value",
 		"STUB_ARGS: [--version]",
 	}
 	for _, c := range checks {
 		if !strings.Contains(out, c) {
 			t.Errorf("wrapper output missing %q\n---\n%s", c, out)
+		}
+	}
+	// Model and endpoint are carried by the profile folder (spec 004), not exported.
+	for _, unwanted := range []string{"STUB_ENV: ANTHROPIC_MODEL=", "STUB_ENV: ANTHROPIC_BASE_URL="} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("wrapper exports the folder-carried %s\n%s", unwanted, out)
 		}
 	}
 	// The resolved secret value must reach the harness, but only via the

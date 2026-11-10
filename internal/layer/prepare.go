@@ -138,7 +138,7 @@ func stripNonSeedKeys(data []byte, rule *harness.EntryRule, dst string) []byte {
 	if !IsJSONExt(filepath.Ext(dst)) {
 		return minimalDoc(dst)
 	}
-	m, err := decodeJSONObject(data)
+	m, err := DecodeJSONObject(data)
 	if err != nil {
 		return minimalDoc(dst)
 	}

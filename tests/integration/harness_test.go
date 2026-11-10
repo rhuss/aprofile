@@ -15,7 +15,8 @@ import (
 )
 
 // env is a hermetic environment for one integration test: a temp HOME/XDG root,
-// the built aprofile binary, and a stub harness installed as "claude" on PATH.
+// the built aprofile binary, and a stub harness installed as "claude" and "codex"
+// on PATH.
 type env struct {
 	t        *testing.T
 	root     string
@@ -41,9 +42,12 @@ func newEnv(t *testing.T) *env {
 	// resolves to it.
 	stub := testutil.BuildBinary(t, "github.com/cc-deck/aprofile/tests/fixtures/stub", "claude")
 	stubDir := filepath.Dir(stub)
+	// The same stub is also installed as "codex" (feature 004), so Codex wrappers
+	// can be run to observe their environment and arguments.
+	codexStubDir := filepath.Dir(testutil.BuildBinary(t, "github.com/cc-deck/aprofile/tests/fixtures/stub", "codex"))
 	binDir := filepath.Join(dataHome, "aprofile", "bin")
 
-	path := strings.Join([]string{stubDir, binDir, "/usr/bin", "/bin"}, string(os.PathListSeparator))
+	path := strings.Join([]string{stubDir, codexStubDir, binDir, "/usr/bin", "/bin"}, string(os.PathListSeparator))
 	vars := []string{
 		"HOME=" + root,
 		"XDG_CONFIG_HOME=" + configHome,

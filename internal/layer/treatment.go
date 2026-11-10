@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/profile"
@@ -59,6 +60,20 @@ func Treatments(def *harness.Definition, p *profile.Profile, home, configDir str
 // history entries are reported as linked to the store with the reason "history
 // group <g>", including the ones that do not exist yet (spec 003, FR-020).
 func TreatmentsWith(def *harness.Definition, p *profile.Profile, home, configDir string, hs HistoryStore) ([]EntryTreatment, error) {
+	return TreatmentsWithPlaced(def, p, home, configDir, hs, nil)
+}
+
+// PlacedKeys lists, per profile-relative file, the launch entries aprofile placed
+// there (feature 004): "env.<NAME>" for an entry of the file's env object, or a
+// top-level key such as "apiKeyHelper". The caller fills it from the launch record;
+// layer never reads that record itself.
+type PlacedKeys map[string][]string
+
+// TreatmentsWithPlaced is TreatmentsWith for a profile whose settings files hold the
+// placed launch entries in placed: they are ignored when comparing the profile's own
+// settings with the default setup's, so a content profile does not read "differs
+// from the default setup" because of them.
+func TreatmentsWithPlaced(def *harness.Definition, p *profile.Profile, home, configDir string, hs HistoryStore, placed PlacedKeys) ([]EntryTreatment, error) {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
@@ -83,7 +98,7 @@ func TreatmentsWith(def *harness.Definition, p *profile.Profile, home, configDir
 			out = append(out, historyTreatment(we.Result.Rule, we.Rel, path, hs))
 			continue
 		}
-		et := treatmentFor(def, level, we.Result.Rule, we.Rel, path, def.DefaultPathUnder(home, we.Rel))
+		et := treatmentFor(def, level, we.Result.Rule, we.Rel, path, def.DefaultPathUnder(home, we.Rel), placed[we.Rel])
 		if p.ShareImplicit && et.Treatment == TreatmentLinked && (et.Status == StatusLinkReplacedByFile || et.Status == StatusNotSynced) {
 			if cur := inspect(path); cur.exists && !cur.link {
 				// The planner keeps it too (PlanOptions.Upgrade).
@@ -104,7 +119,7 @@ func TreatmentsWith(def *harness.Definition, p *profile.Profile, home, configDir
 		if r.IsGlob() || seen[r.Path()] || !r.Layer.Borrowable() || def.Treatment(r.Layer, level) != harness.TreatLink {
 			continue
 		}
-		et := treatmentFor(def, level, r, r.Path(), filepath.Join(configDir, filepath.FromSlash(r.Path())), def.DefaultPathUnder(home, r.Path()))
+		et := treatmentFor(def, level, r, r.Path(), filepath.Join(configDir, filepath.FromSlash(r.Path())), def.DefaultPathUnder(home, r.Path()), placed[r.Path()])
 		out = append(out, et)
 	}
 	// History entries of a member that do not exist yet.
@@ -156,7 +171,7 @@ func historyTreatment(rule *harness.EntryRule, rel, path string, hs HistoryStore
 	return et
 }
 
-func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule, rel, path, src string) EntryTreatment {
+func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule, rel, path, src string, placed []string) EntryTreatment {
 	cur := inspect(path)
 	et := EntryTreatment{Entry: rel, Category: string(rule.Layer), Status: StatusOK}
 	switch rule.Layer {
@@ -238,7 +253,7 @@ func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule
 		}
 		if cur.link {
 			et.Status = StatusNotSynced
-		} else if treat == harness.TreatCopyOnce && differsFromDefault(def, rel, path, src) {
+		} else if treat == harness.TreatCopyOnce && differsFromDefault(def, rel, path, src, placed) {
 			et.Status = StatusDiffersFromDefault
 		}
 	case harness.TreatManaged:
@@ -252,8 +267,9 @@ func treatmentFor(def *harness.Definition, level string, rule *harness.EntryRule
 }
 
 // differsFromDefault reports whether a profile's own settings file differs from the
-// default setup's, ignoring the hook location key (which hook sets manage).
-func differsFromDefault(def *harness.Definition, rel, path, src string) bool {
+// default setup's, ignoring the hook location key (which hook sets manage) and the
+// launch entries aprofile placed (feature 004).
+func differsFromDefault(def *harness.Definition, rel, path, src string, placed []string) bool {
 	pd, err1 := os.ReadFile(path)
 	dd, err2 := os.ReadFile(src)
 	if err1 != nil || err2 != nil {
@@ -271,10 +287,34 @@ func differsFromDefault(def *harness.Definition, rel, path, src string) bool {
 		pa, e1 := decodeAnyObject(pd)
 		da, e2 := decodeAnyObject(dd)
 		if e1 == nil && e2 == nil {
+			dropPlaced(pa, da, placed)
 			return canonical(pa) != canonical(da)
 		}
 	}
 	return !bytes.Equal(pd, dd)
+}
+
+// dropPlaced removes the placed launch entries from both documents before they are
+// compared; an env object that only held placed entries in the profile, and that
+// the default setup does not have, goes too.
+func dropPlaced(profileDoc, defaultDoc map[string]any, placed []string) {
+	for _, loc := range placed {
+		if obj, name, ok := strings.Cut(loc, "."); ok {
+			for _, doc := range []map[string]any{profileDoc, defaultDoc} {
+				if m, isMap := doc[obj].(map[string]any); isMap {
+					delete(m, name)
+				}
+			}
+			if m, isMap := profileDoc[obj].(map[string]any); isMap && len(m) == 0 {
+				if _, has := defaultDoc[obj]; !has {
+					delete(profileDoc, obj)
+				}
+			}
+			continue
+		}
+		delete(profileDoc, loc)
+		delete(defaultDoc, loc)
+	}
 }
 
 // SettingsDiffer reports the settings entries of a content profile whose own copy

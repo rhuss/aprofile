@@ -1,9 +1,13 @@
 // Package wrapper renders the POSIX-sh launcher aprofile writes onto PATH for each
 // profile. The wrapper is self-contained (POSIX shell + the harness binary only),
 // exec-style so process detection sees the real harness, sets the profile's
-// config_env and APROFILE_* contract (never overridable), resolves secret
-// references at launch fail-closed, shell-quotes every other value so nothing can
-// inject shell code, and passes all arguments through (FR-026, FR-027, FR-028a/b).
+// config_env and APROFILE_* contract, resolves secret references at launch
+// fail-closed, shell-quotes every other value so nothing can inject shell code, and
+// passes all arguments through (FR-026, FR-028a/b). Since feature 004 it is the
+// single source only for settings the profile folder cannot carry: it clears every
+// launch variable a profile session may have left, never exports a setting the
+// folder carries, and sets wrapper-only settings unconditionally (spec 004 FR-012 to
+// FR-016). One-run changes go through the harness's own flags.
 package wrapper
 
 import (
@@ -11,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/launch"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
 )
@@ -25,10 +30,8 @@ func IsWrapper(content []byte) bool {
 }
 
 // ShellQuote renders s as a single POSIX-sh single-quoted literal, so no value can
-// inject shell code (FR-028b).
-func ShellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+// inject shell code (FR-028b). It is an alias of secret.ShellQuote.
+func ShellQuote(s string) string { return secret.ShellQuote(s) }
 
 // RenderOptions carries values resolved outside the wrapper package and woven into
 // the script. HookEnv is the output of the harness exec hook's env operation,
@@ -53,44 +56,55 @@ func RenderWith(p *profile.Profile, def *harness.Definition, configDir string, o
 	w("# Managed by aprofile. Do not edit; regenerate with: aprofile sync")
 	w("")
 
-	vars := overridableVars(p, def, opts.HookEnv)
-	captured := clearedSources(p, def, vars)
+	m := newModel(p, def, configDir, opts.HookEnv)
 
-	renderNestedCleanup(w, p, def)
+	renderCapture(w, m)
+	renderCleanup(w, m)
 	renderConfigEnv(w, def, configDir)
 	renderContract(w, p, configDir)
-	renderAuth(w, p, def, captured)
+	renderAuth(w, p, def, m)
 	renderHerdr(w, p)
-	renderOverridable(w, p, vars, captured)
-	renderGuardAndExec(w, p, def, configDir)
+	renderLaunch(w, p, m)
+	renderGuardAndExec(w, p, def, configDir, m.modelArgs)
 
 	return b.String(), nil
 }
 
-// renderNestedCleanup clears an inherited profile's overridable variables when the
-// wrapper is launched inside a different profile's session (FR-027).
-func renderNestedCleanup(w func(string), p *profile.Profile, def *harness.Definition) {
-	w("# Capture an inherited aprofile session before we overwrite it.")
-	w(`_aprofile_prev_name="${APROFILE_NAME:-}"`)
-	w(`_aprofile_prev_harness="${APROFILE_HARNESS:-}"`)
+// renderCapture keeps the caller's value of every variable an env: reference reads
+// in a private temporary, before any clearing, so a self-referencing pass-through
+// (--env CLOUD_ML_REGION=env:CLOUD_ML_REGION) or a key read from an auth variable
+// survives the clears below (spec 004 contracts/registry-and-env.md step 0).
+func renderCapture(w func(string), m model) {
+	if len(m.sources) == 0 {
+		return
+	}
+	w("# Capture the sources of env: references before anything is cleared.")
+	for _, src := range m.sources {
+		w(fmt.Sprintf(`%s="${%s-}"`, srcTemp(src), src))
+	}
+	w("")
+}
+
+// renderCleanup clears, unconditionally and without comparing profile names, the
+// launch variables a profile session may have left: every valid name in an inherited
+// APROFILE_SET_VARS (never m.protected or the wrapper's own temporaries), the
+// definition's launch_clear names and this profile's own launch variables (spec 004
+// FR-014). Environ applies the same rule through protectedFromInherited.
+func renderCleanup(w func(string), m model) {
+	w("# Clear the launch variables a profile session may have left (no caller overrides).")
 	w(`_aprofile_prev_setvars="${APROFILE_SET_VARS:-}"`)
-	w("# If launched inside a different profile's session, drop its overridable vars.")
-	cond := fmt.Sprintf(`if [ -n "${_aprofile_prev_name}${_aprofile_prev_harness}" ] && { [ "${_aprofile_prev_name}" != %s ] || [ "${_aprofile_prev_harness}" != %s ]; }; then`,
-		ShellQuote(p.Name), ShellQuote(p.Harness))
-	w(cond)
-	w("  for _v in ${_aprofile_prev_setvars}; do")
-	w(`    unset "${_v}"`)
-	w("  done")
-	clear := []string{}
-	if def.ModelVar != "" {
-		clear = append(clear, def.ModelVar)
-	}
-	if def.EndpointVar != "" {
-		clear = append(clear, def.EndpointVar)
-	}
-	clear = append(clear, "APROFILE_SET_VARS")
-	w("  unset " + strings.Join(clear, " "))
-	w("fi")
+	w("set -f")
+	w("for _v in ${_aprofile_prev_setvars}; do")
+	protected := append(append([]string(nil), m.protected...), internalPrefix+"*")
+	w(`  case "${_v}" in`)
+	w("    " + strings.Join(protected, "|") + ") ;;")
+	w(`    ''|[0-9]*|*[!A-Za-z0-9_]*) ;;`)
+	w(`    *) command unset "${_v}" 2>/dev/null || : ;;`)
+	w("  esac")
+	w("done")
+	w("set +f")
+	w("unset _v _aprofile_prev_setvars")
+	w("unset " + strings.Join(m.clear, " "))
 	w("")
 }
 
@@ -123,40 +137,27 @@ func renderContract(w func(string), p *profile.Profile, configDir string) {
 
 // renderAuth unsets every auth variable and every auth_clears variable, then sets
 // the selected kind's variables from their references, fail-closed (FR-027,
-// FR-028a). Auth variables are never caller-overridable, and a provider switch the
-// definition clears never leaks in from the caller's shell. captured names the
-// cleared variables an overridable reference reads (see clearedSources): their
-// caller values are kept in temporaries before the unset.
-func renderAuth(w func(string), p *profile.Profile, def *harness.Definition, captured []string) {
+// FR-028a). A key the profile folder carries is only checked: it is resolved into a
+// private variable with the same failure message, never exported, then unset
+// (spec 004 FR-015). env: references read the temporaries renderCapture kept.
+func renderAuth(w func(string), p *profile.Profile, def *harness.Definition, m model) {
 	all := def.UnsetAuthVars()
-	if len(all) == 0 {
+	if len(all) == 0 && len(m.keys) == 0 {
 		return
 	}
-	w("# Authentication (never overridable): capture references, clear all auth vars, then set this profile's.")
-	// Collect the selected kind's references first. An env reference that reads from an
-	// auth variable (for example env:ANTHROPIC_AUTH_TOKEN) must be captured into a temp
-	// BEFORE the unset, or the unset would blank the value before it is resolved (FR-028a).
-	refs := selectedAuthRefs(p, def)
-	for _, ar := range refs {
-		if ar.ref.Kind == secret.KindEnv {
-			// Capture the caller's value (empty when unset); resolution checks it below.
-			w(fmt.Sprintf(`%s="${%s-}"`, authTemp(ar.target), ar.ref.Value))
-		}
+	w("# Authentication: clear all auth vars and provider switches, then set this profile's.")
+	if len(all) > 0 {
+		w("unset " + strings.Join(all, " "))
 	}
-	for _, v := range captured {
-		w(fmt.Sprintf(`%s="${%s-}"`, clearedTemp(v), v))
-	}
-	w("unset " + strings.Join(all, " "))
-	for _, ar := range refs {
-		if ar.ref.Kind == secret.KindEnv {
-			// Resolve from the temp, keeping the original Raw in the fail-closed message.
-			tmp := authTemp(ar.target)
-			tmpRef := secret.Reference{Kind: secret.KindEnv, Value: tmp, Raw: ar.ref.Raw}
-			w(tmpRef.ResolveShell(ar.target, p.ID(), ShellQuote, ""))
-			w("unset " + tmp)
-		} else {
-			w(ar.ref.ResolveShell(ar.target, p.ID(), ShellQuote, ""))
+	for _, k := range m.keys {
+		ref := m.readRef(*k.Ref)
+		if k.Carrier == launch.CarrierFolder {
+			w("# The profile folder carries this key: check it resolves, never export it.")
+			w(ref.CheckShell(keyCheckVar, p.ID(), ShellQuote, ""))
+			w("unset " + keyCheckVar)
+			continue
 		}
+		w(ref.ResolveShell(k.Variable, p.ID(), ShellQuote, ""))
 	}
 	w("")
 }
@@ -172,44 +173,37 @@ func renderHerdr(w func(string), p *profile.Profile) {
 	w("")
 }
 
-// renderOverridable sets model, endpoint, extra variables and any exec-hook env
-// variables only when the caller has not already set them, and exports
-// APROFILE_SET_VARS listing their names (FR-027, FR-011). A reference to a cleared
-// variable reads the temporary renderAuth captured before the unset.
-func renderOverridable(w func(string), p *profile.Profile, vars []overridableVar, captured []string) {
-	var setVars []string
-	w("# Model, endpoint and extra variables (caller-overridable).")
-	for _, v := range vars {
-		w(fmt.Sprintf(`if [ -z "${%s:-}" ]; then`, v.name))
-		switch {
-		case v.ref == nil:
-			w(fmt.Sprintf("  %s=%s", v.name, ShellQuote(v.value)))
-		case v.ref.Kind == secret.KindEnv && contains(captured, v.ref.Value):
-			tmpRef := secret.Reference{Kind: secret.KindEnv, Value: clearedTemp(v.ref.Value), Raw: v.ref.Raw}
-			w(tmpRef.ResolveShell(v.name, p.ID(), ShellQuote, "  "))
-		default:
-			w(v.ref.ResolveShell(v.name, p.ID(), ShellQuote, "  "))
+// renderLaunch sets the launch settings the wrapper carries, unconditionally (a
+// caller's value never overrides them, spec 004 FR-013), exports APROFILE_SET_VARS
+// when the folder does not carry it (FR-014), and drops the capture temporaries.
+func renderLaunch(w func(string), p *profile.Profile, m model) {
+	w("# Launch settings the wrapper carries (always the profile's values).")
+	for _, v := range m.vars {
+		if v.Ref == nil {
+			w(fmt.Sprintf("%s=%s", v.Variable, ShellQuote(v.Value)))
+			w("export " + v.Variable)
+			continue
 		}
-		w("fi")
-		w("export " + v.name)
-		setVars = append(setVars, v.name)
+		w(m.readRef(*v.Ref).ResolveShell(v.Variable, p.ID(), ShellQuote, ""))
 	}
-	if len(captured) > 0 {
-		temps := make([]string, len(captured))
-		for i, c := range captured {
-			temps[i] = clearedTemp(c)
+	if m.setVarsWrapper {
+		w("APROFILE_SET_VARS=" + ShellQuote(strings.Join(m.setVars, " ")))
+		w("export APROFILE_SET_VARS")
+	}
+	if len(m.sources) > 0 {
+		temps := make([]string, len(m.sources))
+		for i, s := range m.sources {
+			temps[i] = srcTemp(s)
 		}
 		w("unset " + strings.Join(temps, " "))
 	}
-
-	w("APROFILE_SET_VARS=" + ShellQuote(strings.Join(setVars, " ")))
-	w("export APROFILE_SET_VARS")
 	w("")
 }
 
 // renderGuardAndExec checks the config dir exists and the binary is available,
-// then execs the harness (FR-026).
-func renderGuardAndExec(w func(string), p *profile.Profile, def *harness.Definition, configDir string) {
+// then execs the harness (FR-026), passing the definition's model_arg before the
+// caller's arguments so a caller's own model flag wins (spec 004 FR-016).
+func renderGuardAndExec(w func(string), p *profile.Profile, def *harness.Definition, configDir string, modelArgs []string) {
 	w("# Ensure the profile config dir exists before launching.")
 	w(fmt.Sprintf("if [ ! -d %s ]; then", ShellQuote(configDir)))
 	w(fmt.Sprintf("  printf '%%s\\n' %s >&2", ShellQuote(fmt.Sprintf("aprofile: profile %s: config dir %s does not exist; run: aprofile sync", p.ID(), configDir))))
@@ -223,7 +217,11 @@ func renderGuardAndExec(w func(string), p *profile.Profile, def *harness.Definit
 	w("fi")
 	w("")
 	renderPreLaunch(w, p, def, configDir)
-	w(fmt.Sprintf(`exec %s "$@"`, ShellQuote(def.Binary)))
+	argv := []string{ShellQuote(def.Binary)}
+	for _, a := range modelArgs {
+		argv = append(argv, ShellQuote(a))
+	}
+	w(fmt.Sprintf(`exec %s "$@"`, strings.Join(argv, " ")))
 }
 
 // renderPreLaunch emits the pre-launch exec-hook call, run inside the wrapper just

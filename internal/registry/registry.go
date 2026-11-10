@@ -25,12 +25,16 @@ type Registry struct {
 
 // Entry is one profile's registry record. No credentials, no references (FR-014).
 type Entry struct {
-	Harness     string `json:"harness"`
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Color       string `json:"color"`
-	Icon        string `json:"icon"`
-	AuthKind    string `json:"auth_kind"`
+	Harness  string `json:"harness"`
+	Name     string `json:"name"`
+	Label    string `json:"label"`
+	Color    string `json:"color"`
+	Icon     string `json:"icon"`
+	AuthKind string `json:"auth_kind"`
+	// Model is the profile's configured model from the profile store, "" when unset
+	// (feature 004, FR-018). Never read from a harness file. Added additively at
+	// format_version 1.
+	Model       string `json:"model"`
 	Primary     bool   `json:"primary"`
 	ConfigDir   string `json:"config_dir"`
 	WrapperPath string `json:"wrapper_path"`
