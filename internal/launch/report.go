@@ -24,7 +24,9 @@ type FolderReport struct {
 	Unplaced     []Entry       `json:"unplaced"`
 }
 
-// WrapperOnly is one launch setting only the wrapper supplies, with its reason.
+// WrapperOnly is one launch setting only the wrapper supplies, with its reason, or
+// the auth-clearing report item (KindAuthClearing, spec 005 FR-005), which is not a
+// launch setting.
 type WrapperOnly struct {
 	Setting  string `json:"setting"`
 	Variable string `json:"variable"`
@@ -73,8 +75,8 @@ func (f FolderReport) StatusText() string {
 	return "self-contained"
 }
 
-// SettingName names a setting for people: model, endpoint, key, or the variable of
-// an extra or hook variable.
+// SettingName names a setting for people: model, endpoint, key, auth-clearing, or
+// the variable of an extra or hook variable.
 func (w WrapperOnly) SettingName() string {
 	if strings.HasPrefix(w.Setting, extraPrefix) || strings.HasPrefix(w.Setting, hookPrefix) {
 		return w.Variable

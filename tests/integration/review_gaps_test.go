@@ -96,8 +96,10 @@ func TestHandEditedLevel(t *testing.T) {
 	if fi, _ := os.Lstat(settings); fi.Mode()&os.ModeSymlink != 0 {
 		t.Error("sync must not replace profile data with a link")
 	}
-	if m := readSettings(t, settings); m["own"] != true {
+	if m := readSettings(t, settings); m["own"] != true || len(m) != 2 {
 		t.Errorf("sync must not replace profile data: %v", m)
+	} else if delete(m, "own"); !onlyNeutralizing(t, m) {
+		t.Errorf("sync added more than the neutralizing entries: %v", m)
 	}
 	if fi, _ := os.Lstat(filepath.Join(e.configDir("claude", "work"), "CLAUDE.md")); fi.Mode()&os.ModeSymlink == 0 {
 		t.Error("content links stay")
@@ -143,6 +145,10 @@ func TestSettingsPullApplies(t *testing.T) {
 	}
 	if b := backupsOf(t, e, "claude", "work", "settings.json"); len(b) != 1 || readFile(t, b[0]) != before {
 		t.Errorf("the backup holds the previous content: %v", b)
+	}
+	// The pull places the neutralizing entries again right after the copy.
+	if env, _ := m["env"].(map[string]any); env == nil || env["CLAUDE_CODE_USE_VERTEX"] != "" {
+		t.Errorf("the neutralizing entries are not placed again after the pull: %v", m["env"])
 	}
 	// Nothing left to pull but the env block of the neutralizing entries aprofile
 	// placed (spec 005 FR-001), which the pull names and places again.

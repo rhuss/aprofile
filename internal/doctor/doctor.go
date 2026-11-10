@@ -650,7 +650,7 @@ func launchFindings(paths *config.Paths, def *harness.Definition, p *profile.Pro
 		Fix: "details: aprofile show " + id}}
 	for _, w := range f.WrapperOnly {
 		fix := "start the profile through its wrapper " + def.WrapperName(p.Name) + " to apply it"
-		if w.Setting == launch.KindAuthClearing {
+		if w.Setting == launch.KindAuthClearing && w.Reason == launch.ReasonShareAll {
 			// Spec 005 FR-005: the folder of a login profile at share level all cannot
 			// neutralize exported provider switches and keys.
 			fix = "start the profile through its wrapper " + def.WrapperName(p.Name) +

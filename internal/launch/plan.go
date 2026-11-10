@@ -165,10 +165,10 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 }
 
 // desiredState computes the desired placed entries from the settings
-// (data-model.md "Desired entries for a profile"). canCarryEnv says whether the
-// folder can carry env entries (a folder env location and an env file that is the
+// (data-model.md "Desired entries for a profile"). envOK says whether the folder
+// can carry env entries (a folder env location and an env file that is the
 // profile's own, not linked to the default setup).
-func desiredState(def *harness.Definition, settings []Setting, canCarryEnv bool) (desired, error) {
+func desiredState(def *harness.Definition, settings []Setting, envOK bool) (desired, error) {
 	var d desired
 	var names []string
 	folderVar := false
@@ -192,7 +192,7 @@ func desiredState(def *harness.Definition, settings []Setting, canCarryEnv bool)
 	// env entries, it neutralizes the auth-clearing list, whatever the auth kind and
 	// whether or not it carries the key, except names the profile supplies itself
 	// (spec 005 FR-002): an empty folder entry would beat the value the wrapper sets.
-	if canCarryEnv {
+	if envOK {
 		// Supplied names: every launch variable of the profile (model, endpoint, extra
 		// and exec-hook variables, whichever carrier) and the variable of a key the
 		// wrapper carries. A folder-carried key's own variable stays blanked: the key
