@@ -37,8 +37,7 @@ back to the default provider). Codex has no `env` block in `config.toml`.
 ### Session 2026-11-10
 
 - Q: Does a login profile at `content` or `none` whose folder holds only neutralizing entries count
-  as self-contained? → A: Yes; neutralizing entries do not change the status rules of spec 004
-  FR-020.
+  as self-contained? → A: Yes; neutralizing entries alone never make a folder not self-contained.
 - Q: Which commands report the FR-005 gap for a login profile at `all`? → A: `show` and `doctor`
   only (the brainstorm decision); `list` has no self-containment status and gains none.
 - Q: How does the FR-005 wrapper-only item appear in `show --json`? → A: As a wrapper-only setting
@@ -237,8 +236,11 @@ exported against a logging stub, and record which endpoint and credential it use
   `OPENAI_BASE_URL`, and record the result in the feature's research notes and in the Codex
   harness definition's comments.
 - **FR-009**: If the verification shows an exported variable is honored, `show` and `doctor` MUST
-  report the gap for ChatGPT-login Codex profiles at every share level, as FR-005 does, naming the
-  honored variables. If not, Codex behavior MUST stay unchanged.
+  report the gap for ChatGPT-login Codex profiles at every share level: the folder is reported as
+  not self-contained, with auth clearing as wrapper-only (in `--json`: setting `auth-clearing`, no
+  variable, reason `no-support`, since the harness has no folder `env` location), `doctor` reports
+  it as information naming the honored variables and the wrapper as the fix. If not, Codex
+  behavior MUST stay unchanged.
 
 **Documentation**
 
