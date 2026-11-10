@@ -122,3 +122,61 @@ func TestRenderClearsExceptOwnKind(t *testing.T) {
 		t.Errorf("a profile's extra variable must survive the clears:\n%s", out)
 	}
 }
+
+// Spec 005 SC-002: neutralizing entries in the profile's own settings.json change
+// nothing in the wrapper. An oauth-token wrapper still sets the token and clears
+// the rest of the auth-clearing list; an oauth-login wrapper clears the whole list;
+// both render byte-identically with and without the entries in the folder.
+func TestRenderUnchangedByNeutralizingEntries(t *testing.T) {
+	def := claudeDef(t)
+	tokRef, _ := secret.ParseReference("env:WORK_TOKEN")
+	profiles := map[string]*profile.Profile{
+		"oauth-token": {Harness: "claude", Name: "tok", AuthKind: "oauth-token", Share: profile.ShareContent,
+			AuthRefs: map[string]secret.Reference{"CLAUDE_CODE_OAUTH_TOKEN": tokRef}},
+		"oauth-login": {Harness: "claude", Name: "login", AuthKind: "oauth-login", Share: profile.ShareContent},
+	}
+	for name, p := range profiles {
+		bare := filepath.Join(t.TempDir(), "cfg")
+		withEntries := filepath.Join(t.TempDir(), "cfg")
+		var entries []string
+		for _, v := range def.UnsetAuthVars() {
+			if name == "oauth-token" && v == "CLAUDE_CODE_OAUTH_TOKEN" {
+				continue
+			}
+			entries = append(entries, `"`+v+`":""`)
+		}
+		for dir, content := range map[string]string{bare: `{}`, withEntries: `{"env":{` + strings.Join(entries, ",") + `}}`} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		a, err := wrapper.Render(p, def, bare)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := wrapper.Render(p, def, withEntries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.ReplaceAll(a, bare, "CFG") != strings.ReplaceAll(b, withEntries, "CFG") {
+			t.Errorf("%s: neutralizing entries change the wrapper:\n--- without\n%s\n--- with\n%s", name, a, b)
+		}
+		// The wrapper clears the whole list, then assigns its own token from the
+		// source captured before the unset.
+		line := unsetLine(t, a, "ANTHROPIC_API_KEY")
+		for _, v := range def.UnsetAuthVars() {
+			if !strings.Contains(" "+line+" ", " "+v+" ") {
+				t.Errorf("%s: unset line missing %s: %s", name, v, line)
+			}
+		}
+		if name == "oauth-token" {
+			assign := strings.Index(a, `CLAUDE_CODE_OAUTH_TOKEN="${_aprofile_src_WORK_TOKEN}"`)
+			if assign < 0 || assign < strings.Index(a, line) {
+				t.Errorf("oauth-token: the wrapper no longer sets the token after the unset:\n%s", a)
+			}
+		}
+	}
+}
