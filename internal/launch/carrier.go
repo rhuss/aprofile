@@ -157,6 +157,13 @@ func envCarrier(p *profile.Profile, def *harness.Definition, doc Doc) Reason {
 	return ""
 }
 
+// canCarryEnv reports whether the folder can carry environment entries: the
+// definition declares a folder env location and the env file is the profile's own
+// (not linked to the default setup). The planner and Status share this rule.
+func canCarryEnv(p *profile.Profile, def *harness.Definition, doc Doc) bool {
+	return envCarrier(p, def, doc) == ""
+}
+
 // linked reports whether a folder_launch file is (or will be) linked to the default
 // setup: the file or its path is a link, or it is absent and the profile's share
 // level links its category (sync creates the link before placing launch entries).

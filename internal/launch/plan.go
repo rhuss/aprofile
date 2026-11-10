@@ -94,7 +94,7 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 		// removed them): the placed entries are removed all the same (FR-005).
 		fl = &harness.FolderLaunch{}
 	}
-	want, err := desiredState(p, def, res.Settings)
+	want, err := desiredState(def, res.Settings, canCarryEnv(p, def, doc))
 	if err != nil {
 		return res, err
 	}
@@ -165,8 +165,10 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 }
 
 // desiredState computes the desired placed entries from the settings
-// (data-model.md "Desired entries for a profile").
-func desiredState(p *profile.Profile, def *harness.Definition, settings []Setting) (desired, error) {
+// (data-model.md "Desired entries for a profile"). canCarryEnv says whether the
+// folder can carry env entries (a folder env location and an env file that is the
+// profile's own, not linked to the default setup).
+func desiredState(def *harness.Definition, settings []Setting, canCarryEnv bool) (desired, error) {
 	var d desired
 	var names []string
 	folderVar := false
@@ -186,14 +188,11 @@ func desiredState(p *profile.Profile, def *harness.Definition, settings []Settin
 	if folderVar {
 		d.env = append(d.env, envEntry{"APROFILE_SET_VARS", strings.Join(names, " ")})
 	}
-	fl := def.FolderLaunch
-	if key == nil {
-		return d, nil
-	}
-	// FR-006a: the folder neutralizes the auth-clearing list, except names the
-	// profile supplies itself (extra or exec-hook variables, whichever carrier): an
-	// empty folder entry would beat the value the wrapper sets.
-	if fl.Env != "" {
+	// Spec 004 FR-006a, widened by spec 005 FR-001: whenever the folder can carry
+	// env entries, it neutralizes the auth-clearing list, whatever the auth kind and
+	// whether or not it carries the key, except names the profile supplies itself
+	// (spec 005 FR-002): an empty folder entry would beat the value the wrapper sets.
+	if canCarryEnv {
 		supplied := map[string]bool{}
 		for _, s := range settings {
 			if s.IsVariable() {
@@ -206,6 +205,10 @@ func desiredState(p *profile.Profile, def *harness.Definition, settings []Settin
 			}
 		}
 	}
+	if key == nil {
+		return d, nil
+	}
+	fl := def.FolderLaunch
 	switch fl.KeyCommand.Form {
 	case harness.KeyFormShell:
 		cmd, err := ShellCommand(*key.Ref)

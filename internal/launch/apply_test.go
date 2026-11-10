@@ -417,3 +417,26 @@ func TestApplyFailedWriteKeepsUserEntryUnowned(t *testing.T) {
 		t.Errorf("the user's MY_VAR was removed or changed: %v", env)
 	}
 }
+
+// Spec 005 FR-005a: a login profile whose folder holds only neutralizing entries is
+// self-contained, with no wrapper-only items, and synced after Apply.
+func TestStatusLoginNeutralizingOnlyIsSelfContained(t *testing.T) {
+	e := newApplyEnv(t)
+	p := &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-login", Share: profile.ShareContent}
+	d := builtin(t, "claude")
+	if _, err := launch.Apply(p, d, e.cfg, e.rec, false); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := readJSON(t, filepath.Join(e.cfg, "settings.json"))["env"].(map[string]any)
+	if got, ok := env["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v (present %v), want empty", got, ok)
+	}
+	st, err := launch.Status(p, d, e.cfg, e.rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := st.Folder()
+	if f.Status != launch.FolderSelfContained || len(f.WrapperOnly) != 0 || f.Sync != launch.SyncSynced {
+		t.Errorf("folder = %+v", f)
+	}
+}
