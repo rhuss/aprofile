@@ -95,3 +95,39 @@ Out-of-scope ideas captured from reviews and conversations, waiting for a brains
 - **Summary**: Constitution Principle II does not name the join's removal of an emptied entry tree explicitly.
 
 > Consider naming it in the next constitution amendment.
+
+### neutralize-anthropic-base-url
+
+- **Source**: deep-review
+- **Date**: 2026-11-10
+- **Reference**: 005-neutralize-provider-switches
+- **Summary**: Folder launches do not neutralize `ANTHROPIC_BASE_URL` (in `launch_clear`, not the auth-clearing list), so an exported base URL can redirect a login profile's OAuth bearer.
+
+> Same threat class as the Vertex incident, with a credential leak instead of re-billing; spec 005 FR-001 scopes only the auth-clearing list.
+
+### settings-pull-ignore-placed-entries
+
+- **Source**: deep-review
+- **Date**: 2026-11-10
+- **Reference**: 005-neutralize-provider-switches
+- **Summary**: `settings pull --replace` lists "removed: env" for every Claude profile at content because the diff ignores the launch record.
+
+> Never reaches "nothing to change"; prompt and backup on every run; short window without neutralizing entries.
+
+### empty-vs-unset-child-env
+
+- **Source**: deep-review
+- **Date**: 2026-11-10
+- **Reference**: 005-neutralize-provider-switches
+- **Summary**: Child processes of a folder launch see the auth-clearing names set to empty rather than unset.
+
+> Tools that distinguish empty from unset may behave differently; a troubleshooting note would help.
+
+### launch-record-version-skew
+
+- **Source**: deep-review
+- **Date**: 2026-11-10
+- **Reference**: 005-neutralize-provider-switches
+- **Summary**: An older aprofile binary's sync removes the neutralizing entries and a newer one re-adds them.
+
+> The record format version did not change, so mixed binaries flip the folder between protected and unprotected.
