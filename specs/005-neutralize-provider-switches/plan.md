@@ -95,7 +95,8 @@ reporting hook in `internal/doctor`, following spec 004's layout.
 
 1. **Planner rule (FR-001, FR-002, FR-004).** `PlanWith` passes `canCarryEnv :=
    envCarrier(p, def, doc) == ""` into `desiredState`. The neutralizing block runs when
-   `fl.Env != "" && canCarryEnv`, no longer only when a key is folder-carried. Supplied names are
+   `canCarryEnv` (it implies a folder `env` location; `def.FolderLaunch` may be nil when an
+   override removed it), no longer only when a key is folder-carried. Supplied names are
    the variables of `IsVariable()` settings plus the variable of each `KindKey` setting whose
    carrier is `CarrierWrapper`. The early `return` for `key == nil` moves below the neutralizing
    block. Because the env file is not linked whenever entries are desired, the planner's
