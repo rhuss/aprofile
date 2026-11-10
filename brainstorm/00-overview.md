@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-11-09
+Last updated: 2026-11-10
 
 ## Sessions
 
@@ -9,6 +9,7 @@ Last updated: 2026-11-09
 | 001 | 2026-11-02 | aprofile-standalone-profile-cli | active | - | - |
 | 002 | 2026-11-07 | history-groups | active | - | - |
 | 003 | 2026-11-09 | corgi-integration | active | - | - |
+| 005 | 2026-11-10 | companion-tool-files | active | - | - |
 
 ## Open Threads
 
@@ -33,6 +34,8 @@ Last updated: 2026-11-09
 - Launch settings for a profile at share level `all` (linked default settings): refuse, warn, or require `content`? (from #003)
 - Removing owned `env` entries when launch settings or the auth kind change. (from #003)
 - Corgi default accounts (`claude/private` via the daemon, `~/.codex`): hide or keep? (from #003)
+- Where rules for companion tool files live: built-in definitions, user `harnesses.d`, or companion fragments? (from #005)
+- Should aprofile take Corgi's `.corgi-hooks.lock` when writing `settings.json` or `config.toml`? (from #005)
 
 ## Parked Ideas
 
