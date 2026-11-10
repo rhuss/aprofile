@@ -60,6 +60,25 @@ func envBlock(t *testing.T, m map[string]any) map[string]any {
 	return env
 }
 
+// onlyNeutralizing reports whether a settings.json holds nothing but an env block
+// of empty entries (spec 005 neutralizing entries).
+func onlyNeutralizing(t *testing.T, m map[string]any) bool {
+	t.Helper()
+	if len(m) != 1 {
+		return false
+	}
+	env, ok := m["env"].(map[string]any)
+	if !ok || len(env) == 0 {
+		return false
+	}
+	for _, v := range env {
+		if v != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // runHelper runs a key command the way the harness does (/bin/sh -c) with an empty
 // environment.
 func runHelper(t *testing.T, cmd string) string {
@@ -202,8 +221,13 @@ func TestLaunchClaudeOAuthTokenKeyWrapperOnly(t *testing.T) {
 	if envBlock(t, m)["ANTHROPIC_MODEL"] != "m" {
 		t.Error("the model is still folder-carried")
 	}
+	// Spec 005 FR-001, FR-002: the folder neutralizes the auth-clearing list, except
+	// the token variable the wrapper supplies.
 	if _, ok := envBlock(t, m)["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
-		t.Error("no neutralizing entries when the key is wrapper-only")
+		t.Error("the wrapper-supplied token variable must not be blanked")
+	}
+	if got, ok := envBlock(t, m)["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v (present %v), want empty", got, ok)
 	}
 	out, err := e.runWrapper("claude-tok", []string{"TOK=oauth-value"})
 	if err != nil || !strings.Contains(out, "STUB_ENV: CLAUDE_CODE_OAUTH_TOKEN=oauth-value") {
