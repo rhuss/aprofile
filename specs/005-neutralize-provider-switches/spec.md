@@ -32,6 +32,18 @@ block of the folder's `settings.json` beats the launching environment, and an em
 variable neutralizes an exported value (an empty `CLAUDE_CODE_USE_VERTEX` entry sends a launch
 back to the default provider). Codex has no `env` block in `config.toml`.
 
+## Clarifications
+
+### Session 2026-11-10
+
+- Q: Does a login profile at `content` or `none` whose folder holds only neutralizing entries count
+  as self-contained? → A: Yes; neutralizing entries do not change the status rules of spec 004
+  FR-020.
+- Q: Do `list`, `show` and `doctor` all reflect the FR-005 status for a login profile at `all`?
+  → A: Yes; all three use the same folder status, so `list` shows "not self-contained" too.
+- Q: How does the FR-005 wrapper-only item appear in `show --json`? → A: As a wrapper-only setting
+  named `auth-clearing` with no variable and the existing reason `share-all`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A login profile launched from its folder ignores exported provider switches (Priority: P1)
@@ -192,10 +204,14 @@ exported against a logging stub, and record which endpoint and credential it use
 
 - **FR-005**: For a profile at share level `all` with an interactive login kind (an auth kind that
   sets no variables, such as `oauth-login` or `chatgpt-login`) whose harness clears auth variables,
-  `show` (text and `--json`) MUST report the folder as not self-contained and list auth clearing as
-  wrapper-only with the reason share level `all` (the settings file is linked to the default
+  `list`, `show` (text and `--json`) and `doctor` MUST report the folder as not self-contained;
+  `show` MUST list auth clearing as wrapper-only (in `--json`: setting `auth-clearing`, no variable,
+  reason `share-all`) with the reason share level `all` (the settings file is linked to the default
   setup), and `doctor` MUST report the same as information with a fix naming the profile's wrapper
   and `aprofile edit --share content`.
+- **FR-005a**: A profile at `content` or `none` whose folder holds only neutralizing entries (no
+  other launch settings) MUST be reported as self-contained; neutralizing entries do not change
+  the status rules of spec 004 FR-020.
 - **FR-006**: Profiles at share level `all` with any other auth kind MUST NOT get the FR-005
   message.
 - **FR-007**: Messages and `--json` output MUST name variables and entries, never values
