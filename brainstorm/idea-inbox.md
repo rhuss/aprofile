@@ -95,3 +95,12 @@ Out-of-scope ideas captured from reviews and conversations, waiting for a brains
 - **Summary**: Constitution Principle II does not name the join's removal of an emptied entry tree explicitly.
 
 > Consider naming it in the next constitution amendment.
+
+### neutralize-provider-switches-for-login-profiles
+
+- **Source**: conversation
+- **Date**: 2026-11-10
+- **Reference**: 004-corgi-integration (FR-006a)
+- **Summary**: The folder blanks inherited auth variables and provider switches (`CLAUDE_CODE_USE_VERTEX` and the rest of the auth-clearing list) only when it carries the key, so login profiles launched from the folder alone inherit whatever the launcher's environment exports.
+
+> Observed 2026-11-10: Corgi's daemon still carried `CLAUDE_CODE_USE_VERTEX=1` from an old shell, and the `private` account (Claude Max login) started on Google Vertex AI; the `claude-private` wrapper clears these, but Corgi bypasses it. Fix candidate: write the empty neutralizing entries for every profile with its own settings file (login kinds included), not only key-carrying folders. Share level `all` stays uncovered, since its settings file is the linked default setup; `show` or `doctor` could say so. Codex login profiles have no env block, so check whether Codex honors exported switches at all.
