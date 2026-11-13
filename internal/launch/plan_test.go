@@ -1109,3 +1109,72 @@ func TestPlanCodexTelemetryIdempotent(t *testing.T) {
 		t.Errorf("second sync is not a no-op: steps %+v writes %v", again.Steps, again.Writes())
 	}
 }
+
+// Review checkpoint finding 1: a feature location a harnesses.d override moved
+// or removed is actually deleted from config.toml, not just dropped from the
+// record while sync claims a removal.
+func TestPlanCodexStaleFeatureLocationRemoved(t *testing.T) {
+	set, err := harness.LoadBuiltins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _ := set.Get("codex")
+	p := codexFeatureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, codexDoc(t, ""), launch.Record{})
+	rec := res.NewRecord
+	data := res.Writes()["config.toml"]
+	if _, ok := tomlGet(t, data, "otel", "exporter").(map[string]any); !ok {
+		t.Fatalf("exporter not placed:\n%s", data)
+	}
+	// An override that renamed the exporter location: the old location is no
+	// longer in the mapping.
+	moved := *d
+	fm := moved.Features["telemetry"]
+	fm.Place = []harness.FeaturePlace{
+		{File: "config.toml", Location: "otel.logs_exporter", When: "logs", Value: harness.FeatureValue{Str: "otlp"}},
+	}
+	moved.Features = map[string]harness.FeatureMapping{"telemetry": fm}
+	res2 := plan(t, p, &moved, codexDoc(t, string(data)), rec)
+	data2, ok := res2.Writes()["config.toml"]
+	if !ok {
+		t.Fatalf("plan writes nothing; steps %+v", res2.Steps)
+	}
+	otel, ok := tomlGet(t, data2, "otel").(map[string]any)
+	if !ok {
+		t.Fatalf("no [otel] table:\n%s", data2)
+	}
+	if _, has := otel["exporter"]; has {
+		t.Errorf("stale otel.exporter not removed:\n%s", data2)
+	}
+	if _, has := otel["trace_exporter"]; has {
+		t.Errorf("stale otel.trace_exporter not removed:\n%s", data2)
+	}
+	if otel["logs_exporter"] != "otlp" {
+		t.Errorf("moved location not placed:\n%s", data2)
+	}
+	if res2.NewRecord.Has("config.toml", "otel.exporter") {
+		t.Error("record still lists the stale location")
+	}
+}
+
+// Review checkpoint finding 5: disabling on a fresh file leaves no empty [otel]
+// header behind.
+func TestPlanCodexDisablePrunesEmptyParents(t *testing.T) {
+	d := builtin(t, "codex")
+	p := codexFeatureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, codexDoc(t, ""), launch.Record{})
+	data := res.Writes()["config.toml"]
+	p.Features = nil
+	res2 := plan(t, p, d, codexDoc(t, string(data)), res.NewRecord)
+	if len(res2.Writes()) == 0 {
+		t.Fatalf("disable writes nothing")
+	}
+	data2 := res2.Writes()["config.toml"]
+	if strings.Contains(string(data2), "otel") {
+		t.Errorf("empty [otel] header left behind:\n%s", data2)
+	}
+}

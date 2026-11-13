@@ -265,11 +265,13 @@ func featuresMutate(a *app, cmd *cobra.Command, p *profile.Profile, def *harness
 		}
 		// FR-015: a collision with a hand-set extra env var is a hard error naming
 		// the variable, in this direction and the other (edit checks its side).
+		// There is no flag that removes an extra env var, so the fix names the
+		// profile file it lives in.
 		names := def.FeatureEnvNames(target)
 		for _, e := range p.ExtraEnv {
 			for _, v := range names {
 				if e.Name == v {
-					return fmt.Errorf("extra env %s collides with an entry the %s feature places; disable the variable first: aprofile edit %s --env %s=", v, target, p.ID(), v)
+					return fmt.Errorf("extra env %s collides with an entry the %s feature places; remove the variable from the profile's extra_env (profile file: %s), or keep the variable and leave the feature off", v, target, a.store.Path(p.Harness, p.Name))
 				}
 			}
 		}

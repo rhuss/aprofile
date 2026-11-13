@@ -377,6 +377,13 @@ func TestFeaturesCollisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.run(nil, "sync")
+	// Review checkpoint finding 4: drift shows even with no feature enabled (a
+	// disabled feature whose entries are still placed).
+	e.run(nil, "features", "claude/new", "--disable", "automode-log")
+	out = e.run(nil, "show", "claude/new")
+	if !strings.Contains(out, "still placed") {
+		t.Errorf("show should warn about orphaned feature entries after disable:\n%s", out)
+	}
 	settings := e.featureSettingsPath("claude", "new")
 	raw, err := os.ReadFile(settings)
 	if err != nil {

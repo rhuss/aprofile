@@ -199,6 +199,10 @@ type showJSON struct {
 	// Features lists the profile's enabled features with their parameter values
 	// (spec 006, FR-016), the same feature objects the features command reports.
 	Features []featureJSON `json:"features"`
+	// FeatureDrift lists drift between the recorded feature state and the placed
+	// entries (FR-016): entries that differ, entries of a disabled feature still
+	// placed, and collisions (FR-015).
+	FeatureDrift []string `json:"feature_drift,omitempty"`
 	// Problems lists where the profile does not fit its harness definition (FR-006):
 	// an undeclared auth kind, or a model or endpoint the harness has no variable for.
 	Problems []string `json:"problems"`
@@ -346,10 +350,16 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 			}
 			fmt.Fprintf(a.out, "%s%s\n", label, featureChangeLine(f))
 		}
-		// FR-016 / FR-015: drift between the recorded feature state and the
-		// placed entries, and collisions, surface as show warnings.
-		for _, w := range featureDriftWarnings(a, p, def) {
-			fmt.Fprintf(a.out, "                  warning: %s\n", w)
+	}
+	// FR-016 / FR-015: drift between the recorded feature state and the placed
+	// entries, and collisions, surface as show warnings even when no feature is
+	// enabled anymore (a disabled feature whose entries are still placed).
+	if drift := featureDriftWarnings(a, p, def); len(drift) > 0 {
+		sj.FeatureDrift = drift
+		if !asJSON {
+			for _, w := range drift {
+				fmt.Fprintf(a.out, "  features:       warning: %s\n", w)
+			}
 		}
 	}
 	var sets []string

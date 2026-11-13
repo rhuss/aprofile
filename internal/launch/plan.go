@@ -115,7 +115,7 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 		// var is never silently resolved; at plan time (a hand-edited record) it is
 		// a problem naming the variable.
 		if supplied[e.name] {
-			return res, fmt.Errorf("features: env %s is also set as the profile's own env variable; disable one (aprofile features %s --disable <feature>, or drop the variable with: aprofile edit %s --env %s=)", e.name, p.ID(), p.ID(), e.name)
+			return res, fmt.Errorf("features: env %s is also set as the profile's own env variable; disable the feature (aprofile features %s --disable <feature>) or remove the variable from the profile's extra_env", e.name, p.ID())
 		}
 		featEnvNames[e.name] = true
 		want.env = append(want.env, e)
@@ -445,7 +445,14 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 		cur, exists := sub[name]
 		recorded := rec.Has(f, e.Location)
 		kind, ok := placeKind(exists, exists && jsonStringEqual(cur, value), recorded)
-		res.NewRecord.Entries = append(res.NewRecord.Entries, Entry{File: f, Location: e.Location})
+		entry := Entry{File: f, Location: e.Location}
+		if exists && !recorded && !jsonEmptyValue(cur) && !jsonStringEqual(cur, value) {
+			// Like the env path and planTOML: a replaced hand-written value is
+			// recorded and restored on removal, never silently dropped.
+			entry.Replaced = map[string]string{"": string(bytes.TrimSpace(cur))}
+			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s held a value the feature replaces; it is restored when the feature is disabled", f, e.Location))
+		}
+		res.NewRecord.Entries = append(res.NewRecord.Entries, entry)
 		if ok {
 			raw, _ := json.Marshal(value)
 			sub[name] = raw
@@ -463,6 +470,27 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 	// or removed them) are removed as well (FR-005).
 	for _, e := range recordIn(rec, f) {
 		if handled[e.Location] {
+			continue
+		}
+		if raw, has := e.Replaced[""]; has {
+			// A feature entry that replaced a hand-written value: restore it.
+			if obj, name, nested := strings.Cut(e.Location, "."); nested {
+				sub := map[string]json.RawMessage{}
+				if cur, ok := top[obj]; ok {
+					if m, err := layer.DecodeJSONObject(cur); err == nil {
+						sub = m
+					}
+				}
+				sub[name] = json.RawMessage(raw)
+				if enc, err := layer.EncodeJSONCompact(sub); err == nil {
+					top[obj] = enc
+					changed = true
+				}
+			} else {
+				top[e.Location] = json.RawMessage(raw)
+				changed = true
+			}
+			step(StepRemove, e.Location, "restored the previous value")
 			continue
 		}
 		if obj, name, nested := strings.Cut(e.Location, "."); nested {
@@ -563,9 +591,13 @@ func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 		}
 	}
 	// Remove feature entries the profile no longer wants, restoring what they
-	// replaced; hand-written sibling keys survive.
+	// replaced; hand-written sibling keys survive. A record entry at a feature
+	// location the mapping no longer names (a harnesses.d override moved or
+	// removed it) is removed the same way, like every placed entry (FR-018,
+	// spec 005's mechanism): never left orphaned while sync claims it removed it.
 	for _, e := range recordIn(rec, f) {
-		if !featLocs[f+"#"+e.Location] || featWant[e.Location] {
+		featureStyle := featLocs[f+"#"+e.Location] || e.Replaced[""] != ""
+		if !featureStyle || featWant[e.Location] {
 			continue
 		}
 		path := strings.Split(e.Location, ".")
@@ -577,7 +609,9 @@ func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 				}
 			}
 		} else if deleteTOMLPath(m, path) {
-			// removed
+			// The parent tables the placement created are pruned when now empty,
+			// so a disable leaves no stray [otel] header behind (SC-002).
+			pruneEmptyTOMLParents(m, path)
 		}
 		changed = true
 		step(StepRemove, e.Location, note)
@@ -585,10 +619,19 @@ func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 
 	// Remove placed auth blocks that are no longer desired, restoring what they replaced.
 	for _, e := range recordIn(rec, f) {
-		if featLocs[f+"#"+e.Location] {
+		if featLocs[f+"#"+e.Location] || e.Replaced[""] != "" {
 			continue // a feature entry, handled above
 		}
 		if e.Location == desiredLoc {
+			continue
+		}
+		if !strings.HasSuffix(e.Location, ".auth") {
+			// A stale non-auth location (an older record, or an override moved a
+			// launch entry): remove the value, not just the record entry.
+			if deleteTOMLPath(m, strings.Split(e.Location, ".")) {
+				changed = true
+			}
+			step(StepRemove, e.Location, "")
 			continue
 		}
 		// The record location is "<table>.<provider>.auth"; the table may differ from
@@ -841,6 +884,29 @@ func deleteTOMLPath(m map[string]any, path []string) bool {
 	}
 	delete(cur, last)
 	return true
+}
+
+// pruneEmptyTOMLParents removes the now-empty parent tables of a just-deleted
+// path, bottom-up. It is called only for entries that replaced no hand-written
+// value, so the tables were created by the placement itself; a table that still
+// holds anything (a hand-written sibling key) survives.
+func pruneEmptyTOMLParents(m map[string]any, path []string) {
+	tables := []map[string]any{m}
+	cur := m
+	for _, seg := range path[:len(path)-1] {
+		next, ok := cur[seg].(map[string]any)
+		if !ok {
+			return
+		}
+		tables = append(tables, next)
+		cur = next
+	}
+	for i := len(path) - 2; i >= 0; i-- {
+		if len(tables[i+1]) != 0 {
+			return
+		}
+		delete(tables[i], path[i])
+	}
 }
 
 // tomlEmptyValue reports whether v is the empty TOML string (a hand-written

@@ -333,8 +333,10 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	if sh == dh {
 		report.Mode = "same-harness"
 		applySameHarnessSettings(target, src, f)
-		// FR-009: a same-harness copy carries every feature.
-		target.Features = cloneFeatures(src.Features)
+		// FR-009: a same-harness copy carries every feature, unless the target
+		// uses share level all (a profile there carries no feature entries,
+		// data-model invariant).
+		target.Features, report.FeaturesLeftOut = carryFeaturesForLevel(src, dstDef, level)
 		report.FeaturesCarried = featureNames(target.Features)
 		warnings, err := carryOwnedLayer(dstDef, srcConfigDir, dstConfigDir)
 		if err != nil {
@@ -356,11 +358,10 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 		report.Mode = "cross-harness"
 		applyCrossHarnessSettings(target, src, f, auth, targetExists)
 		// FR-009: the copy carries the feature state where the target harness
-		// supports the feature, and names what it does not (hook-set precedent).
-		carried, leftOut := carryFeatures(src, dstDef)
-		target.Features = carried
-		report.FeaturesCarried = featureNames(carried)
-		report.FeaturesLeftOut = leftOut
+		// supports the feature, and names what it does not (hook-set precedent);
+		// a target at share level all carries none (data-model invariant).
+		target.Features, report.FeaturesLeftOut = carryFeaturesForLevel(src, dstDef, level)
+		report.FeaturesCarried = featureNames(target.Features)
 		report.DroppedSettings = droppedCrossSettings(src)
 		report.OwnedNotConverted = ownedNotConverted(srcDef, srcConfigDir)
 		// MCP conversion through the neutral record.
@@ -437,6 +438,21 @@ func featureNames(in []profile.FeatureState) []string {
 		out = append(out, fs.Feature)
 	}
 	return out
+}
+
+// carryFeaturesForLevel decides a copy's feature state (FR-009): a target at
+// share level all carries none (its settings are linked to the default setup,
+// so feature entries would be unplaceable and undisableable); otherwise
+// carryFeatures applies.
+func carryFeaturesForLevel(src *profile.Profile, dstDef *harness.Definition, level profile.Share) ([]profile.FeatureState, []string) {
+	if level == profile.ShareAll {
+		var leftOut []string
+		for _, fs := range src.Features {
+			leftOut = append(leftOut, fmt.Sprintf("%s (the target uses share level all)", fs.Feature))
+		}
+		return nil, leftOut
+	}
+	return carryFeatures(src, dstDef)
 }
 
 // carryFeatures decides a cross-harness copy's feature state (FR-009): a feature

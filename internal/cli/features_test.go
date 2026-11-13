@@ -298,3 +298,30 @@ func TestFeaturesStatusCrossHarness(t *testing.T) {
 		t.Errorf("codex should accept otlp-grpc: %v", err)
 	}
 }
+
+// Review checkpoint finding 3: a copy to share level all carries no feature
+// state (the data-model invariant); the report names what was left out.
+func TestFeaturesCopyToShareAllCarriesNone(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	testutil.SeedDefaults(t, h, "claude")
+	if _, err := runCLI(t, "add", "claude", "src", "--auth-kind", "oauth-login", "--share", "content"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, "features", "claude/src", "--enable", "automode-log"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCLI(t, "copy", "claude/src", "claude/dst", "--share", "all")
+	if err != nil {
+		t.Fatalf("copy: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "automode-log (the target uses share level all)") {
+		t.Errorf("copy to all should name the left-out feature:\n%s", out)
+	}
+	show, err := runCLI(t, "show", "claude/dst", "--json")
+	if err != nil {
+		t.Fatalf("show: %v\n%s", err, show)
+	}
+	if strings.Contains(show, "\"enabled\": true") {
+		t.Errorf("feature state carried to share level all:\n%s", show)
+	}
+}
