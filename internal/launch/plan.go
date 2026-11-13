@@ -86,7 +86,7 @@ type desired struct {
 func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, hookEnv []harness.EnvVar) (Result, error) {
 	res := Result{Settings: DecideWith(p, def, doc, hookEnv), NewRecord: Record{FormatVersion: RecordFormatVersion}}
 	fl := def.FolderLaunch
-	featAll := featureDesired(def, p)
+	featAll := FeatureDesired(def, p)
 	if fl == nil {
 		if len(rec.Entries) == 0 && len(featAll) == 0 {
 			return res, nil

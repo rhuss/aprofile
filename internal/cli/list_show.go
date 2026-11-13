@@ -196,6 +196,9 @@ type showJSON struct {
 	SetAside []history.SetAsideRun `json:"set_aside"`
 	// Folder reports whether the profile folder is self-contained (spec 004 FR-020).
 	Folder *launch.FolderReport `json:"folder,omitempty"`
+	// Features lists the profile's enabled features with their parameter values
+	// (spec 006, FR-016), the same feature objects the features command reports.
+	Features []featureJSON `json:"features"`
 	// Problems lists where the profile does not fit its harness definition (FR-006):
 	// an undeclared auth kind, or a model or endpoint the harness has no variable for.
 	Problems []string `json:"problems"`
@@ -226,7 +229,7 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	go func() { creds <- a.credentialStatus(p, def, true) }()
 	pj, statusErr := a.profileToJSONErr(p)
 	sj := showJSON{FormatVersion: schemaVersion, profileJSON: pj, HookSets: []hookSetJSON{}, HomeEscapes: []harness.HomeEscape{}, UnborrowedDefaultEntries: []string{},
-		Problems: []string{}}
+		Problems: []string{}, Features: []featureJSON{}}
 	sj.Credentials = <-creds
 	sj.HasCredentials = sj.Credentials.Present
 	fit := map[string]wrapper.FitIssue{}
@@ -274,6 +277,17 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 			case s.LoadErr != nil:
 				sj.HookSets = append(sj.HookSets, hookSetJSON{Name: name, Reason: "failed-to-load"})
 			}
+		}
+		// Spec 006 FR-016: the features section, one entry per enabled feature
+		// with its parameter values.
+		for _, fs := range p.Features {
+			fj := featureJSON{ID: fs.Feature, Enabled: true, Params: map[string]string{}}
+			if resolved, err := def.ResolveFeatureParams(fs.Feature, fs.Params); err == nil {
+				fj.Params = resolved
+			} else {
+				fj.Params = fs.Params
+			}
+			sj.Features = append(sj.Features, fj)
 		}
 	}
 	if sj.Entries == nil {
@@ -323,6 +337,20 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	fmt.Fprintf(a.out, "  wrapper:        %s [%s]\n", pj.WrapperPath, pj.WrapperStatus)
 	if sj.Folder != nil {
 		printFolder(a, p, def, folderSt, *sj.Folder)
+	}
+	if len(sj.Features) > 0 {
+		for i, f := range sj.Features {
+			label := "  features:       "
+			if i > 0 {
+				label = "                  "
+			}
+			fmt.Fprintf(a.out, "%s%s\n", label, featureChangeLine(f))
+		}
+		// FR-016 / FR-015: drift between the recorded feature state and the
+		// placed entries, and collisions, surface as show warnings.
+		for _, w := range featureDriftWarnings(a, p, def) {
+			fmt.Fprintf(a.out, "                  warning: %s\n", w)
+		}
 	}
 	var sets []string
 	for _, hs := range sj.HookSets {

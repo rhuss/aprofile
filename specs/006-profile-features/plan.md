@@ -1,107 +1,109 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Profile Features (Curated Harness Capability Toggles)
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Branch**: `006-profile-features` | **Date**: 2026-11-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
-
-**Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
+**Input**: Feature specification from `/specs/006-profile-features/spec.md`
 
 ## Summary
 
-[Extract from feature spec: primary requirement + technical approach from research]
+Add a curated feature catalog (telemetry, automode-log) with a dedicated `aprofile features`
+command, per-harness capability mappings in the harness definition YAML, feature state in the
+profile record, and placement/removal of feature entries through the existing launch plan and
+managed-launch record (`internal/launch`). The raw `--env`/`--env-literal` flags remain the
+escape hatch; `add`/`edit` gain no feature flags.
+
+The branch already merges `005-neutralize-provider-switches` (commit 1e2cf35), because feature
+placement builds on that spec's placed-entry widening (spec assumption, review finding 3).
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+**Language/Version**: Go (module `github.com/cc-deck/aprofile`), single static binary.
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
+**Primary Dependencies**: cobra (CLI), lipgloss/huh/bubbletea (output, forms), stdlib
+`encoding/json` / YAML for records and definitions. No new third-party modules.
 
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+**Storage**: profile records (YAML, profile store), managed-launch records (JSON,
+`<data>/aprofile/managed-launch/<harness>/<name>.json`), harness definition YAML
+(`internal/harness/builtin/*.yaml`, user `harnesses.d`).
 
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+**Testing**: `go test ./...` (table-driven unit tests per package), `tests/integration`
+(against temporary `HOME`/XDG, Principle VII).
 
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
+**Target Platform**: Linux and macOS.
 
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Project Type**: CLI tool.
 
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
+**Performance Goals**: `features` bare status under a second (SC-003); `sync` unchanged in
+order of magnitude.
 
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
+**Constraints**: never write into the linked default setup at share level `all`; idempotent
+placement; no secret values in the launch record (Principle IV).
 
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
-
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Scale/Scope**: two catalog features, two harnesses (claude, codex) in v1; other harnesses
+(opencode, pi) declare no features.
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+| Principle | Verdict | Notes |
+|-----------|---------|-------|
+| I. Harness Knowledge Is Data | Pass | Per-harness capability mappings (supported features, param defaults and enums, placement rules) live in the definition YAML, overridable via `harnesses.d`. The cross-harness catalog (feature ids, param names, types, groups) is Go code per FR-005: it is harness-independent, like the share-level vocabulary. No `if harness == "..."` in core logic. |
+| II. Never Fight the Harness | Pass with recorded extension | Feature-placed entries extend Principle II's launch-entry write category beyond launch variables, key command and auth blocks. Spec FR-018 requires recording this. Decision: PATCH constitution amendment (see Complexity Tracking) extending the Principle II parenthetical to name feature-placed entries, mirroring spec 005's precedent for neutralizing entries. All other rules hold: re-read before write, preserve the rest of the file, idempotent, recorded in aprofile's data directory. |
+| III. Profile Isolation by Construction | Pass | Mutations refused at share level `all` (FR-013); `edit --share all` clears feature state with a warning (FR-014); bare status read-only. |
+| IV. No Secrets in Generated Artifacts | Pass | v1 params carry a URL endpoint and enum/bool values, none secret-patterned. The launch record keeps locations only, never values (existing `Entry` invariant). Endpoint values in `settings.json`/`config.toml` are user-chosen config, not aprofile-derived secrets. |
+| V. Transparent Wrappers, Pull-Only Integration | Pass | Features write into the profile's own settings files, not wrappers. The registry is not extended in v1. |
+| VI. Scriptable First, Colorful Second | Pass | Plain CLI flags; `--json` for status and mutation (FR-017); color degrades off-TTY. |
+| VII. Tests Never Touch the Real Home | Pass | All new tests use temp `HOME`/XDG; placement tests build on the existing launch test harness. Test-first for new behavior. |
 
 ## Project Structure
 
 ### Documentation (this feature)
 
 ```text
-specs/[###-feature]/
-├── plan.md              # This file (/speckit-plan command output)
-├── research.md          # Phase 0 output (/speckit-plan command)
-├── data-model.md        # Phase 1 output (/speckit-plan command)
-├── quickstart.md        # Phase 1 output (/speckit-plan command)
-├── contracts/           # Phase 1 output (/speckit-plan command)
-└── tasks.md             # Phase 2 output (/speckit-tasks command - NOT created by /speckit-plan)
+specs/006-profile-features/
+├── plan.md              # This file
+├── research.md          # Phase 0 output
+├── data-model.md        # Phase 1 output
+├── quickstart.md        # Phase 1 output
+├── contracts/
+│   └── features-cli.md  # CLI contract: command, flags, JSON schema
+└── tasks.md             # Phase 2 output (/speckit-tasks)
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
+internal/
+├── feature/             # NEW: cross-harness catalog
+│   ├── catalog.go       #   Feature, Param, Group types; built-in catalog
+│   └── catalog_test.go
+├── harness/
+│   ├── definition.go    # extended: Features map (capability mapping schema)
+│   └── builtin/
+│       ├── claude.yaml  # extended: features.telemetry, features.automode-log
+│       └── codex.yaml   # extended: features.telemetry
+├── profile/
+│   └── profile.go       # extended: Features []FeatureState in the record
+├── launch/
+│   ├── plan.go          # extended: feature-derived desired state, nested TOML placement
+│   ├── record.go        # unchanged schema (nested TOML needs no new fields: locations are
+│   │                    #   already dotted paths; Replaced covers user-written values)
+│   └── carrier.go       # extended: sync problems for feature drift
 ├── cli/
-└── lib/
-
+│   ├── features.go      # NEW: features command (status + mutation, --json)
+│   ├── edit.go          # extended: --share all clears features; env collision check
+│   ├── copy.go          # extended: carry feature state, cross-harness report
+│   └── list_show.go     # extended: show features section + drift
 tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+└── integration/
+    └── features_test.go # NEW: user-story scenarios end to end
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: single Go module, existing package layout. The new `internal/feature`
+package holds only the harness-independent catalog; everything per-harness stays in
+`internal/harness` definitions, everything placement-related in `internal/launch`, matching the
+existing separation (Principle I test: adding opencode telemetry is a YAML change).
 
 ## Complexity Tracking
 
@@ -109,5 +111,4 @@ directories captured above]
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+| Principle II write-category extension (feature-placed entries) | Enabled features must materialize in the harness's own settings files; the wrapper cannot carry them (folder-only launches, spec 004's lesson) | A warning-only or wrapper-only approach leaves folder launches without the feature, and silently diverges from the recorded state; spec 005 already established that placed entries beyond launch variables are the sanctioned mechanism. Recorded as a PATCH constitution amendment in the tasks (extend Principle II's parenthetical: "the launch variables, key command, provider `auth` block and feature-placed entries aprofile placed"), not a silent exception. |

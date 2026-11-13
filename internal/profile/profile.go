@@ -99,13 +99,14 @@ func (p *Profile) ShareLevel() Share {
 func (p *Profile) normalizeLists() {
 	p.HookSets = sortedUnique(p.HookSets)
 	p.ExcludeHookSets = sortedUnique(p.ExcludeHookSets)
-	p.normalizeFeatures()
+	p.NormalizeFeatures()
 }
 
-// normalizeFeatures sorts the feature states by feature id and drops a duplicate
-// id (keeping the first), so the stored file is deterministic (spec 006,
-// data-model "Feature state").
-func (p *Profile) normalizeFeatures() {
+// NormalizeFeatures sorts the feature states by feature id and drops a
+// duplicate id (keeping the first), so the stored file is deterministic (spec
+// 006, data-model "Feature state"). Exported for the features command's
+// mutation path.
+func (p *Profile) NormalizeFeatures() {
 	if len(p.Features) == 0 {
 		return
 	}
@@ -160,7 +161,7 @@ func (p *Profile) repairFeatures() {
 		out = nil
 	}
 	p.Features = out
-	p.normalizeFeatures()
+	p.NormalizeFeatures()
 }
 
 func sortedUnique(in []string) []string {

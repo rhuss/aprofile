@@ -79,6 +79,7 @@ func NewRootCmd() *cobra.Command {
 		newSettingsCmd(),
 		newHookSetsCmd(),
 		newGroupCmd(),
+		newFeaturesCmd(),
 	)
 	return root
 }

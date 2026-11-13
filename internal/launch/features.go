@@ -33,13 +33,13 @@ func FeatureEnvNames(def *harness.Definition, feature string) []string {
 	return def.FeatureEnvNames(feature)
 }
 
-// featureDesired resolves a profile's Features against the harness capability
+// FeatureDesired resolves a profile's Features against the harness capability
 // mapping into concrete desired entries (file, location, value). A feature the
 // harness does not support, or whose stored state fails the mapping's
 // validation, places nothing (data-model "Feature state"); the load warnings
 // and the features status carry the reason. Later rules for the same location
 // win, so a mapping covers both branches of a gated signal.
-func featureDesired(def *harness.Definition, p *profile.Profile) []DesiredEntry {
+func FeatureDesired(def *harness.Definition, p *profile.Profile) []DesiredEntry {
 	if len(p.Features) == 0 || len(def.Features) == 0 {
 		return nil
 	}
