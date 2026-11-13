@@ -126,10 +126,13 @@ func (p *Profile) NormalizeFeatures() {
 // repairFeatures validates the stored feature states against the catalog
 // (repairAppearance's pattern, spec 006): an unknown feature id, a param the
 // feature does not declare, or a param value that fails its catalog type or enum
-// is dropped with a LoadWarning, so the state is repaired instead of failing the
-// load. The harness's own capability mapping (supported features, per-harness
-// enums) is checked where features are resolved (mutation and placement), not
-// here: the profile store is harness-independent.
+// drops the whole feature state with a LoadWarning, so the state is repaired
+// instead of failing the load. Dropping the feature (not just the param)
+// matters: a dropped param would let the harness's default re-supply it at
+// placement time and a malformed state would still place entries. The harness's
+// own capability mapping (supported features, per-harness enums) is checked
+// where features are resolved (mutation and placement), not here: the profile
+// store is harness-independent.
 func (p *Profile) repairFeatures() {
 	var out []FeatureState
 	for _, fs := range p.Features {
@@ -138,19 +141,26 @@ func (p *Profile) repairFeatures() {
 			p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: unknown feature %q; it was dropped and places nothing (re-enable a feature with: aprofile features %s --enable <feature>)", p.ID(), fs.Feature, p.ID()))
 			continue
 		}
+		drop := func(reason string) {
+			p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: feature %q %s; it was dropped and places nothing (re-enable it with: aprofile features %s --enable %s)", p.ID(), fs.Feature, reason, p.ID(), fs.Feature))
+		}
+		bad := false
 		for name, v := range fs.Params {
 			fp, has := f.Param(name)
 			switch {
 			case !has:
-				p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: feature %q has no param %q; it was dropped", p.ID(), fs.Feature, name))
-				delete(fs.Params, name)
+				drop(fmt.Sprintf("has no param %q", name))
+				bad = true
 			case fp.Type == feature.TypeBool && v != "on" && v != "off":
-				p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: feature %q param %q must be on or off, not %q; it was dropped (set it with: aprofile features %s --enable %s)", p.ID(), fs.Feature, name, v, p.ID(), fs.Feature))
-				delete(fs.Params, name)
+				drop(fmt.Sprintf("param %q must be on or off, not %q", name, v))
+				bad = true
 			case fp.Type == feature.TypeEnum && !fp.HasValue(v):
-				p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: feature %q param %q has an invalid value; it was dropped (set it with: aprofile features %s --enable %s)", p.ID(), fs.Feature, name, p.ID(), fs.Feature))
-				delete(fs.Params, name)
+				drop(fmt.Sprintf("param %q has an invalid value", name))
+				bad = true
 			}
+		}
+		if bad {
+			continue
 		}
 		if len(fs.Params) == 0 {
 			fs.Params = nil

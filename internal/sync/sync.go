@@ -587,10 +587,10 @@ func syncLaunch(paths *config.Paths, def *harness.Definition, p *profile.Profile
 		res.Changes = append(res.Changes, fmt.Sprintf("%s: %s: %s", p.ID(), s.File, line))
 		res.LaunchChanges++
 	}
-	if opts.DryRun {
-		for _, f := range lr.Reencoded {
-			note(p.ID(), fmt.Sprintf("%s: %s is re-encoded: comments are dropped", p.ID(), f))
-		}
+	// A re-encoded TOML file loses its comments on a real sync just as on a dry
+	// run, so the note is reported on both paths, never silently.
+	for _, f := range lr.Reencoded {
+		note(p.ID(), fmt.Sprintf("%s: %s is re-encoded: comments are dropped", p.ID(), f))
 	}
 	return true
 }

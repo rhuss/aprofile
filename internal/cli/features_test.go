@@ -145,7 +145,7 @@ func TestFeaturesValidationErrors(t *testing.T) {
 		wantIn string
 	}{
 		{"unsupported feature", []string{"--enable", "time-travel"}, "unknown feature"},
-		{"neither signal", []string{"--enable", "telemetry", "--endpoint", "https://e"}, "--traces"},
+		{"neither signal", []string{"--enable", "telemetry", "--endpoint", "https://e"}, "at least one of traces, logs"},
 		{"missing endpoint", []string{"--enable", "telemetry", "--traces", "on"}, "--endpoint"},
 		{"bad enum value", []string{"--enable", "telemetry", "--traces", "on", "--endpoint", "https://e", "--protocol", "carrier-pigeon"}, "carrier-pigeon"},
 		{"bad bool value", []string{"--enable", "telemetry", "--traces", "maybe"}, "on or off"},

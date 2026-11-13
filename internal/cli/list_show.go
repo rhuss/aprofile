@@ -306,6 +306,13 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	if statusErr != nil {
 		fmt.Fprintf(a.errOut, "aprofile: wrapper status is unknown: %v\n", statusErr)
 	}
+	// FR-016 / FR-015: drift between the recorded feature state and the placed
+	// entries, and collisions, surface as show warnings even when no feature is
+	// enabled anymore (a disabled feature whose entries are still placed).
+	// Computed before the JSON return so both output forms carry it.
+	if drift := featureDriftWarnings(a, p, def); len(drift) > 0 {
+		sj.FeatureDrift = drift
+	}
 	if asJSON {
 		return writeJSON(a.out, sj)
 	}
@@ -351,15 +358,9 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 			fmt.Fprintf(a.out, "%s%s\n", label, featureChangeLine(f))
 		}
 	}
-	// FR-016 / FR-015: drift between the recorded feature state and the placed
-	// entries, and collisions, surface as show warnings even when no feature is
-	// enabled anymore (a disabled feature whose entries are still placed).
-	if drift := featureDriftWarnings(a, p, def); len(drift) > 0 {
-		sj.FeatureDrift = drift
-		if !asJSON {
-			for _, w := range drift {
-				fmt.Fprintf(a.out, "  features:       warning: %s\n", w)
-			}
+	if len(sj.FeatureDrift) > 0 {
+		for _, w := range sj.FeatureDrift {
+			fmt.Fprintf(a.out, "  features:       warning: %s\n", w)
 		}
 	}
 	var sets []string

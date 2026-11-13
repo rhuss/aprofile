@@ -177,6 +177,12 @@ func catParams(id string) []string {
 	return out
 }
 
+// paramFlagFeature is the catalog feature the per-parameter flags belong to:
+// the spec's Clarifications fix them to telemetry's parameters. The flags
+// themselves are command surface (FR-002); everything else about the feature is
+// catalog data.
+const paramFlagFeature = "telemetry"
+
 // featuresMutate applies --enable/--disable and the per-parameter flags
 // (FR-002), validates everything the spec demands at mutation time, and stores
 // the state with the sync reminder.
@@ -191,10 +197,10 @@ func featuresMutate(a *app, cmd *cobra.Command, p *profile.Profile, def *harness
 	target := f.enable
 	if target == "" && f.disable == "" {
 		// A per-parameter flag implies enabling the feature (FR-002).
-		target = "telemetry"
+		target = paramFlagFeature
 	}
-	if f.enable != "" && f.enable != "telemetry" && anyParam {
-		return fmt.Errorf("--enable %s cannot be combined with telemetry's parameter flags (--traces, --logs, --endpoint, --protocol)", f.enable)
+	if f.enable != "" && f.enable != paramFlagFeature && anyParam {
+		return fmt.Errorf("--enable %s cannot be combined with %s's parameter flags (--traces, --logs, --endpoint, --protocol)", f.enable, paramFlagFeature)
 	}
 
 	var changed featureJSON
@@ -254,14 +260,11 @@ func featuresMutate(a *app, cmd *cobra.Command, p *profile.Profile, def *harness
 		if err != nil {
 			return err // FR-004: values outside the harness's list are rejected
 		}
-		// Edge cases: telemetry needs a signal on and an endpoint.
-		if target == "telemetry" {
-			if resolved["traces"] == "off" && resolved["logs"] == "off" {
-				return fmt.Errorf("telemetry needs at least one signal on; pass --traces on and/or --logs on")
-			}
-			if resolved["endpoint"] == "" {
-				return fmt.Errorf("telemetry needs an OTLP endpoint; pass --endpoint <url>")
-			}
+		// Edge cases (spec 006): the catalog's enable-time constraints, checked
+		// through data so the mutation path stays feature-agnostic (FR-006).
+		cat, _ := feature.ByID(target)
+		if err := cat.CheckConstraints(resolved); err != nil {
+			return err
 		}
 		// FR-015: a collision with a hand-set extra env var is a hard error naming
 		// the variable, in this direction and the other (edit checks its side).
@@ -358,6 +361,9 @@ func checkFeatureEnvCollision(p *profile.Profile, def *harness.Definition, name 
 // It never fails: a plan error (for example an env collision, FR-015) is
 // returned as a warning.
 func featureDriftWarnings(a *app, p *profile.Profile, def *harness.Definition) []string {
+	if def == nil {
+		return nil // no harness definition: nothing to resolve drift against
+	}
 	if len(p.Features) == 0 && len(def.Features) == 0 {
 		return nil
 	}

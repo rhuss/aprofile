@@ -473,6 +473,14 @@ func carryFeatures(src *profile.Profile, dstDef *harness.Definition) ([]profile.
 			params[k] = v
 		}
 		for k, v := range fs.Params {
+			if _, declared := fm.Params[k]; !declared {
+				// The target mapping does not take the param at all (a subset
+				// mapping through harnesses.d): carrying it would store a state
+				// the target cannot resolve, so it is dropped and named.
+				delete(params, k)
+				leftOut = append(leftOut, fmt.Sprintf("%s param %s (harness %s does not support it)", fs.Feature, k, dstDef.Name))
+				continue
+			}
 			if values := fm.Params[k].Values; len(values) > 0 && !stringIn(values, v) {
 				delete(params, k)
 				leftOut = append(leftOut, fmt.Sprintf("%s param %s (harness %s does not accept the value; its default applies)", fs.Feature, k, dstDef.Name))

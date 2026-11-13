@@ -131,3 +131,21 @@ Out-of-scope ideas captured from reviews and conversations, waiting for a brains
 - **Summary**: An older aprofile binary's sync removes the neutralizing entries and a newer one re-adds them.
 
 > The record format version did not change, so mixed binaries flip the folder between protected and unprotected.
+
+### replaced-values-may-hold-secrets
+
+- **Source**: deep-review
+- **Date**: 2026-11-13
+- **Reference**: 006-profile-features
+- **Summary**: Capturing a hand-written Codex exporter subtree in the launch record's Replaced field can store authentication headers in a 0644 file.
+
+> Spec 006's FR-012 mandates replace-and-restore and its Assumptions defer secret-bearing params, so this is a recorded tension; revisit when an OTLP-headers parameter lands (refuse secret-bearing subtrees, or store recovery data outside the record).
+
+### endpoint-url-embedded-credentials
+
+- **Source**: deep-review
+- **Date**: 2026-11-13
+- **Reference**: 006-profile-features
+- **Summary**: The telemetry endpoint is a free string, so a URL with embedded user:pass credentials would land in the profile-private settings.json.
+
+> V1 defers secret-bearing params; the ref/literal question the spec defers should also cover endpoint URLs when it is picked up.

@@ -340,12 +340,22 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 			recorded := rec.Has(f, loc)
 			kind, ok := placeKind(exists, exists && jsonStringEqual(cur, e.value), recorded)
 			entry := Entry{File: f, Location: loc}
-			if featEnvNames[e.name] && exists && !recorded && !jsonEmptyValue(cur) && !jsonStringEqual(cur, e.value) {
-				// A feature entry replaces a hand-written value: record it for
-				// restore on disable and say so, naming the variable but never its
-				// value (spec 006 FR-011, T011).
-				entry.Replaced = map[string]string{"": string(bytes.TrimSpace(cur))}
-				res.Notes = append(res.Notes, fmt.Sprintf("%s: env %s held a value the feature replaces; it is restored when the feature is disabled", f, e.name))
+			if featEnvNames[e.name] {
+				// A feature entry keeps the original it replaced across syncs, so a
+				// disable restores it (SC-002) however many syncs ran in between.
+				if old, has := rec.Get(f, loc); has {
+					entry.Replaced = old.Replaced
+				}
+				if exists && !recorded && !jsonEmptyValue(cur) && entry.Replaced == nil {
+					// A feature entry replaces a hand-written value (an equal one
+					// too, so the disable restores it): recorded for restore on
+					// disable, and said so when it differs, naming the variable but
+					// never its value (spec 006 FR-011, T011).
+					entry.Replaced = map[string]string{"": string(bytes.TrimSpace(cur))}
+					if !jsonStringEqual(cur, e.value) {
+						res.Notes = append(res.Notes, fmt.Sprintf("%s: env %s held a value the feature replaces; it is restored when the feature is disabled", f, e.name))
+					}
+				}
 			}
 			res.NewRecord.Entries = append(res.NewRecord.Entries, entry)
 			if !ok {
@@ -446,11 +456,17 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 		recorded := rec.Has(f, e.Location)
 		kind, ok := placeKind(exists, exists && jsonStringEqual(cur, value), recorded)
 		entry := Entry{File: f, Location: e.Location}
-		if exists && !recorded && !jsonEmptyValue(cur) && !jsonStringEqual(cur, value) {
-			// Like the env path and planTOML: a replaced hand-written value is
-			// recorded and restored on removal, never silently dropped.
+		// Like the env path: the original a feature replaced is kept across syncs
+		// and captured even when it equals the desired value, so a disable
+		// restores it (SC-002).
+		if old, has := rec.Get(f, e.Location); has {
+			entry.Replaced = old.Replaced
+		}
+		if exists && !recorded && !jsonEmptyValue(cur) && entry.Replaced == nil {
 			entry.Replaced = map[string]string{"": string(bytes.TrimSpace(cur))}
-			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s held a value the feature replaces; it is restored when the feature is disabled", f, e.Location))
+			if !jsonStringEqual(cur, value) {
+				res.Notes = append(res.Notes, fmt.Sprintf("%s: %s held a value the feature replaces; it is restored when the feature is disabled", f, e.Location))
+			}
 		}
 		res.NewRecord.Entries = append(res.NewRecord.Entries, entry)
 		if ok {
@@ -473,19 +489,25 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 			continue
 		}
 		if raw, has := e.Replaced[""]; has {
-			// A feature entry that replaced a hand-written value: restore it.
+			// A feature entry that replaced a hand-written value: restore it. A
+			// failed restore must not drop the recovery data: the error propagates
+			// and the record keeps the entry.
 			if obj, name, nested := strings.Cut(e.Location, "."); nested {
 				sub := map[string]json.RawMessage{}
 				if cur, ok := top[obj]; ok {
-					if m, err := layer.DecodeJSONObject(cur); err == nil {
-						sub = m
+					m, err := layer.DecodeJSONObject(cur)
+					if err != nil {
+						return fmt.Errorf("%s: cannot restore the value %s replaced: %v", f, e.Location, err)
 					}
+					sub = m
 				}
 				sub[name] = json.RawMessage(raw)
-				if enc, err := layer.EncodeJSONCompact(sub); err == nil {
-					top[obj] = enc
-					changed = true
+				enc, err := layer.EncodeJSONCompact(sub)
+				if err != nil {
+					return fmt.Errorf("%s: cannot restore the value %s replaced: %v", f, e.Location, err)
 				}
+				top[obj] = enc
+				changed = true
 			} else {
 				top[e.Location] = json.RawMessage(raw)
 				changed = true
@@ -571,15 +593,23 @@ func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 		recorded := rec.Has(f, e.Location)
 		kind, need := placeKind(exists, exists && tomlEqual(cur, e.Value), recorded)
 		entry := Entry{File: f, Location: e.Location}
-		if exists && !recorded && !tomlEmptyValue(cur) && !tomlEqual(cur, e.Value) {
+		// Like the env path: the original a feature replaced is kept across syncs
+		// and captured even when it equals the desired value, so a disable
+		// restores it (SC-002).
+		if old, has := rec.Get(f, e.Location); has {
+			entry.Replaced = old.Replaced
+		}
+		if exists && !recorded && !tomlEmptyValue(cur) && entry.Replaced == nil {
 			enc, err := encodeTOMLSubtree(cur)
 			if err != nil {
 				return fmt.Errorf("%s: cannot place feature entry %s: %v", f, e.Location, err)
 			}
 			entry.Replaced = map[string]string{"": enc}
-			// The replacement is never silent: sync names the key path, never the
-			// value (FR-012).
-			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s held a value the feature replaces; it is restored when the feature is disabled", f, e.Location))
+			if !tomlEqual(cur, e.Value) {
+				// The replacement is never silent: sync names the key path, never
+				// the value (FR-012).
+				res.Notes = append(res.Notes, fmt.Sprintf("%s: %s held a value the feature replaces; it is restored when the feature is disabled", f, e.Location))
+			}
 		}
 		res.NewRecord.Entries = append(res.NewRecord.Entries, entry)
 		if need {
@@ -603,11 +633,16 @@ func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 		path := strings.Split(e.Location, ".")
 		note := ""
 		if raw, has := e.Replaced[""]; has {
-			if old, err := decodeTOMLSubtree(raw); err == nil {
-				if err := setTOMLPath(m, path, old); err == nil {
-					note = "restored the previous value"
-				}
+			// A failed restore must not drop the recovery data: the error
+			// propagates and the record keeps the entry (CodeRabbit finding).
+			old, err := decodeTOMLSubtree(raw)
+			if err != nil {
+				return fmt.Errorf("%s: cannot restore the value %s replaced: %v", f, e.Location, err)
 			}
+			if err := setTOMLPath(m, path, old); err != nil {
+				return fmt.Errorf("%s: cannot restore the value %s replaced: %v", f, e.Location, err)
+			}
+			note = "restored the previous value"
 		} else if deleteTOMLPath(m, path) {
 			// The parent tables the placement created are pruned when now empty,
 			// so a disable leaves no stray [otel] header behind (SC-002).

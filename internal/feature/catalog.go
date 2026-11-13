@@ -6,7 +6,11 @@
 // (internal/harness), so a catalog entry never branches on a harness name.
 package feature
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // ParamType is the type of a feature parameter.
 type ParamType string
@@ -40,12 +44,46 @@ func (p Param) HasValue(v string) bool {
 	return false
 }
 
-// Feature is one catalog entry: a stable id, a display group, and its ordered
-// parameters. Parameterless features (automode-log) have no params.
+// Feature is one catalog entry: a stable id, a display group, its ordered
+// parameters, and its enable-time constraints. Parameterless features
+// (automode-log) have no params.
 type Feature struct {
 	ID     string
 	Group  string
 	Params []Param
+	// RequireOneOf lists bool params of which at least one must be on when the
+	// feature is enabled (telemetry needs a signal).
+	RequireOneOf []string
+	// Required lists params that must carry a non-empty value when the feature
+	// is enabled (telemetry needs an endpoint).
+	Required []string
+}
+
+// CheckConstraints validates a feature's resolved params against its
+// enable-time constraints: at least one RequireOneOf param on, and every
+// Required param non-empty. It returns nil when the params satisfy them, so the
+// mutation path stays feature-agnostic (FR-006: the constraints are data, not
+// per-feature command code).
+func (f Feature) CheckConstraints(params map[string]string) error {
+	if len(f.RequireOneOf) > 0 {
+		on := false
+		for _, name := range f.RequireOneOf {
+			if params[name] == "on" {
+				on = true
+				break
+			}
+		}
+		if !on {
+			return fmt.Errorf("%s needs at least one of %s on; pass --%s on and/or --%s on",
+				f.ID, strings.Join(f.RequireOneOf, ", "), f.RequireOneOf[0], f.RequireOneOf[len(f.RequireOneOf)-1])
+		}
+	}
+	for _, name := range f.Required {
+		if params[name] == "" {
+			return fmt.Errorf("%s needs a value for %s; pass --%s <value>", f.ID, name, name)
+		}
+	}
+	return nil
 }
 
 // Param returns the named parameter of the feature, or ok=false.
@@ -63,8 +101,10 @@ func (f Feature) Param(name string) (Param, bool) {
 // these ids (FR-006).
 var catalog = []Feature{
 	{
-		ID:    "telemetry",
-		Group: "telemetry",
+		ID:           "telemetry",
+		Group:        "telemetry",
+		RequireOneOf: []string{"traces", "logs"},
+		Required:     []string{"endpoint"},
 		Params: []Param{
 			{Name: "traces", Type: TypeBool},
 			{Name: "logs", Type: TypeBool},

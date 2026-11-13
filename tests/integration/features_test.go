@@ -368,8 +368,8 @@ func TestFeaturesCollisions(t *testing.T) {
 		t.Errorf("the sync problem should name the variable:\n%s", out)
 	}
 	out := e.run(nil, "show", "claude/new")
-	if !strings.Contains(out, "OTEL_TRACES_EXPORTER") {
-		t.Errorf("show should warn about the collision:\n%s", out)
+	if !strings.Contains(out, "features:       warning:") || !strings.Contains(out, "OTEL_TRACES_EXPORTER") {
+		t.Errorf("show should warn about the collision in the features warning block:\n%s", out)
 	}
 
 	// An externally changed placed entry surfaces as a show warning (FR-016).
@@ -397,7 +397,51 @@ func TestFeaturesCollisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = e.run(nil, "show", "claude/new")
-	if !strings.Contains(out, "differ") {
-		t.Errorf("show should report the feature drift:\n%s", out)
+	if !strings.Contains(out, "features:       warning:") || !strings.Contains(out, "differ") {
+		t.Errorf("show should report the feature drift in the features warning block:\n%s", out)
+	}
+	// The drift reaches the --json form too (deep review finding: it was
+	// computed after the JSON return and never emitted).
+	var sj struct {
+		FeatureDrift []string `json:"feature_drift"`
+	}
+	if err := json.Unmarshal([]byte(e.run(nil, "show", "claude/new", "--json")), &sj); err != nil {
+		t.Fatalf("show --json: %v", err)
+	}
+	if len(sj.FeatureDrift) == 0 {
+		t.Error("show --json should carry feature_drift")
+	}
+}
+
+// Deep review regression (CodeRabbit/Codex): the original value a feature
+// replaced survives intermediate syncs, so disabling after a re-sync restores
+// it instead of deleting the entry (SC-002).
+func TestFeaturesReplacedValueSurvivesResync(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "sync")
+	settings := e.featureSettingsPath("claude", "work")
+	m := readSettings(t, settings)
+	envBlock(t, m)["OTEL_LOGS_EXPORTER"] = "console"
+	patched, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, patched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e.run(nil, "features", "claude/work", "--enable", "telemetry",
+		"--traces", "on", "--logs", "on", "--endpoint", "https://otlp.example.com")
+	e.run(nil, "sync")
+	if got := envBlock(t, readSettings(t, settings))["OTEL_LOGS_EXPORTER"]; got != "otlp" {
+		t.Fatalf("first sync should replace the hand-written value: %v", got)
+	}
+	// A second, change-less sync must keep the recorded original.
+	e.run(nil, "sync")
+	e.run(nil, "features", "claude/work", "--disable", "telemetry")
+	e.run(nil, "sync")
+	if got := envBlock(t, readSettings(t, settings))["OTEL_LOGS_EXPORTER"]; got != "console" {
+		t.Errorf("disable after a re-sync should restore the hand-written value, got %v", got)
 	}
 }

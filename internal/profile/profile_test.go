@@ -251,7 +251,9 @@ func TestFeaturesLoadWarnings(t *testing.T) {
 	if len(p.Features) != 0 {
 		t.Errorf("unknown feature id should be dropped from the record: %+v", p.Features)
 	}
-	// Out-of-enum stored param (not in the catalog's cross-harness union).
+	// Out-of-enum stored param (not in the catalog's cross-harness union): the
+	// whole feature drops, so the harness default cannot re-supply the param and
+	// place entries from a malformed state.
 	testutil.WriteFile(t, path, "harness: claude\nname: work\nauth_kind: oauth-login\nfeatures:\n  - feature: telemetry\n    params:\n      traces: on\n      logs: on\n      endpoint: https://e\n      protocol: carrier-pigeon\n")
 	reset()
 	p, err = store.Load("claude", "work")
@@ -261,13 +263,11 @@ func TestFeaturesLoadWarnings(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0], "protocol") {
 		t.Errorf("out-of-enum param should warn naming it: %v", got)
 	}
-	if len(p.Features) != 1 {
-		t.Fatalf("telemetry should survive a bad param: %+v", p.Features)
+	if len(p.Features) != 0 {
+		t.Fatalf("a malformed feature state should place nothing: %+v", p.Features)
 	}
-	if _, has := p.Features[0].Params["protocol"]; has {
-		t.Errorf("out-of-enum param should be dropped: %+v", p.Features[0].Params)
-	}
-	// Unknown param name and a bad bool value warn the same way.
+	// Unknown param name and a bad bool value warn the same way and drop the
+	// feature.
 	testutil.WriteFile(t, path, "harness: claude\nname: work\nauth_kind: oauth-login\nfeatures:\n  - feature: telemetry\n    params:\n      traces: maybe\n      flavor: vanilla\n")
 	reset()
 	p, err = store.Load("claude", "work")
@@ -277,8 +277,8 @@ func TestFeaturesLoadWarnings(t *testing.T) {
 	if len(got) != 2 {
 		t.Errorf("bad bool and unknown param should each warn: %v", got)
 	}
-	if _, has := p.Features[0].Params["traces"]; has {
-		t.Errorf("bad bool param should be dropped: %+v", p.Features[0].Params)
+	if len(p.Features) != 0 {
+		t.Fatalf("a malformed feature state should place nothing: %+v", p.Features)
 	}
 }
 

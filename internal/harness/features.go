@@ -219,8 +219,11 @@ func validateFeatures(d *Definition) (field, msg string) {
 				if cp.Type != feature.TypeBool {
 					return f, fmt.Sprintf("%s: %s must name a bool param, not %q (%s)", rule, what, gate, cp.Type)
 				}
+				if _, declared := fm.Params[gate]; !declared {
+					return f, fmt.Sprintf("%s: %s names param %q the mapping does not declare", rule, what, gate)
+				}
 			}
-			if m := r.Value.validate(cat, rule); m != "" {
+			if m := r.Value.validate(cat, fm, rule); m != "" {
 				return f, m
 			}
 		}
@@ -228,8 +231,9 @@ func validateFeatures(d *Definition) (field, msg string) {
 	return "", ""
 }
 
-// validate checks one placement value against the feature's catalog params.
-func (v FeatureValue) validate(cat feature.Feature, rule string) string {
+// validate checks one placement value against the feature's catalog params and
+// the params the mapping declares.
+func (v FeatureValue) validate(cat feature.Feature, fm FeatureMapping, rule string) string {
 	checkRef := func(s string) string {
 		m := paramRefRE.FindStringSubmatch(s)
 		if m == nil {
@@ -237,6 +241,9 @@ func (v FeatureValue) validate(cat feature.Feature, rule string) string {
 		}
 		if _, ok := cat.Param(m[1]); !ok {
 			return fmt.Sprintf("%s: value references unknown param %q", rule, m[1])
+		}
+		if _, declared := fm.Params[m[1]]; !declared {
+			return fmt.Sprintf("%s: value references param %q the mapping does not declare", rule, m[1])
 		}
 		return ""
 	}
@@ -249,6 +256,9 @@ func (v FeatureValue) validate(cat feature.Feature, rule string) string {
 		if cp.Type != feature.TypeEnum {
 			return fmt.Sprintf("%s: switch must name an enum param, not %q (%s)", rule, v.Switch, cp.Type)
 		}
+		if _, declared := fm.Params[v.Switch]; !declared {
+			return fmt.Sprintf("%s: switch names param %q the mapping does not declare", rule, v.Switch)
+		}
 		keys := make([]string, 0, len(v.Cases))
 		for k := range v.Cases {
 			keys = append(keys, k)
@@ -258,13 +268,13 @@ func (v FeatureValue) validate(cat feature.Feature, rule string) string {
 			if !containsString(cp.Values, k) {
 				return fmt.Sprintf("%s: switch case %q is not one of the values of %s", rule, k, v.Switch)
 			}
-			if m := v.Cases[k].validate(cat, rule); m != "" {
+			if m := v.Cases[k].validate(cat, fm, rule); m != "" {
 				return m
 			}
 		}
 		return ""
 	case v.IsStruct:
-		return validateStructValue(v.Struct, cat, rule)
+		return validateStructValue(v.Struct, cat, fm, rule)
 	default:
 		return checkRef(v.Str)
 	}
@@ -272,7 +282,7 @@ func (v FeatureValue) validate(cat feature.Feature, rule string) string {
 
 // validateStructValue walks a nested structure checking every string leaf's
 // param references.
-func validateStructValue(m map[string]any, cat feature.Feature, rule string) string {
+func validateStructValue(m map[string]any, cat feature.Feature, fm FeatureMapping, rule string) string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -281,11 +291,11 @@ func validateStructValue(m map[string]any, cat feature.Feature, rule string) str
 	for _, k := range keys {
 		switch t := m[k].(type) {
 		case string:
-			if m := checkStructRef(t, cat, rule); m != "" {
+			if m := checkStructRef(t, cat, fm, rule); m != "" {
 				return m
 			}
 		case map[string]any:
-			if m := validateStructValue(t, cat, rule); m != "" {
+			if m := validateStructValue(t, cat, fm, rule); m != "" {
 				return m
 			}
 		case nil:
@@ -295,13 +305,16 @@ func validateStructValue(m map[string]any, cat feature.Feature, rule string) str
 	return ""
 }
 
-func checkStructRef(s string, cat feature.Feature, rule string) string {
+func checkStructRef(s string, cat feature.Feature, fm FeatureMapping, rule string) string {
 	m := paramRefRE.FindStringSubmatch(s)
 	if m == nil {
 		return ""
 	}
 	if _, ok := cat.Param(m[1]); !ok {
 		return fmt.Sprintf("%s: value references unknown param %q", rule, m[1])
+	}
+	if _, declared := fm.Params[m[1]]; !declared {
+		return fmt.Sprintf("%s: value references param %q the mapping does not declare", rule, m[1])
 	}
 	return ""
 }
@@ -385,11 +398,13 @@ func (d *Definition) SupportsFeature(id string) bool {
 }
 
 // ResolveFeatureParams resolves a feature's stored params against the
-// capability mapping: values given (non-empty) are validated and kept, missing
-// ones take the mapping's default, bool params default to off, and an enum
-// param with neither value nor default is an error (FR-004). An unsupported
-// feature or an invalid value returns an error naming the harness, feature and
-// param; callers treat it as "place nothing".
+// capability mapping: only the params the mapping declares are resolved (the
+// harness supports a subset of the catalog's), values given (non-empty) are
+// validated and kept, missing ones take the mapping's default, bool params
+// default to off, and an enum param with neither value nor default is an error
+// (FR-004). A supplied param the mapping does not declare is an error, and so
+// is an unsupported feature or an invalid value; the errors name the harness,
+// feature and param, and callers treat them as "place nothing".
 func (d *Definition) ResolveFeatureParams(id string, params map[string]string) (map[string]string, error) {
 	fm, ok := d.Features[id]
 	if !ok {
@@ -399,11 +414,15 @@ func (d *Definition) ResolveFeatureParams(id string, params map[string]string) (
 	if !ok {
 		return nil, fmt.Errorf("unknown feature %q", id)
 	}
-	out := make(map[string]string, len(cat.Params))
+	out := make(map[string]string, len(fm.Params))
 	for _, cp := range cat.Params {
+		fp, supported := fm.Params[cp.Name]
+		if !supported {
+			continue // the mapping declares only the params this harness takes
+		}
 		v := params[cp.Name]
 		if v == "" {
-			v = fm.Params[cp.Name].Default
+			v = fp.Default
 		}
 		switch cp.Type {
 		case feature.TypeBool:
@@ -417,8 +436,8 @@ func (d *Definition) ResolveFeatureParams(id string, params map[string]string) (
 			if v == "" {
 				return nil, fmt.Errorf("harness %s: feature %q param %q has no value and no default", d.Name, id, cp.Name)
 			}
-			if !containsString(fm.Params[cp.Name].Values, v) {
-				return nil, fmt.Errorf("harness %s: feature %q param %q does not accept %q (values: %s)", d.Name, id, cp.Name, v, strings.Join(fm.Params[cp.Name].Values, ", "))
+			if !containsString(fp.Values, v) {
+				return nil, fmt.Errorf("harness %s: feature %q param %q does not accept %q (values: %s)", d.Name, id, cp.Name, v, strings.Join(fp.Values, ", "))
 			}
 		}
 		out[cp.Name] = v
@@ -426,6 +445,9 @@ func (d *Definition) ResolveFeatureParams(id string, params map[string]string) (
 	for name := range params {
 		if _, ok := cat.Param(name); !ok {
 			return nil, fmt.Errorf("feature %q has no param %q", id, name)
+		}
+		if _, supported := fm.Params[name]; !supported {
+			return nil, fmt.Errorf("harness %s: feature %q does not support param %q", d.Name, id, name)
 		}
 	}
 	return out, nil

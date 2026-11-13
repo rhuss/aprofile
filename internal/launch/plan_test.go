@@ -910,6 +910,28 @@ func TestPlanFeatureAutomodeLogLiteral(t *testing.T) {
 	}
 }
 
+// Spec 006 edge case: a share level change by other means leaves the feature
+// entries unplaceable; the plan reports a problem naming the file and the way
+// out instead of writing into the linked default setup.
+func TestPlanFeatureLinkedFileIsAProblem(t *testing.T) {
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	fd := launch.ParseFileDoc("settings.json", []byte(`{"env":{}}`))
+	fd.Linked = true
+	res, err := launch.Plan(p, d, launch.Doc{Files: map[string]launch.FileDoc{"settings.json": fd}}, launch.Record{})
+	if err == nil {
+		t.Fatalf("feature entries into a linked file should be a problem: %+v", res.Steps)
+	}
+	if !strings.Contains(err.Error(), "settings.json") || !strings.Contains(err.Error(), "--share content") {
+		t.Errorf("error should name the file and the fix: %v", err)
+	}
+	if len(res.Writes()) != 0 {
+		t.Error("no file may be written")
+	}
+}
+
 func TestPlanFeatureDisableRemovesExactly(t *testing.T) {
 	// SC-002 / FR-010: disabling removes exactly the placed entries, restoring a
 	// hand-written value the feature replaced.
