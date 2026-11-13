@@ -217,6 +217,11 @@ type Definition struct {
 	// the profile's model; {model:toml} expands to a TOML basic string, {model} to
 	// the raw model (feature 004, FR-002a, FR-016).
 	ModelArg []string `yaml:"model_arg" json:"model_arg,omitempty"`
+	// Features is the capability mapping (spec 006, FR-005): per catalog feature,
+	// the supported params with per-harness defaults and enums, and the placement
+	// rules an enabled feature materializes into the harness's own settings
+	// files. Overridable through harnesses.d like every other section.
+	Features map[string]FeatureMapping `yaml:"features,omitempty" json:"features,omitempty"`
 
 	// Source records, per field, where the effective value came from:
 	// "builtin" or an absolute file path. Populated by Load's override-merge; for a

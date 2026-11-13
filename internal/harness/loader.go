@@ -402,6 +402,9 @@ func validate(d *Definition) (field, msg string) {
 	if msg := validateBackends(d); msg != "" {
 		return "backends", msg
 	}
+	if field, msg := validateFeatures(d); msg != "" {
+		return field, msg
+	}
 	return "", ""
 }
 
@@ -754,7 +757,7 @@ var allFieldNames = []string{
 	"model_var", "endpoint_var", "auth_kinds", "auth_clears", "default_auth_kind", "login_command", "classification",
 	"config_patches", "mcp", "skills_location", "plugin_mechanism",
 	"capabilities", "exec_hook", "default_locations", "share_policy", "hooks", "home_escapes",
-	"backends", "history_note", "folder_launch", "launch_clear", "model_arg",
+	"backends", "history_note", "folder_launch", "launch_clear", "model_arg", "features",
 }
 
 func asFieldError(err error) (fieldError, bool) {
