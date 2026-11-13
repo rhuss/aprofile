@@ -1,7 +1,15 @@
 <!--
 Sync Impact Report
 - Version change: (unversioned template) → 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4 → 1.1.0 → 1.2.0
-  → 2.0.0
+  → 2.0.0 → 2.0.1
+- 2.0.1 (PATCH, spec 006-profile-features FR-018): Principle II's launch-entry
+  parenthetical now names feature-placed entries alongside the launch variables, key
+  command and provider `auth` block ("the launch variables, key command, provider
+  `auth` block and feature-placed entries aprofile placed"), mirroring spec 005's
+  precedent for neutralizing entries: the curated capability toggles of the `features`
+  command (spec 006) materialize into the harness's own settings files as recorded,
+  idempotent placed entries. Modified principles: II (title unchanged). Added/removed
+  sections: none. Follow-up: none.
 - 2.0.0 (MAJOR, spec 004-corgi-integration FR-024): Principle V's caller-override rule
   (`${VAR:-default}`) is removed and replaced by the single-source rule: a profile's settings are
   fixed for every launch, the folder (or, where it cannot hold a setting or the harness rewrites
@@ -105,8 +113,9 @@ Rationale: a tool that must be edited every time a harness ships a new flag is a
   aprofile creates that file; a one-time copy of the default setup's settings (without the hook
   location) when aprofile creates a profile's own settings; managed hook entries and links to
   hook-set files (only entries aprofile placed, never other hook entries); launch entries in a
-  harness's settings files (the launch variables, key command and provider `auth` block aprofile
-  placed, recorded per profile in aprofile's data directory, never marked inside the harness's
+  harness's settings files (the launch variables, key command, provider `auth` block and
+  feature-placed entries aprofile placed, recorded per profile in aprofile's data directory,
+  never marked inside the harness's
   files; the rest of the file is preserved and the file is re-read immediately before every
   write); credential files an
   explicit `import` brings in (after a backup); on explicit request, replacing a leaking link with
@@ -263,4 +272,4 @@ Rationale: a bug in this tool damages live accounts; tests are the only safe pla
 - Compliance is reviewed at each spex gate and in code review. Violations are either fixed or
   recorded as justified exceptions in the plan's Complexity Tracking section.
 
-**Version**: 2.0.0 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-09
+**Version**: 2.0.1 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-13
