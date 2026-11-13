@@ -97,12 +97,12 @@ Single Go module at repository root: `internal/` packages, `tests/integration/` 
 
 ### Tests for User Story 3 (test-first)
 
-- [ ] T018 [P] [US3] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 3 (per-harness status asymmetry, default protocol display, unsupported-flag hard error changing nothing).
+- [X] T018 [P] [US3] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 3 (per-harness status asymmetry, default protocol display, unsupported-flag hard error changing nothing).
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Status rendering details in `internal/cli/features.go`: only harness-supported features listed, per-harness default values shown for enabled features with unset params (contract "Status output"), `--json` groups/features schema exactly per `contracts/features-cli.md` (stable, public interface).
-- [ ] T020 [US3] Cross-harness comparison test in `internal/cli/features_test.go`: claude vs codex status fixtures (feature sets, defaults) match the definitions.
+- [X] T019 [US3] Status rendering details in `internal/cli/features.go`: only harness-supported features listed, per-harness default values shown for enabled features with unset params (contract "Status output"), `--json` groups/features schema exactly per `contracts/features-cli.md` (stable, public interface).
+- [X] T020 [US3] Cross-harness comparison test in `internal/cli/features_test.go`: claude vs codex status fixtures (feature sets, defaults) match the definitions.
 
 **Checkpoint**: Stories 1-3 independently functional
 
@@ -116,14 +116,14 @@ Single Go module at repository root: `internal/` packages, `tests/integration/` 
 
 ### Tests for User Story 4 (test-first)
 
-- [ ] T021 [P] [US4] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 4 (inline-table encoding per research R1, hand-written key preservation, removal of placed keys only).
+- [X] T021 [P] [US4] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 4 (inline-table encoding per research R1, hand-written key preservation, removal of placed keys only).
 
 ### Implementation for User Story 4
 
-- [ ] T022 [US4] Verify the Codex `[otel]` exporter encoding against a real codex release (research R1's live confirmation): write a profile `config.toml` with `exporter = { otlp-http = { endpoint = "...", protocol = "json" } }` and confirm the installed codex accepts it (or confirm via the upstream serde shape in a source-level round-trip); record the result in `specs/006-profile-features/research.md` R1.
-- [ ] T023 [US4] Add `features.telemetry` to `internal/harness/builtin/codex.yaml`: `otel.exporter` and `otel.trace_exporter` placement rules (inline-table values, `none` for off signals), protocol default `otlp-http json`, enum values `otlp-http json`, `otlp-http binary`, `otlp-grpc`.
-- [ ] T024 [US4] Extend `internal/launch/plan.go`'s `planTOML` for generic nested key placement: dotted-path locations (`otel.exporter`) with `Replaced` subtree capture and restore, reusing the record's existing `Entry`; placement replaces a hand-written non-empty value and sync reports the key path, never the value (FR-012, spec 005's replaced-user semantics).
-- [ ] T025 [US4] TOML placement tests in `internal/launch/plan_test.go`: place, replace user value with `Replaced` restore on removal, preserve sibling hand-written `[otel]` keys, idempotency.
+- [X] T022 [US4] Verify the Codex `[otel]` exporter encoding against a real codex release (research R1's live confirmation): write a profile `config.toml` with `exporter = { otlp-http = { endpoint = "...", protocol = "json" } }` and confirm the installed codex accepts it (or confirm via the upstream serde shape in a source-level round-trip); record the result in `specs/006-profile-features/research.md` R1.
+- [X] T023 [US4] Add `features.telemetry` to `internal/harness/builtin/codex.yaml`: `otel.exporter` and `otel.trace_exporter` placement rules (inline-table values, `none` for off signals), protocol default `otlp-http json`, enum values `otlp-http json`, `otlp-http binary`, `otlp-grpc`.
+- [X] T024 [US4] Extend `internal/launch/plan.go`'s `planTOML` for generic nested key placement: dotted-path locations (`otel.exporter`) with `Replaced` subtree capture and restore, reusing the record's existing `Entry`; placement replaces a hand-written non-empty value and sync reports the key path, never the value (FR-012, spec 005's replaced-user semantics).
+- [X] T025 [US4] TOML placement tests in `internal/launch/plan_test.go`: place, replace user value with `Replaced` restore on removal, preserve sibling hand-written `[otel]` keys, idempotency.
 
 **Checkpoint**: Stories 1-4 independently functional
 

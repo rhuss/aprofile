@@ -2,6 +2,7 @@ package launch_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -975,5 +976,136 @@ func TestPlanFeatureEnvCollisionIsError(t *testing.T) {
 	_, err := launch.Plan(p, d, settingsDoc(t, `{}`), launch.Record{})
 	if err == nil || !strings.Contains(err.Error(), "OTEL_TRACES_EXPORTER") {
 		t.Fatalf("collision should error naming the variable: %v", err)
+	}
+}
+
+// --- Spec 006 (T025): Codex telemetry placement in config.toml ---
+
+// codexFeatureProfile is a codex profile with telemetry enabled.
+func codexFeatureProfile(t *testing.T, params map[string]string) *profile.Profile {
+	t.Helper()
+	p := codexProfile(t)
+	p.Features = []profile.FeatureState{{Feature: "telemetry", Params: params}}
+	return p
+}
+
+func tomlGet(t *testing.T, data []byte, path ...string) any {
+	t.Helper()
+	m := decodeTOML(t, data)
+	cur := any(m)
+	for _, seg := range path {
+		mm, ok := cur.(map[string]any)
+		if !ok {
+			t.Fatalf("%v is not a table at %s", cur, seg)
+		}
+		cur = mm[seg]
+	}
+	return cur
+}
+
+func TestPlanCodexTelemetryPlacement(t *testing.T) {
+	d := builtin(t, "codex")
+	p := codexFeatureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, codexDoc(t, "model = \"glm-5\"\n"), launch.Record{})
+	data, ok := res.Writes()["config.toml"]
+	if !ok {
+		t.Fatalf("plan writes no config.toml; steps %+v", res.Steps)
+	}
+	// Both exporters in the externally-tagged shape (research R1), protocol
+	// default otlp-http json (FR-004).
+	exp := tomlGet(t, data, "otel", "exporter")
+	if got := fmt.Sprint(tomlGet(t, data, "otel", "exporter", "otlp-http", "endpoint")); got != "https://otlp.example.com" {
+		t.Errorf("exporter endpoint = %v (%T)", exp, exp)
+	}
+	if got := tomlGet(t, data, "otel", "exporter", "otlp-http", "protocol"); got != "json" {
+		t.Errorf("exporter protocol = %v, want json", got)
+	}
+	if got := tomlGet(t, data, "otel", "trace_exporter", "otlp-http", "protocol"); got != "json" {
+		t.Errorf("trace_exporter protocol = %v, want json", got)
+	}
+	// The user's model key survives.
+	if got := tomlGet(t, data, "model"); got != "glm-5" {
+		t.Errorf("model key changed: %v", got)
+	}
+	if !res.NewRecord.Has("config.toml", "otel.exporter") || !res.NewRecord.Has("config.toml", "otel.trace_exporter") {
+		t.Errorf("nested TOML locations not recorded: %+v", res.NewRecord)
+	}
+
+	// otlp-grpc switch case.
+	p2 := codexFeatureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://e", "protocol": "otlp-grpc",
+	})
+	res2 := plan(t, p2, d, codexDoc(t, ""), launch.Record{})
+	if _, ok := tomlGet(t, res2.Writes()["config.toml"], "otel", "exporter").(map[string]any); !ok {
+		t.Fatalf("exporter not a table: %v", tomlGet(t, res2.Writes()["config.toml"], "otel", "exporter"))
+	}
+	if _, has := tomlGet(t, res2.Writes()["config.toml"], "otel", "exporter").(map[string]any)["otlp-grpc"]; !has {
+		t.Errorf("otlp-grpc variant not selected: %v", tomlGet(t, res2.Writes()["config.toml"], "otel", "exporter"))
+	}
+
+	// An off signal places its exporter key as none (FR-011, R5).
+	p3 := codexFeatureProfile(t, map[string]string{
+		"traces": "off", "logs": "on", "endpoint": "https://e",
+	})
+	res3 := plan(t, p3, d, codexDoc(t, ""), launch.Record{})
+	if got := tomlGet(t, res3.Writes()["config.toml"], "otel", "trace_exporter"); got != "none" {
+		t.Errorf("trace_exporter = %v, want none", got)
+	}
+}
+
+func TestPlanCodexTelemetryReplaceAndRestore(t *testing.T) {
+	d := builtin(t, "codex")
+	p := codexFeatureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	// A hand-written [otel] block: exporter replaced, sibling key preserved.
+	src := `
+[otel]
+environment = "prod"
+exporter = { statsig = {} }
+`
+	res := plan(t, p, d, codexDoc(t, src), launch.Record{})
+	rec := res.NewRecord
+	e, _ := rec.Get("config.toml", "otel.exporter")
+	if e.Replaced[""] == "" {
+		t.Fatalf("replaced hand-written exporter not recorded: %+v", e)
+	}
+	data := res.Writes()["config.toml"]
+	if got := tomlGet(t, data, "otel", "environment"); got != "prod" {
+		t.Errorf("hand-written sibling key lost: %v", got)
+	}
+
+	// Disabling removes only aprofile's keys and restores the replaced value.
+	p.Features = nil
+	res2 := plan(t, p, d, codexDoc(t, string(data)), rec)
+	data2 := res2.Writes()["config.toml"]
+	if got := tomlGet(t, data2, "otel", "environment"); got != "prod" {
+		t.Errorf("hand-written sibling key lost on removal: %v", got)
+	}
+	exp := tomlGet(t, data2, "otel", "exporter")
+	statsig, ok := exp.(map[string]any)
+	if !ok || len(statsig) != 1 || statsig["statsig"] == nil {
+		t.Errorf("replaced exporter not restored: %v", exp)
+	}
+	if _, has := tomlGet(t, data2, "otel").(map[string]any)["trace_exporter"]; has {
+		t.Error("trace_exporter still placed after disable")
+	}
+	if res2.NewRecord.Has("config.toml", "otel.exporter") {
+		t.Error("record still lists otel.exporter after disable")
+	}
+}
+
+func TestPlanCodexTelemetryIdempotent(t *testing.T) {
+	d := builtin(t, "codex")
+	p := codexFeatureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, codexDoc(t, "model = \"glm-5\"\n"), launch.Record{})
+	data := res.Writes()["config.toml"]
+	again := plan(t, p, d, launch.Doc{Files: map[string]launch.FileDoc{"config.toml": launch.ParseFileDoc("config.toml", data)}}, res.NewRecord)
+	if len(again.Steps) != 0 || len(again.Writes()) != 0 {
+		t.Errorf("second sync is not a no-op: steps %+v writes %v", again.Steps, again.Writes())
 	}
 }

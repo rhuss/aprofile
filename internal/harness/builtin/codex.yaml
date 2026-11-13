@@ -123,3 +123,64 @@ mcp:
 skills_location:
   path: "skills"
   scope: per-profile # ignored since feature 002: skills are content
+
+# Capability mapping (spec 006): telemetry through the [otel] section of the
+# profile's own config.toml. The exporters are externally-tagged struct variants
+# (research R1, verified live with codex-cli 0.167.0, T022):
+#   exporter = { otlp-http = { endpoint = "...", protocol = "json" } }
+# with unit variants (none) as bare strings. A signal that is off places its
+# exporter key as "none". The switch on the protocol param selects the variant
+# table per value (otlp-http json, otlp-http binary, otlp-grpc). Codex declares
+# no automode-log (User Story 3's asymmetry).
+features:
+  telemetry:
+    params:
+      traces: {}
+      logs: {}
+      endpoint: {}
+      protocol:
+        default: "otlp-http json"
+        values: ["otlp-http json", "otlp-http binary", "otlp-grpc"]
+    place:
+      - file: config.toml
+        location: otel.exporter
+        value: none
+        when-not: logs
+      - file: config.toml
+        location: otel.exporter
+        when: logs
+        value:
+          switch: protocol
+          cases:
+            "otlp-http json":
+              otlp-http:
+                endpoint: "{param:endpoint}"
+                protocol: json
+            "otlp-http binary":
+              otlp-http:
+                endpoint: "{param:endpoint}"
+                protocol: binary
+            "otlp-grpc":
+              otlp-grpc:
+                endpoint: "{param:endpoint}"
+      - file: config.toml
+        location: otel.trace_exporter
+        value: none
+        when-not: traces
+      - file: config.toml
+        location: otel.trace_exporter
+        when: traces
+        value:
+          switch: protocol
+          cases:
+            "otlp-http json":
+              otlp-http:
+                endpoint: "{param:endpoint}"
+                protocol: json
+            "otlp-http binary":
+              otlp-http:
+                endpoint: "{param:endpoint}"
+                protocol: binary
+            "otlp-grpc":
+              otlp-grpc:
+                endpoint: "{param:endpoint}"

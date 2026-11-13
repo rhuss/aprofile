@@ -225,3 +225,76 @@ func TestFeaturesDryRun(t *testing.T) {
 		t.Errorf("dry-run stored state:\n%s", out)
 	}
 }
+
+// T020 (User Story 3): the status feature sets and defaults match the harness
+// definitions, cross-harness.
+func TestFeaturesStatusCrossHarness(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	testutil.SeedDefaults(t, h, "claude")
+	testutil.SeedDefaults(t, h, "codex")
+	if _, err := runCLI(t, "add", "claude", "c1", "--auth-kind", "oauth-login", "--share", "content"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, "add", "codex", "x1", "--auth-kind", "api-key", "--auth-key", "file:/k", "--share", "content"); err != nil {
+		t.Fatal(err)
+	}
+	status := func(ref string) string {
+		out, err := runCLI(t, "features", ref, "--json")
+		if err != nil {
+			t.Fatalf("features %s: %v\n%s", ref, err, out)
+		}
+		return out
+	}
+	var parse func(string) map[string]map[string]any
+	parse = func(out string) map[string]map[string]any {
+		var st struct {
+			Groups []struct {
+				Name     string `json:"name"`
+				Features []struct {
+					ID     string            `json:"id"`
+					Params map[string]string `json:"params"`
+				} `json:"features"`
+			} `json:"groups"`
+		}
+		if err := json.Unmarshal([]byte(out), &st); err != nil {
+			t.Fatalf("features --json: %v\n%s", err, out)
+		}
+		feats := map[string]map[string]any{}
+		for _, g := range st.Groups {
+			for _, f := range g.Features {
+				m := map[string]any{"group": g.Name, "params": f.Params}
+				feats[f.ID] = m
+			}
+		}
+		return feats
+	}
+	claude := parse(status("claude/c1"))
+	codex := parse(status("codex/x1"))
+	// Both harnesses support telemetry; only claude supports automode-log.
+	if _, ok := claude["telemetry"]; !ok {
+		t.Error("claude status lacks telemetry")
+	}
+	if _, ok := codex["telemetry"]; !ok {
+		t.Error("codex status lacks telemetry")
+	}
+	if _, ok := claude["automode-log"]; !ok {
+		t.Error("claude status lacks automode-log")
+	}
+	if _, ok := codex["automode-log"]; ok {
+		t.Error("codex status must not list automode-log")
+	}
+	// The protocol enum is per harness: claude accepts http/protobuf, codex
+	// rejects it and accepts otlp-grpc (FR-004).
+	if _, err := runCLI(t, "features", "claude/c1", "--enable", "telemetry", "--traces", "on",
+		"--endpoint", "https://e", "--protocol", "http/protobuf"); err != nil {
+		t.Errorf("claude should accept http/protobuf: %v", err)
+	}
+	if _, err := runCLI(t, "features", "codex/x1", "--enable", "telemetry", "--traces", "on",
+		"--endpoint", "https://e", "--protocol", "http/protobuf"); err == nil {
+		t.Error("codex should reject http/protobuf")
+	}
+	if _, err := runCLI(t, "features", "codex/x1", "--enable", "telemetry", "--traces", "on",
+		"--endpoint", "https://e", "--protocol", "otlp-grpc"); err != nil {
+		t.Errorf("codex should accept otlp-grpc: %v", err)
+	}
+}

@@ -13,6 +13,16 @@ headers = {}, protocol = "json" } }`, `trace_exporter` the same shape, `metrics_
 "none"` as a bare string for variant-only values. Codex protocol values in the capability
 mapping: `otlp-http json`, `otlp-http binary`, `otlp-grpc`.
 
+**Live confirmation (T022, 2026-11-13, codex-cli 0.167.0)**: a profile `config.toml` with
+`exporter = { otlp-http = { endpoint = "https://otlp.example.com", protocol = "json" } }`,
+`trace_exporter = { otlp-grpc = { endpoint = "https://otlp.example.com" } }` and
+`metrics_exporter = "none"` loads and runs (`codex exec` parses the config without error),
+while `exporter = "otlp-http"` fails with
+`Error loading config.toml: invalid type: unit variant, expected struct variant in
+'otel.exporter'`, and `exporter = "none"` (unit variant as a bare string) loads. The
+externally-tagged shape is confirmed; since TOML inline tables and `[section]` tables decode
+identically, go-toml's table-syntax rendering of the same structure is equivalent.
+
 **Rationale**: `OtelExporterKind` in `codex-rs/config/src/types.rs` derives
 `Serialize`/`Deserialize` with `rename_all = "kebab-case"` and no `untagged` or `tag`
 attribute, so serde's default external tagging applies: a table whose single key is the

@@ -145,3 +145,107 @@ func TestFeaturesAutomodeLogLifecycle(t *testing.T) {
 		t.Error("env.AUTOMODE_DECISION_LOG still present after disable")
 	}
 }
+
+// Quickstart Scenario 3 (User Story 3): discovery and gating.
+func TestFeaturesDiscoveryAndGating(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "codex", "work", "--auth-kind", "api-key", "--auth-key", "file:/keys/x", "--share", "content")
+
+	out := e.run(nil, "features", "codex/work")
+	if !strings.Contains(out, "telemetry") {
+		t.Errorf("codex status should list telemetry:\n%s", out)
+	}
+	if strings.Contains(out, "automode-log") {
+		t.Errorf("codex status must not list automode-log:\n%s", out)
+	}
+	// The per-harness default protocol shows (FR-004, AS3).
+	if _, err := runFeaturesErr(e, "features", "codex/work", "--enable", "telemetry",
+		"--traces", "on", "--logs", "on", "--endpoint", "https://otlp.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	out = e.run(nil, "features", "codex/work")
+	if !strings.Contains(out, "otlp-http json") {
+		t.Errorf("codex status should show the default protocol otlp-http json:\n%s", out)
+	}
+	// An unsupported flag fails naming the harness, changing nothing (FR-007).
+	out, err := runFeaturesErr(e, "features", "codex/work", "--enable", "automode-log")
+	if err == nil {
+		t.Fatal("enabling automode-log on codex should fail")
+	}
+	if !strings.Contains(out, "codex") || !strings.Contains(out, "automode-log") {
+		t.Errorf("error should name the harness and the flag:\n%s", out)
+	}
+	// Nothing changed by the failed mutation: the record still holds only the
+	// telemetry feature enabled earlier in this test.
+	data, _ := os.ReadFile(e.profileFile("codex", "work"))
+	if strings.Contains(string(data), "automode-log") {
+		t.Errorf("a failed mutation stored state:\n%s", data)
+	}
+}
+
+// runFeaturesErr runs a command expecting failure and returns its output and error.
+func runFeaturesErr(e *env, args ...string) (string, error) {
+	e.t.Helper()
+	return e.tryRun(nil, args...)
+}
+
+// Quickstart Scenario 4 (User Story 4): Codex telemetry in config.toml, with
+// hand-written key preservation.
+func TestFeaturesCodexTelemetryEndToEnd(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "codex", "work", "--auth-kind", "api-key", "--auth-key", "file:/keys/x", "--share", "content")
+
+	e.run(nil, "features", "codex/work", "--enable", "telemetry",
+		"--traces", "on", "--logs", "on", "--endpoint", "https://otlp.example.com")
+	e.run(nil, "sync")
+	cfgPath := filepath.Join(e.configDir("codex", "work"), "config.toml")
+	m := readTOML(t, cfgPath)
+	otel, ok := m["otel"].(map[string]any)
+	if !ok {
+		t.Fatalf("no [otel] section: %v", m)
+	}
+	exp, ok := otel["exporter"].(map[string]any)
+	if !ok || exp["otlp-http"] == nil {
+		t.Fatalf("exporter not in the inline-table encoding: %v", otel["exporter"])
+	}
+	inner := exp["otlp-http"].(map[string]any)
+	if inner["endpoint"] != "https://otlp.example.com" || inner["protocol"] != "json" {
+		t.Errorf("exporter fields = %v", inner)
+	}
+	if _, ok := otel["trace_exporter"]; !ok {
+		t.Error("trace_exporter missing")
+	}
+	entries := featureRecordEntries(t, e.featureRecordPath("codex", "work"))
+	locations := map[string]bool{}
+	for _, en := range entries {
+		locations[en["location"].(string)] = true
+	}
+	if !locations["otel.exporter"] || !locations["otel.trace_exporter"] {
+		t.Errorf("nested TOML locations not recorded: %v", entries)
+	}
+
+	// Hand-write a sibling key, disable, re-sync: only aprofile's keys go.
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Add a hand-written key to the existing [otel] section (a second [otel]
+	// header would be invalid TOML once subtables exist).
+	patched := strings.Replace(string(data), "[otel]\n", "[otel]\nenvironment = \"prod\"\n", 1)
+	if err := os.WriteFile(cfgPath, []byte(patched), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.run(nil, "features", "codex/work", "--disable", "telemetry")
+	e.run(nil, "sync")
+	m = readTOML(t, cfgPath)
+	otel, ok = m["otel"].(map[string]any)
+	if !ok || otel["environment"] != "prod" {
+		t.Fatalf("hand-written [otel] key lost: %v", m["otel"])
+	}
+	if _, has := otel["exporter"]; has {
+		t.Error("aprofile-placed exporter still present after disable")
+	}
+	if _, has := otel["trace_exporter"]; has {
+		t.Error("aprofile-placed trace_exporter still present after disable")
+	}
+}
