@@ -649,9 +649,16 @@ func launchFindings(paths *config.Paths, def *harness.Definition, p *profile.Pro
 	out := []Finding{{Profile: id, Severity: SeverityInfo, Message: "profile folder: " + f.StatusText(),
 		Fix: "details: aprofile show " + id}}
 	for _, w := range f.WrapperOnly {
+		fix := "start the profile through its wrapper " + def.WrapperName(p.Name) + " to apply it"
+		if w.Setting == launch.KindAuthClearing && w.Reason == launch.ReasonShareAll {
+			// Spec 005 FR-005: the folder of a login profile at share level all cannot
+			// neutralize exported provider switches and keys.
+			fix = "start the profile through its wrapper " + def.WrapperName(p.Name) +
+				", or give it its own settings: aprofile edit " + id + " --share content"
+		}
 		out = append(out, Finding{Profile: id, Severity: SeverityInfo,
 			Message: fmt.Sprintf("%s is wrapper-only: %s", w.SettingName(), launch.ReasonText(w.Reason, p, def)),
-			Fix:     "start the profile through its wrapper " + def.WrapperName(p.Name) + " to apply it"})
+			Fix:     fix})
 	}
 	if st.Sync == launch.SyncStale {
 		out = append(out, Finding{Profile: id, Message: "profile folder is stale", Fix: "run: aprofile sync"})

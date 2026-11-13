@@ -476,9 +476,15 @@ func (a *app) changeShare(cmd *cobra.Command, p *profile.Profile, def *harness.D
 
 // launchLevelEffects returns the plan lines for the launch settings of a share level
 // change and the folder_launch files that become links (spec 004 FR-008a). A
-// profile without launch settings gets no lines.
+// profile without launch settings gets no lines, unless the folder neutralizes the
+// auth-clearing list for it (spec 005 FR-001: every profile with a folder env
+// location and its own settings file carries those entries, launch settings or not).
 func launchLevelEffects(def *harness.Definition, p *profile.Profile, from, to profile.Share) (lines, linkedNow []string) {
-	if def.FolderLaunch == nil || len(launch.Decide(p, def, launch.Doc{Files: map[string]launch.FileDoc{}})) == 0 {
+	if def.FolderLaunch == nil {
+		return nil, nil
+	}
+	neutralizes := def.FolderLaunch.Env != "" && len(def.UnsetAuthVars()) > 0
+	if !neutralizes && len(launch.Decide(p, def, launch.Doc{Files: map[string]launch.FileDoc{}})) == 0 {
 		return nil, nil
 	}
 	linkedAt := func(rule *harness.EntryRule, level profile.Share) bool {

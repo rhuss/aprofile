@@ -256,6 +256,9 @@ registration steps.
   `APROFILE_*` contract variables, `HERDR_AGENT` (spec 001 FR-029) and auth clearing are not
   launch settings: the wrapper always sets or clears them, because process-based detection reads
   the launch environment. `APROFILE_SET_VARS` is the one exception; FR-014 decides its carrier.
+  *Amended by spec 005 (FR-005): auth clearing stays out of the launch settings, but `show` and
+  `doctor` report it as the one wrapper-only item that is not a launch setting (`auth-clearing`,
+  reason `share-all`) for an interactive-login profile at share level `all`.*
 - **FR-002**: The places where a harness reads launch settings from its folder MUST be declared in
   the harness definition (Constitution Principle I): for Claude Code, entries of the `env` block of
   `settings.json` for model, endpoint and extra variables and the `apiKeyHelper` key for the auth
@@ -300,6 +303,10 @@ registration steps.
   provider switches), as placed entries, so a key or provider switch exported in a launching
   tool's environment cannot override the folder's key. This is the folder's counterpart of the
   wrapper's auth clearing.
+  *Amended by spec 005 (FR-001, FR-002): the entries are placed for every profile whose settings
+  file is its own (share level `content` or `none`), whatever its auth kind and whether or not
+  the folder carries the key; names the profile supplies through the wrapper (its extra and
+  exec-hook variables and the variable of a wrapper-carried key) are never blanked.*
 - **FR-007**: Extra variables whose value is a reference MUST NOT be written into the folder; they
   stay wrapper-only.
 - **FR-008**: For a profile at share level `all` whose settings file is linked to the default setup,
@@ -372,6 +379,11 @@ registration steps.
   folder, passed by the wrapper because the harness rewrites it, key referenced through a variable
   aprofile clears, harness without support).
   `doctor` MUST report the same as information, not as a problem.
+  *Amended by spec 005 (FR-005, FR-005a): an interactive-login profile at share level `all` is
+  not self-contained, with `auth-clearing` listed as wrapper-only (the linked settings file cannot
+  neutralize exported provider switches and keys); `doctor` names the wrapper and `aprofile edit
+  --share content` as the fix. Neutralizing entries alone never make a folder not
+  self-contained.*
 - **FR-020a**: When a profile's placed entries differ from what `sync` would write (the profile
   changed, or the user edited or removed a placed entry), `list`, `show` and `doctor` MUST report
   the folder as stale with the fix `aprofile sync`, as they do for stale wrappers (spec 001

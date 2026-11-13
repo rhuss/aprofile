@@ -417,3 +417,87 @@ func TestApplyFailedWriteKeepsUserEntryUnowned(t *testing.T) {
 		t.Errorf("the user's MY_VAR was removed or changed: %v", env)
 	}
 }
+
+// Spec 005 FR-005a: a login profile whose folder holds only neutralizing entries is
+// self-contained, with no wrapper-only items, and synced after Apply.
+func TestStatusLoginNeutralizingOnlyIsSelfContained(t *testing.T) {
+	e := newApplyEnv(t)
+	p := &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-login", Share: profile.ShareContent}
+	d := builtin(t, "claude")
+	if _, err := launch.Apply(p, d, e.cfg, e.rec, false); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := readJSON(t, filepath.Join(e.cfg, "settings.json"))["env"].(map[string]any)
+	if got, ok := env["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v (present %v), want empty", got, ok)
+	}
+	st, err := launch.Status(p, d, e.cfg, e.rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := st.Folder()
+	if f.Status != launch.FolderSelfContained || len(f.WrapperOnly) != 0 || f.Sync != launch.SyncSynced {
+		t.Errorf("folder = %+v", f)
+	}
+}
+
+// authClearingItem returns the auth-clearing wrapper-only item of a folder report.
+func authClearingItem(f launch.FolderReport) (launch.WrapperOnly, bool) {
+	for _, w := range f.WrapperOnly {
+		if w.Setting == launch.KindAuthClearing {
+			return w, true
+		}
+	}
+	return launch.WrapperOnly{}, false
+}
+
+// Spec 005 FR-005, FR-006: an interactive-login Claude profile at share level all
+// reports auth clearing as wrapper-only (reason share-all, no variable); other auth
+// kinds at all, a login profile with its own settings and Codex logins do not.
+func TestStatusAuthClearingItem(t *testing.T) {
+	claude := builtin(t, "claude")
+	tokRef := ref(t, "env:TOK")
+	keyRef := ref(t, "file:/keys/k")
+	cases := []struct {
+		name string
+		p    *profile.Profile
+		def  *harness.Definition
+		want bool
+	}{
+		{"oauth-login at all", &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-login", Share: profile.ShareAll}, claude, true},
+		{"api-key at all", &profile.Profile{Harness: "claude", Name: "work", AuthKind: "api-key", Share: profile.ShareAll,
+			AuthRefs: map[string]secret.Reference{"ANTHROPIC_API_KEY": keyRef}}, claude, false},
+		{"oauth-token at all", &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-token", Share: profile.ShareAll,
+			AuthRefs: map[string]secret.Reference{"CLAUDE_CODE_OAUTH_TOKEN": tokRef}}, claude, false},
+		{"oauth-login at content", &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-login", Share: profile.ShareContent}, claude, false},
+		{"unknown kind at all", &profile.Profile{Harness: "claude", Name: "work", AuthKind: "no-such-kind", Share: profile.ShareAll}, claude, false},
+		{"codex chatgpt-login at all", &profile.Profile{Harness: "codex", Name: "work", AuthKind: "chatgpt-login", Share: profile.ShareAll}, builtin(t, "codex"), false},
+		{"codex chatgpt-login at content", &profile.Profile{Harness: "codex", Name: "work", AuthKind: "chatgpt-login", Share: profile.ShareContent}, builtin(t, "codex"), false},
+	}
+	for _, c := range cases {
+		e := newApplyEnv(t)
+		st, err := launch.Status(c.p, c.def, e.cfg, e.rec)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		f := st.Folder()
+		w, got := authClearingItem(f)
+		if got != c.want {
+			t.Errorf("%s: auth-clearing item present = %v, want %v (%+v)", c.name, got, c.want, f.WrapperOnly)
+			continue
+		}
+		if !got {
+			continue
+		}
+		if w.Variable != "" || w.Reason != launch.ReasonShareAll || w.SettingName() != "auth-clearing" {
+			t.Errorf("%s: item = %+v", c.name, w)
+		}
+		if f.Status != launch.FolderNotSelfContained {
+			t.Errorf("%s: status = %s, want not-self-contained", c.name, f.Status)
+		}
+		data, _ := json.Marshal(f)
+		if !strings.Contains(string(data), `{"setting":"auth-clearing","variable":"","reason":"share-all"}`) {
+			t.Errorf("%s: folder JSON = %s", c.name, data)
+		}
+	}
+}

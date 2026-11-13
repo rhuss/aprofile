@@ -20,6 +20,11 @@ default_config_location: "~/.codex"
 model_arg: ["-c", "model={model:toml}"]
 # Endpoint follows the OpenAI SDK convention Codex honors.
 endpoint_var: OPENAI_BASE_URL
+# Wrappers clear OPENAI_BASE_URL. A folder launch needs no counterpart: verified
+# with Codex 0.167.0 on 2026-11-10 that a login profile started from CODEX_HOME
+# alone (no login or a ChatGPT login) ignores exported OPENAI_API_KEY and
+# OPENAI_BASE_URL (specs/005-neutralize-provider-switches/research.md R2), so
+# config.toml carries no neutralization and Codex has no folder env location.
 launch_clear: [OPENAI_BASE_URL]
 
 # The key a profile folder carries (feature 004, research R3, Codex 0.167.0): an

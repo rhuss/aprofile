@@ -176,7 +176,8 @@ func TestPlanReplaceUserRestoreRemove(t *testing.T) {
 		t.Error("other entries changed")
 	}
 
-	// Switching to a login kind removes the key command and the neutralizing entries.
+	// Switching to a login kind removes the key command; the neutralizing entries
+	// stay (spec 005 FR-001: every own settings file neutralizes the list).
 	p3 := claudeProfile(t)
 	p3.AuthKind, p3.AuthRefs = "oauth-login", nil
 	res = plan(t, p3, d, settingsDoc(t, string(placed)), rec)
@@ -184,8 +185,11 @@ func TestPlanReplaceUserRestoreRemove(t *testing.T) {
 	if _, ok := m3["apiKeyHelper"]; ok {
 		t.Error("apiKeyHelper not removed")
 	}
-	if _, ok := m3["env"].(map[string]any)["ANTHROPIC_API_KEY"]; ok {
-		t.Error("neutralizing entry not removed")
+	if got, ok := m3["env"].(map[string]any)["ANTHROPIC_API_KEY"]; !ok || got != "" {
+		t.Errorf("neutralizing entry = %v (present %v), want kept empty", got, ok)
+	}
+	if k, ok := stepKinds(res)["settings.json#env.ANTHROPIC_API_KEY"]; ok {
+		t.Errorf("neutralizing entry got a %s step", k)
 	}
 }
 
@@ -225,9 +229,15 @@ func TestPlanUnplaced(t *testing.T) {
 	for _, e := range res.Unplaced {
 		got = append(got, e.Location)
 	}
-	want := []string{"apiKeyHelper", "env.ANTHROPIC_DEFAULT_OPUS_MODEL", "env.CLAUDE_CODE_USE_VERTEX", "env.MY_EXTRA"}
+	// The user's CLAUDE_CODE_USE_VERTEX is on the auth-clearing list: the login
+	// profile now wants an empty entry there (spec 005 FR-001), so it is replaced,
+	// not reported as unplaced.
+	want := []string{"apiKeyHelper", "env.ANTHROPIC_DEFAULT_OPUS_MODEL", "env.MY_EXTRA"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("unplaced = %v, want %v", got, want)
+	}
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_VERTEX"]; k != string(launch.StepReplaceUser) {
+		t.Errorf("CLAUDE_CODE_USE_VERTEX step = %q, want replace-user", k)
 	}
 }
 
@@ -246,12 +256,23 @@ func TestPlanErrors(t *testing.T) {
 			t.Errorf("%s: error should name the key env: %v", name, err)
 		}
 	}
-	// Every setting wrapper-only: a parse error is a note, not an error.
+	// A login profile wants the neutralizing entries (spec 005 FR-001), so a parse
+	// error is an error for it (spec 005 edge case "settings file does not parse").
 	p := claudeProfile(t)
 	p.AuthKind, p.AuthRefs, p.Model, p.Endpoint, p.ExtraEnv = "oauth-login", nil, "", "", nil
-	res, err := launch.Plan(p, d, settingsDoc(t, `{not json`), launch.Record{})
+	if _, err := launch.Plan(p, d, settingsDoc(t, `{not json`), launch.Record{}); err == nil || !strings.Contains(err.Error(), "settings.json") {
+		t.Errorf("login profile with a broken file: want an error naming settings.json, got %v", err)
+	}
+	// A profile that wants nothing in the file (the definition has no folder env
+	// location, so no neutralizing entries; a login kind places no key command): a
+	// parse error is a note, not an error.
+	noEnv := *d
+	fl := *d.FolderLaunch
+	fl.Env = ""
+	noEnv.FolderLaunch = &fl
+	res, err := launch.Plan(p, &noEnv, settingsDoc(t, `{not json`), launch.Record{})
 	if err != nil || len(res.Notes) == 0 {
-		t.Errorf("wrapper-only profile with a broken file: err=%v notes=%v", err, res.Notes)
+		t.Errorf("profile wanting nothing with a broken file: err=%v notes=%v", err, res.Notes)
 	}
 	// Codex: selected provider not a table.
 	_, err = launch.Plan(codexProfile(t), builtin(t, "codex"), codexDoc(t, "model_provider = \"p\"\nmodel_providers = { p = \"x\" }\n"), launch.Record{})
@@ -528,5 +549,271 @@ func TestPlanCodexAuthReplaceUserRestoreUnplaced(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("unplaced = %+v", res.Unplaced)
+	}
+}
+
+// loginProfile is an interactive-login Claude profile with no launch variables.
+func loginProfile(share profile.Share) *profile.Profile {
+	return &profile.Profile{Harness: "claude", Name: "login", AuthKind: "oauth-login", Share: share}
+}
+
+// envOf returns the env object of a written settings.json.
+func envOf(t *testing.T, res launch.Result) map[string]any {
+	t.Helper()
+	env, _ := writtenJSON(t, res, "settings.json")["env"].(map[string]any)
+	return env
+}
+
+// Spec 005 FR-001, FR-003: a login profile with its own settings file neutralizes
+// the whole auth-clearing list, recorded as placed entries; a second plan is empty.
+func TestPlanLoginNeutralizesAuthClearing(t *testing.T) {
+	d := builtin(t, "claude")
+	for _, share := range []profile.Share{profile.ShareContent, profile.ShareNone} {
+		for name, doc := range map[string]launch.Doc{
+			"absent": {Files: map[string]launch.FileDoc{}},
+			"own":    settingsDoc(t, `{"permissions":{"allow":["x"]}}`),
+		} {
+			p := loginProfile(share)
+			res := plan(t, p, d, doc, launch.Record{})
+			env := envOf(t, res)
+			names := d.UnsetAuthVars()
+			if len(names) == 0 {
+				t.Fatal("claude has no auth-clearing list")
+			}
+			if len(env) != len(names) {
+				t.Errorf("%s/%s: env holds %d entries, want %d: %v", share, name, len(env), len(names), env)
+			}
+			for _, v := range names {
+				if got, ok := env[v]; !ok || got != "" {
+					t.Errorf("%s/%s: env.%s = %v (present %v), want empty", share, name, v, got, ok)
+				}
+				if !res.NewRecord.Has("settings.json", "env."+v) {
+					t.Errorf("%s/%s: env.%s not recorded", share, name, v)
+				}
+			}
+			if _, ok := env["APROFILE_SET_VARS"]; ok {
+				t.Errorf("%s/%s: APROFILE_SET_VARS placed for a profile without variables", share, name)
+			}
+			again := plan(t, p, d, launch.Doc{Files: map[string]launch.FileDoc{"settings.json": launch.ParseFileDoc("settings.json", res.Writes()["settings.json"])}}, res.NewRecord)
+			if len(again.Steps) != 0 || len(again.Writes()) != 0 {
+				t.Errorf("%s/%s: second plan: steps %+v", share, name, again.Steps)
+			}
+		}
+	}
+}
+
+// Spec 005 US1 scenario 4: a hand-deleted neutralizing entry is restored.
+func TestPlanLoginRestoresDeletedEntry(t *testing.T) {
+	d := builtin(t, "claude")
+	p := loginProfile(profile.ShareContent)
+	m, rec := placedSettings(t, p, d, `{}`)
+	delete(m["env"].(map[string]any), "CLAUDE_CODE_USE_VERTEX")
+	res := plan(t, p, d, settingsDoc(t, encodeSettings(t, m)), rec)
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_VERTEX"]; k != string(launch.StepRestore) || len(res.Steps) != 1 {
+		t.Errorf("steps = %v, want one restore of env.CLAUDE_CODE_USE_VERTEX", stepKinds(res))
+	}
+	if got, ok := envOf(t, res)["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("restored entry = %v (present %v)", got, ok)
+	}
+	// A deleted entry dropped no value: no replaced-value note.
+	if strings.Contains(strings.Join(res.Notes, "\n"), "is replaced by an empty entry") {
+		t.Errorf("unexpected note for a deleted entry: %q", res.Notes)
+	}
+
+	// A hand-set value in a placed entry is restored to empty, with the note.
+	m["env"].(map[string]any)["CLAUDE_CODE_USE_VERTEX"] = "1"
+	res = plan(t, p, d, settingsDoc(t, encodeSettings(t, m)), rec)
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_VERTEX"]; k != string(launch.StepRestore) {
+		t.Errorf("step = %q, want restore", k)
+	}
+	if !strings.Contains(strings.Join(res.Notes, "\n"), "own env CLAUDE_CODE_USE_VERTEX is replaced by an empty entry") {
+		t.Errorf("notes = %q, want the replaced-value note", res.Notes)
+	}
+}
+
+// Spec 005 edge case (spec 004 FR-004): a user's own provider switch in the
+// profile's settings file is replaced by the empty entry and named, never its value.
+func TestPlanLoginReplacesUserSwitch(t *testing.T) {
+	d := builtin(t, "claude")
+	res := plan(t, loginProfile(profile.ShareContent), d, settingsDoc(t, `{"env":{"CLAUDE_CODE_USE_VERTEX":"vertex-secret-1"}}`), launch.Record{})
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_VERTEX"]; k != string(launch.StepReplaceUser) {
+		t.Errorf("step = %q, want replace-user", k)
+	}
+	if got := envOf(t, res)["CLAUDE_CODE_USE_VERTEX"]; got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v", got)
+	}
+	steps, _ := json.Marshal(res.Steps)
+	rec, _ := json.Marshal(res.NewRecord)
+	if strings.Contains(string(steps)+string(rec), "vertex-secret-1") {
+		t.Error("the user's value leaked into a step or the record")
+	}
+	// The dropped value gets its own note with the way to keep it, never the value.
+	notes := strings.Join(res.Notes, "\n")
+	if !strings.Contains(notes, "own env CLAUDE_CODE_USE_VERTEX is replaced") ||
+		!strings.Contains(notes, "aprofile edit claude/login --env CLAUDE_CODE_USE_VERTEX=<value>") {
+		t.Errorf("notes = %q, want the replaced-value note with the edit hint", res.Notes)
+	}
+	if strings.Contains(notes, "vertex-secret-1") {
+		t.Error("the user's value leaked into a note")
+	}
+
+	// A user entry that is already empty (or null) loses nothing: no note.
+	for _, v := range []string{`""`, `null`} {
+		res := plan(t, loginProfile(profile.ShareContent), d, settingsDoc(t, `{"env":{"CLAUDE_CODE_USE_VERTEX":`+v+`}}`), launch.Record{})
+		if strings.Contains(strings.Join(res.Notes, "\n"), "is replaced by an empty entry") {
+			t.Errorf("user value %s: unexpected note %q", v, res.Notes)
+		}
+	}
+}
+
+// Spec 005 FR-004: at share level all the linked file gets nothing, the record is
+// dropped and a hand-added auth-clearing entry is still reported as unplaced.
+func TestPlanLoginShareAllPlacesNothing(t *testing.T) {
+	d := builtin(t, "claude")
+	p := loginProfile(profile.ShareAll)
+	fd := launch.ParseFileDoc("settings.json", []byte(`{"env":{"CLAUDE_CODE_USE_VERTEX":"1"}}`))
+	fd.Linked = true
+	rec := launch.Record{Entries: []launch.Entry{{File: "settings.json", Location: "env.ANTHROPIC_API_KEY"}}}
+	res := plan(t, p, d, launch.Doc{Files: map[string]launch.FileDoc{"settings.json": fd}}, rec)
+	if len(res.Steps) != 0 || len(res.Writes()) != 0 || len(res.NewRecord.Entries) != 0 {
+		t.Errorf("linked file: steps %+v writes %v record %+v", res.Steps, res.Writes(), res.NewRecord)
+	}
+	if len(res.Unplaced) != 1 || res.Unplaced[0].Location != "env.CLAUDE_CODE_USE_VERTEX" {
+		t.Errorf("unplaced = %+v", res.Unplaced)
+	}
+	// Absent file at all: the classification links it, so nothing is desired.
+	res = plan(t, p, d, launch.Doc{Files: map[string]launch.FileDoc{}}, launch.Record{})
+	if len(res.Steps) != 0 || len(res.Writes()) != 0 {
+		t.Errorf("absent file at all: steps %+v", res.Steps)
+	}
+}
+
+// Spec 005 edge case: a profile changed from all to content gets the entries on
+// the next plan (its settings file is now its own copy).
+func TestPlanLoginShareAllToContent(t *testing.T) {
+	d := builtin(t, "claude")
+	p := loginProfile(profile.ShareContent)
+	res := plan(t, p, d, settingsDoc(t, `{"theme":"dark"}`), launch.Record{})
+	env := envOf(t, res)
+	if got, ok := env["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v (present %v)", got, ok)
+	}
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_VERTEX"]; k != string(launch.StepSet) {
+		t.Errorf("step = %q, want set", k)
+	}
+}
+
+// Spec 005 edge case: a definition override that drops a name from the
+// auth-clearing list removes the placed entry on the next plan.
+func TestPlanLoginOverrideDropsClearedName(t *testing.T) {
+	d := builtin(t, "claude")
+	p := loginProfile(profile.ShareContent)
+	m, rec := placedSettings(t, p, d, `{}`)
+	over := *d
+	over.AuthClears = nil
+	for _, v := range d.AuthClears {
+		if v != "CLAUDE_CODE_USE_MANTLE" {
+			over.AuthClears = append(over.AuthClears, v)
+		}
+	}
+	res := plan(t, p, &over, settingsDoc(t, encodeSettings(t, m)), rec)
+	if k := stepKinds(res)["settings.json#env.CLAUDE_CODE_USE_MANTLE"]; k != string(launch.StepRemove) || len(res.Steps) != 1 {
+		t.Errorf("steps = %v, want one remove", stepKinds(res))
+	}
+	if _, ok := envOf(t, res)["CLAUDE_CODE_USE_MANTLE"]; ok {
+		t.Error("entry not removed")
+	}
+	if res.NewRecord.Has("settings.json", "env.CLAUDE_CODE_USE_MANTLE") {
+		t.Error("record still lists the dropped name")
+	}
+}
+
+// Spec 005 T005: a definition without folder_launch (an override removed it) and a
+// record of neutralizing entries removes them without dereferencing the nil
+// folder_launch.
+func TestPlanLoginDefinitionWithoutFolderLaunch(t *testing.T) {
+	d := builtin(t, "claude")
+	p := loginProfile(profile.ShareContent)
+	m, rec := placedSettings(t, p, d, `{"env":{"MY_TRACE":"1"}}`)
+	stripped := *d
+	stripped.FolderLaunch = nil
+	res := plan(t, p, &stripped, settingsDoc(t, encodeSettings(t, m)), rec)
+	env := envOf(t, res)
+	if len(env) != 1 || env["MY_TRACE"] != "1" {
+		t.Errorf("env after removal = %v", env)
+	}
+	if len(res.NewRecord.Entries) != 0 {
+		t.Errorf("record not emptied: %+v", res.NewRecord)
+	}
+}
+
+// Spec 005 FR-002: names the profile supplies through the wrapper are never blanked.
+func TestPlanWrapperSuppliedNamesNotBlanked(t *testing.T) {
+	d := builtin(t, "claude")
+	all := d.UnsetAuthVars()
+	check := func(name string, p *profile.Profile, skip map[string]string) {
+		t.Helper()
+		res := plan(t, p, d, settingsDoc(t, `{}`), launch.Record{})
+		env := envOf(t, res)
+		for _, v := range all {
+			got, ok := env[v]
+			if want, skipped := skip[v]; skipped {
+				if want == "" && ok {
+					t.Errorf("%s: env.%s = %v must not be placed", name, v, got)
+				}
+				if want != "" && got != want {
+					t.Errorf("%s: env.%s = %v, want %q", name, v, got, want)
+				}
+				continue
+			}
+			if !ok || got != "" {
+				t.Errorf("%s: env.%s = %v (present %v), want empty", name, v, got, ok)
+			}
+		}
+	}
+
+	tok := &profile.Profile{Harness: "claude", Name: "tok", AuthKind: "oauth-token", Share: profile.ShareContent,
+		AuthRefs: map[string]secret.Reference{"CLAUDE_CODE_OAUTH_TOKEN": ref(t, "env:TOK")}}
+	check("oauth-token", tok, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": ""})
+
+	cleared := &profile.Profile{Harness: "claude", Name: "key", AuthKind: "api-key", Share: profile.ShareContent,
+		AuthRefs: map[string]secret.Reference{"ANTHROPIC_API_KEY": ref(t, "env:ANTHROPIC_API_KEY")}}
+	expect(t, launch.Decide(cleared, d, settingsDoc(t, `{}`)), launch.KindKey, launch.CarrierWrapper, launch.ReasonClearedSource)
+	check("api-key cleared-source", cleared, map[string]string{"ANTHROPIC_API_KEY": ""})
+
+	vertex := loginProfile(profile.ShareContent)
+	vertex.ExtraEnv = []profile.ExtraEnvVar{{Name: "CLAUDE_CODE_USE_VERTEX", Value: "1"}}
+	check("login with extra switch", vertex, map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"})
+
+	// A folder-carried key: its own variable is blanked, the key command serves it
+	// (spec 004 FR-006a unchanged).
+	folderKey := claudeProfile(t)
+	folderKey.Model, folderKey.Endpoint, folderKey.ExtraEnv = "", "", nil
+	check("folder-carried api-key", folderKey, nil)
+}
+
+// Spec 005 edge case: an auth kind change from a folder-carried api-key to an
+// oauth-token removes the empty entry for the new kind's own variable.
+func TestPlanAuthKindChangeToOAuthToken(t *testing.T) {
+	d := builtin(t, "claude")
+	p := claudeProfile(t)
+	p.Model, p.Endpoint, p.ExtraEnv = "", "", nil
+	m, rec := placedSettings(t, p, d, `{}`)
+	if got, ok := m["env"].(map[string]any)["CLAUDE_CODE_OAUTH_TOKEN"]; !ok || got != "" {
+		t.Fatalf("api-key profile: env.CLAUDE_CODE_OAUTH_TOKEN = %v (present %v)", got, ok)
+	}
+	p.AuthKind = "oauth-token"
+	p.AuthRefs = map[string]secret.Reference{"CLAUDE_CODE_OAUTH_TOKEN": ref(t, "env:TOK")}
+	res := plan(t, p, d, settingsDoc(t, encodeSettings(t, m)), rec)
+	ks := stepKinds(res)
+	if ks["settings.json#env.CLAUDE_CODE_OAUTH_TOKEN"] != string(launch.StepRemove) || ks["settings.json#apiKeyHelper"] != string(launch.StepRemove) {
+		t.Errorf("steps = %v", ks)
+	}
+	env := envOf(t, res)
+	if _, ok := env["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
+		t.Error("the token variable is still blanked")
+	}
+	if got, ok := env["ANTHROPIC_API_KEY"]; !ok || got != "" {
+		t.Errorf("env.ANTHROPIC_API_KEY = %v (present %v), want empty", got, ok)
 	}
 }

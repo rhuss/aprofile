@@ -46,8 +46,11 @@ const (
 	KindModel    = "model"
 	KindEndpoint = "endpoint"
 	KindKey      = "key"
-	extraPrefix  = "extra:"
-	hookPrefix   = "hook:"
+	// KindAuthClearing names the auth-clearing wrapper-only report item (spec 005
+	// FR-005); it is never a Setting.
+	KindAuthClearing = "auth-clearing"
+	extraPrefix      = "extra:"
+	hookPrefix       = "hook:"
 )
 
 // Setting is one launch setting of a profile with its carrier.
@@ -155,6 +158,15 @@ func envCarrier(p *profile.Profile, def *harness.Definition, doc Doc) Reason {
 		return ReasonShareAll
 	}
 	return ""
+}
+
+// canCarryEnv reports whether the folder can carry environment entries: the
+// definition declares a folder env location and the env file is the profile's own
+// (not linked to the default setup). The planner uses it to place the neutralizing
+// entries; Status reports the share-level-all gap from envCarrier directly
+// (authClearingGap).
+func canCarryEnv(p *profile.Profile, def *harness.Definition, doc Doc) bool {
+	return envCarrier(p, def, doc) == ""
 }
 
 // linked reports whether a folder_launch file is (or will be) linked to the default

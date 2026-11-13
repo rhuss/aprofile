@@ -60,6 +60,25 @@ func envBlock(t *testing.T, m map[string]any) map[string]any {
 	return env
 }
 
+// onlyNeutralizing reports whether a settings.json holds nothing but an env block
+// of empty entries (spec 005 neutralizing entries).
+func onlyNeutralizing(t *testing.T, m map[string]any) bool {
+	t.Helper()
+	if len(m) != 1 {
+		return false
+	}
+	env, ok := m["env"].(map[string]any)
+	if !ok || len(env) == 0 {
+		return false
+	}
+	for _, v := range env {
+		if v != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // runHelper runs a key command the way the harness does (/bin/sh -c) with an empty
 // environment.
 func runHelper(t *testing.T, cmd string) string {
@@ -202,8 +221,13 @@ func TestLaunchClaudeOAuthTokenKeyWrapperOnly(t *testing.T) {
 	if envBlock(t, m)["ANTHROPIC_MODEL"] != "m" {
 		t.Error("the model is still folder-carried")
 	}
+	// Spec 005 FR-001, FR-002: the folder neutralizes the auth-clearing list, except
+	// the token variable the wrapper supplies.
 	if _, ok := envBlock(t, m)["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
-		t.Error("no neutralizing entries when the key is wrapper-only")
+		t.Error("the wrapper-supplied token variable must not be blanked")
+	}
+	if got, ok := envBlock(t, m)["CLAUDE_CODE_USE_VERTEX"]; !ok || got != "" {
+		t.Errorf("env.CLAUDE_CODE_USE_VERTEX = %v (present %v), want empty", got, ok)
 	}
 	out, err := e.runWrapper("claude-tok", []string{"TOK=oauth-value"})
 	if err != nil || !strings.Contains(out, "STUB_ENV: CLAUDE_CODE_OAUTH_TOKEN=oauth-value") {
@@ -271,4 +295,55 @@ func execSh(t *testing.T, command string, args []string) string {
 		t.Fatalf("%s %v: %v", command, args, err)
 	}
 	return string(out)
+}
+
+// Spec 005 US1: an interactive-login profile with its own settings file carries an
+// empty entry for every name on the auth-clearing list after sync; the dry run
+// lists them without values and a second sync changes nothing.
+func TestLaunchClaudeLoginNeutralizes(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "work-login", "--auth-kind", "oauth-login", "--share", "content")
+	settings := filepath.Join(e.configDir("claude", "work-login"), "settings.json")
+
+	dry := e.run(nil, "sync", "--dry-run")
+	for _, want := range []string{
+		"claude/work-login: settings.json: set env CLAUDE_CODE_USE_VERTEX",
+		"claude/work-login: settings.json: set env ANTHROPIC_API_KEY",
+	} {
+		if !strings.Contains(dry, want) {
+			t.Errorf("sync --dry-run lacks %q:\n%s", want, dry)
+		}
+	}
+	if data, err := os.ReadFile(settings); err == nil && strings.Contains(string(data), "CLAUDE_CODE_USE_VERTEX") {
+		t.Error("sync --dry-run wrote the settings file")
+	}
+
+	e.run(nil, "sync")
+	env := envBlock(t, readSettings(t, settings))
+	for _, name := range []string{
+		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+		"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION",
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+	} {
+		if got, ok := env[name]; !ok || got != "" {
+			t.Errorf("env.%s = %v (present %v), want empty", name, got, ok)
+		}
+	}
+	for name, v := range env {
+		if v != "" {
+			t.Errorf("env.%s = %v: a login profile places only empty entries", name, v)
+		}
+	}
+
+	dataDir := filepath.Join(e.root, ".local", "share", "aprofile")
+	before := snapshotMtimes(t, dataDir)
+	out := e.run(nil, "sync")
+	if !strings.Contains(out, "0 changes") && !strings.Contains(out, "already up to date") {
+		t.Errorf("second sync reports changes:\n%s", out)
+	}
+	for p, mt := range snapshotMtimes(t, dataDir) {
+		if before[p] != mt {
+			t.Errorf("%s rewritten by an unchanged sync", p)
+		}
+	}
 }

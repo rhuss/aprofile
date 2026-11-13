@@ -94,7 +94,7 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 		// removed them): the placed entries are removed all the same (FR-005).
 		fl = &harness.FolderLaunch{}
 	}
-	want, err := desiredState(p, def, res.Settings)
+	want, err := desiredState(def, res.Settings, canCarryEnv(p, def, doc))
 	if err != nil {
 		return res, err
 	}
@@ -148,7 +148,7 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 			if keyHere && kc.Form == harness.KeyFormProviderAuth {
 				return res, fmt.Errorf("%s: cannot place launch settings: the provider-auth form needs a TOML file", f)
 			}
-			if err := planJSON(&res, fl, f, fd, rec, want, envHere, keyHere); err != nil {
+			if err := planJSON(&res, p.ID(), fl, f, fd, rec, want, envHere, keyHere); err != nil {
 				return res, err
 			}
 		}
@@ -165,8 +165,10 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 }
 
 // desiredState computes the desired placed entries from the settings
-// (data-model.md "Desired entries for a profile").
-func desiredState(p *profile.Profile, def *harness.Definition, settings []Setting) (desired, error) {
+// (data-model.md "Desired entries for a profile"). envOK says whether the folder
+// can carry env entries (a folder env location and an env file that is the
+// profile's own, not linked to the default setup).
+func desiredState(def *harness.Definition, settings []Setting, envOK bool) (desired, error) {
 	var d desired
 	var names []string
 	folderVar := false
@@ -186,17 +188,18 @@ func desiredState(p *profile.Profile, def *harness.Definition, settings []Settin
 	if folderVar {
 		d.env = append(d.env, envEntry{"APROFILE_SET_VARS", strings.Join(names, " ")})
 	}
-	fl := def.FolderLaunch
-	if key == nil {
-		return d, nil
-	}
-	// FR-006a: the folder neutralizes the auth-clearing list, except names the
-	// profile supplies itself (extra or exec-hook variables, whichever carrier): an
-	// empty folder entry would beat the value the wrapper sets.
-	if fl.Env != "" {
+	// Spec 004 FR-006a, widened by spec 005 FR-001: whenever the folder can carry
+	// env entries, it neutralizes the auth-clearing list, whatever the auth kind and
+	// whether or not it carries the key, except names the profile supplies itself
+	// (spec 005 FR-002): an empty folder entry would beat the value the wrapper sets.
+	if envOK {
+		// Supplied names: every launch variable of the profile (model, endpoint, extra
+		// and exec-hook variables, whichever carrier) and the variable of a key the
+		// wrapper carries. A folder-carried key's own variable stays blanked: the key
+		// command serves it (spec 004 research R2).
 		supplied := map[string]bool{}
 		for _, s := range settings {
-			if s.IsVariable() {
+			if s.IsVariable() || (s.Kind == KindKey && s.Carrier == CarrierWrapper && s.Variable != "") {
 				supplied[s.Variable] = true
 			}
 		}
@@ -206,6 +209,10 @@ func desiredState(p *profile.Profile, def *harness.Definition, settings []Settin
 			}
 		}
 	}
+	if key == nil {
+		return d, nil
+	}
+	fl := def.FolderLaunch
 	switch fl.KeyCommand.Form {
 	case harness.KeyFormShell:
 		cmd, err := ShellCommand(*key.Ref)
@@ -251,6 +258,12 @@ func placeKind(exists, equal, recorded bool) (StepKind, bool) {
 	}
 }
 
+// jsonEmptyValue reports whether raw is null or the empty JSON string.
+func jsonEmptyValue(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	return bytes.Equal(t, []byte("null")) || bytes.Equal(t, []byte(`""`))
+}
+
 // jsonStringEqual reports whether raw is the JSON string s.
 func jsonStringEqual(raw json.RawMessage, s string) bool {
 	var v any
@@ -261,7 +274,7 @@ func jsonStringEqual(raw json.RawMessage, s string) bool {
 	return ok && str == s
 }
 
-func planJSON(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, envHere, keyHere bool) error {
+func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, envHere, keyHere bool) error {
 	handled := map[string]bool{} // record locations the env and key steps decided
 	top := map[string]json.RawMessage{}
 	for k, v := range fd.JSON {
@@ -296,6 +309,13 @@ func planJSON(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 			res.NewRecord.Entries = append(res.NewRecord.Entries, Entry{File: f, Location: loc})
 			if !ok {
 				continue
+			}
+			if exists && e.value == "" && !jsonEmptyValue(cur) {
+				// A neutralizing entry drops a non-empty value in the profile's own
+				// file (a user entry it replaces, or a hand edit of a placed entry it
+				// restores): say so on its own line, naming the variable but never its
+				// value, with the way to keep it (spec 005 review finding).
+				res.Notes = append(res.Notes, fmt.Sprintf("%s: the profile's own env %s is replaced by an empty entry, so a launch from the folder no longer uses it; to keep it, set it on the profile: aprofile edit %s --env %s=<value>", f, e.name, id, e.name))
 			}
 			raw, _ := json.Marshal(e.value)
 			envObj[e.name] = raw
