@@ -320,3 +320,77 @@ func TestFeaturesIsolationAndCopy(t *testing.T) {
 		t.Errorf("invalid protocol value carried to codex:\n%s", data)
 	}
 }
+
+// Quickstart Scenario 6 (User Story 6): conflicts with hand-set variables are
+// caught, in both directions, and drift surfaces at sync and show time.
+func TestFeaturesCollisions(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "old", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude", "new", "--auth-kind", "oauth-login", "--share", "content")
+
+	// Direction 1: enabling over a hand-set extra env var fails naming it.
+	e.run(nil, "edit", "claude/old", "--env-literal", "AUTOMODE_DECISION_LOG=1")
+	if out, err := e.tryRun(nil, "features", "claude/old", "--enable", "automode-log"); err == nil {
+		t.Fatalf("enabling over a hand-set variable should fail:\n%s", out)
+	} else if !strings.Contains(out, "AUTOMODE_DECISION_LOG") {
+		t.Errorf("the error should name the variable:\n%s", out)
+	}
+
+	// Direction 2: setting the variable over an enabled feature fails too.
+	e.run(nil, "features", "claude/new", "--enable", "automode-log")
+	if out, err := e.tryRun(nil, "edit", "claude/new", "--env-literal", "AUTOMODE_DECISION_LOG=1"); err == nil {
+		t.Fatalf("setting a feature's variable should fail:\n%s", out)
+	} else if !strings.Contains(out, "AUTOMODE_DECISION_LOG") {
+		t.Errorf("the error should name the variable:\n%s", out)
+	}
+
+	// A collision that appears anyway (a hand-edited record) is a sync problem
+	// (FR-015) and a show warning.
+	e.run(nil, "features", "claude/new", "--enable", "telemetry", "--traces", "on",
+		"--logs", "on", "--endpoint", "https://otlp.example.com")
+	e.run(nil, "sync")
+	record := e.profileFile("claude", "new")
+	data, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hand-edit: add a colliding extra env to the stored record.
+	hand := strings.Replace(string(data), "features:", "extra_env:\n  - name: OTEL_TRACES_EXPORTER\n    value: console\n    literal: true\nfeatures:", 1)
+	if hand == string(data) {
+		t.Fatalf("could not patch the profile record:\n%s", data)
+	}
+	if err := os.WriteFile(record, []byte(hand), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := e.tryRun(nil, "sync"); err == nil {
+		t.Fatalf("a collision at sync time should be a problem:\n%s", out)
+	} else if !strings.Contains(out, "OTEL_TRACES_EXPORTER") {
+		t.Errorf("the sync problem should name the variable:\n%s", out)
+	}
+	out := e.run(nil, "show", "claude/new")
+	if !strings.Contains(out, "OTEL_TRACES_EXPORTER") {
+		t.Errorf("show should warn about the collision:\n%s", out)
+	}
+
+	// An externally changed placed entry surfaces as a show warning (FR-016).
+	if err := os.WriteFile(record, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.run(nil, "sync")
+	settings := e.featureSettingsPath("claude", "new")
+	raw, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(raw), `"otlp"`, `"console"`, 1)
+	if edited == string(raw) {
+		t.Fatalf("could not patch the settings file:\n%s", raw)
+	}
+	if err := os.WriteFile(settings, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = e.run(nil, "show", "claude/new")
+	if !strings.Contains(out, "differ") {
+		t.Errorf("show should report the feature drift:\n%s", out)
+	}
+}

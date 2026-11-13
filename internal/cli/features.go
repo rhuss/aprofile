@@ -332,6 +332,24 @@ func featureIDs() []string {
 	return out
 }
 
+// checkFeatureEnvCollision returns an error when an extra env variable would
+// collide with an entry an enabled feature places (FR-015, edit's direction):
+// setting a hand-set variable over a feature's entry is never silently
+// accepted.
+func checkFeatureEnvCollision(p *profile.Profile, def *harness.Definition, name string) error {
+	if def == nil {
+		return nil
+	}
+	for _, fs := range p.Features {
+		for _, v := range def.FeatureEnvNames(fs.Feature) {
+			if v == name {
+				return fmt.Errorf("extra env %s collides with an entry the %s feature places; disable the feature first: aprofile features %s --disable %s", name, fs.Feature, p.ID(), fs.Feature)
+			}
+		}
+	}
+	return nil
+}
+
 // featureDriftWarnings reports drift between a profile's recorded feature state
 // and its placed entries (FR-016): entries that differ from the derived want,
 // and feature entries still placed for a feature that is no longer enabled.

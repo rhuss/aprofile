@@ -157,12 +157,12 @@ Single Go module at repository root: `internal/` packages, `tests/integration/` 
 
 ### Tests for User Story 6 (test-first)
 
-- [ ] T030 [P] [US6] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 6 (both mutation-time directions, sync problem, show warning for an externally changed placed entry).
+- [X] T030 [P] [US6] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 6 (both mutation-time directions, sync problem, show warning for an externally changed placed entry).
 
 ### Implementation for User Story 6
 
-- [ ] T031 [US6] Collision checks on both mutation paths (R6) using `FeatureEnvNames` from T007 (`internal/launch/plan.go`): `internal/cli/features.go` checks it against the profile's extra env names on mutation, `internal/cli/edit.go`'s `--env`/`--env-literal` path checks it against enabled features (FR-015, both directions, error names the variable).
-- [ ] T032 [US6] Drift reporting: `internal/launch/carrier.go` sync problem and `internal/cli/list_show.go` warning when a placed feature entry differs from the derived want or collides with an extra env name (FR-015, FR-016).
+- [X] T031 [US6] Collision checks on both mutation paths (R6) using `FeatureEnvNames` from T007 (`internal/launch/plan.go`): `internal/cli/features.go` checks it against the profile's extra env names on mutation, `internal/cli/edit.go`'s `--env`/`--env-literal` path checks it against enabled features (FR-015, both directions, error names the variable).
+- [X] T032 [US6] Drift reporting: `internal/launch/carrier.go` sync problem and `internal/cli/list_show.go` warning when a placed feature entry differs from the derived want or collides with an extra env name (FR-015, FR-016).
 
 **Checkpoint**: All user stories independently functional
 

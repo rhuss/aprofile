@@ -256,6 +256,11 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 		} else if _, err := secret.ParseReference(val); err != nil {
 			return fmt.Errorf("--env %s: %w", name, err)
 		}
+		// Spec 006 FR-015: an extra env variable named like a feature's entry is
+		// rejected in this direction too, naming the variable.
+		if err := checkFeatureEnvCollision(p, def, name); err != nil {
+			return fmt.Errorf("--env %s: %w", name, err)
+		}
 		upsertEnv(p, profile.ExtraEnvVar{Name: name, Value: val})
 	}
 	for _, kv := range f.envLiteral {
@@ -264,6 +269,9 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 			return err
 		}
 		if err := secret.ValidateValue(val, true); err != nil {
+			return fmt.Errorf("--env-literal %s: %w", name, err)
+		}
+		if err := checkFeatureEnvCollision(p, def, name); err != nil {
 			return fmt.Errorf("--env-literal %s: %w", name, err)
 		}
 		upsertEnv(p, profile.ExtraEnvVar{Name: name, Value: val, Literal: true})
