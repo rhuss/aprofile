@@ -86,8 +86,9 @@ type desired struct {
 func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, hookEnv []harness.EnvVar) (Result, error) {
 	res := Result{Settings: DecideWith(p, def, doc, hookEnv), NewRecord: Record{FormatVersion: RecordFormatVersion}}
 	fl := def.FolderLaunch
+	featAll := featureDesired(def, p)
 	if fl == nil {
-		if len(rec.Entries) == 0 {
+		if len(rec.Entries) == 0 && len(featAll) == 0 {
 			return res, nil
 		}
 		// The definition no longer declares folder locations (a harnesses.d override
@@ -99,9 +100,33 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 		return res, err
 	}
 
+	// Feature-derived desired entries (spec 006): those targeting the folder env
+	// block ride the env placement path; the rest go to the generic nested paths.
+	featEnv, featRest := envFeatureEntries(fl, def, featAll)
+	featEnvNames := map[string]bool{}
+	supplied := map[string]bool{}
+	for _, s := range res.Settings {
+		if s.IsVariable() {
+			supplied[s.Variable] = true
+		}
+	}
+	for _, e := range featEnv {
+		// FR-015: a collision between a feature's entries and a hand-set extra env
+		// var is never silently resolved; at plan time (a hand-edited record) it is
+		// a problem naming the variable.
+		if supplied[e.name] {
+			return res, fmt.Errorf("features: env %s is also set as the profile's own env variable; disable one (aprofile features %s --disable <feature>, or drop the variable with: aprofile edit %s --env %s=)", e.name, p.ID(), p.ID(), e.name)
+		}
+		featEnvNames[e.name] = true
+		want.env = append(want.env, e)
+	}
+
 	// Every file the definition names or the record lists.
 	fileSet := map[string]bool{}
 	for _, f := range files(&harness.Definition{FolderLaunch: fl}) {
+		fileSet[f] = true
+	}
+	for _, f := range featureFiles(def) {
 		fileSet[f] = true
 	}
 	for _, e := range rec.Entries {
@@ -119,9 +144,16 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 		kc := fl.KeyCommand
 		keyHere := kc != nil && kc.File() == f
 		recHere := recordIn(rec, f)
-		hasWant := (envHere && len(want.env) > 0) || (keyHere && (want.shellCmd != "" || want.auth != nil))
+		featHere := featureEntriesIn(featRest, f)
+		hasWant := (envHere && len(want.env) > 0) || (keyHere && (want.shellCmd != "" || want.auth != nil)) || len(featHere) > 0
 
 		if fd.Linked {
+			if len(featHere) > 0 || (envHere && len(featEnv) > 0) {
+				// Spec 006 edge case: feature entries are never written into a file
+				// linked to the default setup; a level change by other means leaves
+				// them unplaceable and sync reports a problem.
+				return res, fmt.Errorf("%s: is linked to the default setup; the profile's feature entries cannot be placed (fix: aprofile edit %s --share content)", f, p.ID())
+			}
 			// Never written through; its record entries are dropped (FR-008, FR-008a).
 			res.Unplaced = append(res.Unplaced, unplaced(p, def, fl, f, fd, Record{}, want)...)
 			continue
@@ -141,14 +173,14 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 			if envHere || (keyHere && kc.Form != harness.KeyFormProviderAuth) {
 				return res, fmt.Errorf("%s: cannot place launch settings: env entries and shell key commands need a JSON file", f)
 			}
-			if err := planTOML(&res, fl, f, fd, rec, want, keyHere); err != nil {
+			if err := planTOML(&res, fl, f, fd, rec, want, keyHere, featureLocationSet(def), featHere); err != nil {
 				return res, err
 			}
 		} else {
 			if keyHere && kc.Form == harness.KeyFormProviderAuth {
 				return res, fmt.Errorf("%s: cannot place launch settings: the provider-auth form needs a TOML file", f)
 			}
-			if err := planJSON(&res, p.ID(), fl, f, fd, rec, want, envHere, keyHere); err != nil {
+			if err := planJSON(&res, p.ID(), fl, f, fd, rec, want, envHere, keyHere, featEnvNames, featHere); err != nil {
 				return res, err
 			}
 		}
@@ -274,7 +306,7 @@ func jsonStringEqual(raw json.RawMessage, s string) bool {
 	return ok && str == s
 }
 
-func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, envHere, keyHere bool) error {
+func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, envHere, keyHere bool, featEnvNames map[string]bool, featHere []DesiredEntry) error {
 	handled := map[string]bool{} // record locations the env and key steps decided
 	top := map[string]json.RawMessage{}
 	for k, v := range fd.JSON {
@@ -305,8 +337,17 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 			wantNames[e.name] = true
 			loc := ek + "." + e.name
 			cur, exists := envObj[e.name]
-			kind, ok := placeKind(exists, exists && jsonStringEqual(cur, e.value), rec.Has(f, loc))
-			res.NewRecord.Entries = append(res.NewRecord.Entries, Entry{File: f, Location: loc})
+			recorded := rec.Has(f, loc)
+			kind, ok := placeKind(exists, exists && jsonStringEqual(cur, e.value), recorded)
+			entry := Entry{File: f, Location: loc}
+			if featEnvNames[e.name] && exists && !recorded && !jsonEmptyValue(cur) && !jsonStringEqual(cur, e.value) {
+				// A feature entry replaces a hand-written value: record it for
+				// restore on disable and say so, naming the variable but never its
+				// value (spec 006 FR-011, T011).
+				entry.Replaced = map[string]string{"": string(bytes.TrimSpace(cur))}
+				res.Notes = append(res.Notes, fmt.Sprintf("%s: env %s held a value the feature replaces; it is restored when the feature is disabled", f, e.name))
+			}
+			res.NewRecord.Entries = append(res.NewRecord.Entries, entry)
 			if !ok {
 				continue
 			}
@@ -329,6 +370,15 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 			}
 			handled[e.Location] = true
 			if wantNames[name] {
+				continue
+			}
+			if old, has := e.Replaced[""]; has {
+				// A removed feature entry restores the hand-written value it
+				// replaced (T011), so disabling is byte-exact (SC-002). Only
+				// feature entries record a whole-value Replaced in the env block.
+				envObj[name] = json.RawMessage(old)
+				envChanged = true
+				step(StepRemove, e.Location, "restored the previous value")
 				continue
 			}
 			if _, exists := envObj[name]; exists {
@@ -368,6 +418,44 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 				changed = true
 			}
 			step(StepRemove, k, "")
+		}
+	}
+
+	// Feature entries at JSON locations outside the folder env block (spec 006):
+	// placed like env entries, one nesting level (the loader restricts JSON
+	// feature locations to env.<NAME>).
+	for _, e := range featHere {
+		handled[e.Location] = true
+		obj, name, nested := strings.Cut(e.Location, ".")
+		if !nested {
+			return fmt.Errorf("%s: cannot place feature entry %s: the location must be env.<NAME> in a JSON file", f, e.Location)
+		}
+		value, isStr := e.Value.(string)
+		if !isStr {
+			return fmt.Errorf("%s: cannot place feature entry %s: a JSON value must be a string", f, e.Location)
+		}
+		sub := map[string]json.RawMessage{}
+		if raw, ok := top[obj]; ok {
+			m, err := layer.DecodeJSONObject(raw)
+			if err != nil {
+				return fmt.Errorf("%s: cannot place feature entry %s: %s is not an object", f, e.Location, obj)
+			}
+			sub = m
+		}
+		cur, exists := sub[name]
+		recorded := rec.Has(f, e.Location)
+		kind, ok := placeKind(exists, exists && jsonStringEqual(cur, value), recorded)
+		res.NewRecord.Entries = append(res.NewRecord.Entries, Entry{File: f, Location: e.Location})
+		if ok {
+			raw, _ := json.Marshal(value)
+			sub[name] = raw
+			enc, err := layer.EncodeJSONCompact(sub)
+			if err != nil {
+				return err
+			}
+			top[obj] = enc
+			changed = true
+			step(kind, e.Location, "")
 		}
 	}
 
@@ -411,7 +499,7 @@ func planJSON(res *Result, id string, fl *harness.FolderLaunch, f string, fd Fil
 	return nil
 }
 
-func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, keyHere bool) error {
+func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec Record, want desired, keyHere bool, featLocs map[string]bool, featHere []DesiredEntry) error {
 	kc := fl.KeyCommand
 	top := deepCopy(fd.TOML)
 	if top == nil {
@@ -444,8 +532,62 @@ func planTOML(res *Result, fl *harness.FolderLaunch, f string, fd FileDoc, rec R
 		res.Steps = append(res.Steps, Step{Kind: kind, File: f, Location: l, Note: note})
 	}
 
+	// Feature-derived entries (spec 006, FR-012): nested dotted-path placement
+	// with Replaced subtree capture and restore; sibling hand-written keys are
+	// preserved and only the keys aprofile placed are removed.
+	featWant := map[string]bool{}
+	for _, e := range featHere {
+		featWant[e.Location] = true
+		path := strings.Split(e.Location, ".")
+		cur, exists := getTOMLPath(m, path)
+		recorded := rec.Has(f, e.Location)
+		kind, need := placeKind(exists, exists && tomlEqual(cur, e.Value), recorded)
+		entry := Entry{File: f, Location: e.Location}
+		if exists && !recorded && !tomlEmptyValue(cur) && !tomlEqual(cur, e.Value) {
+			enc, err := encodeTOMLSubtree(cur)
+			if err != nil {
+				return fmt.Errorf("%s: cannot place feature entry %s: %v", f, e.Location, err)
+			}
+			entry.Replaced = map[string]string{"": enc}
+			// The replacement is never silent: sync names the key path, never the
+			// value (FR-012).
+			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s held a value the feature replaces; it is restored when the feature is disabled", f, e.Location))
+		}
+		res.NewRecord.Entries = append(res.NewRecord.Entries, entry)
+		if need {
+			if err := setTOMLPath(m, path, deepCopy(e.Value)); err != nil {
+				return fmt.Errorf("%s: cannot place feature entry %s: %v", f, e.Location, err)
+			}
+			changed = true
+			step(kind, e.Location, "")
+		}
+	}
+	// Remove feature entries the profile no longer wants, restoring what they
+	// replaced; hand-written sibling keys survive.
+	for _, e := range recordIn(rec, f) {
+		if !featLocs[f+"#"+e.Location] || featWant[e.Location] {
+			continue
+		}
+		path := strings.Split(e.Location, ".")
+		note := ""
+		if raw, has := e.Replaced[""]; has {
+			if old, err := decodeTOMLSubtree(raw); err == nil {
+				if err := setTOMLPath(m, path, old); err == nil {
+					note = "restored the previous value"
+				}
+			}
+		} else if deleteTOMLPath(m, path) {
+			// removed
+		}
+		changed = true
+		step(StepRemove, e.Location, note)
+	}
+
 	// Remove placed auth blocks that are no longer desired, restoring what they replaced.
 	for _, e := range recordIn(rec, f) {
+		if featLocs[f+"#"+e.Location] {
+			continue // a feature entry, handled above
+		}
 		if e.Location == desiredLoc {
 			continue
 		}
@@ -647,6 +789,84 @@ func tomlEqual(a, b any) bool {
 	ja, err1 := json.Marshal(a)
 	jb, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && bytes.Equal(ja, jb)
+}
+
+// setTOMLPath sets the value at a dotted path, creating the intermediate tables.
+// It errors when a non-table value blocks the path.
+func setTOMLPath(m map[string]any, path []string, v any) error {
+	cur := m
+	for _, seg := range path[:len(path)-1] {
+		next, ok := cur[seg].(map[string]any)
+		if !ok {
+			if _, exists := cur[seg]; exists {
+				return fmt.Errorf("key %s is not a table", seg)
+			}
+			next = map[string]any{}
+			cur[seg] = next
+		}
+		cur = next
+	}
+	cur[path[len(path)-1]] = v
+	return nil
+}
+
+// getTOMLPath returns the value at a dotted path, or ok=false.
+func getTOMLPath(m map[string]any, path []string) (any, bool) {
+	cur := m
+	for _, seg := range path[:len(path)-1] {
+		next, ok := cur[seg].(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		cur = next
+	}
+	v, ok := cur[path[len(path)-1]]
+	return v, ok
+}
+
+// deleteTOMLPath removes the leaf key at a dotted path, keeping the parent
+// tables. It reports whether anything was removed.
+func deleteTOMLPath(m map[string]any, path []string) bool {
+	cur := m
+	for _, seg := range path[:len(path)-1] {
+		next, ok := cur[seg].(map[string]any)
+		if !ok {
+			return false
+		}
+		cur = next
+	}
+	last := path[len(path)-1]
+	if _, ok := cur[last]; !ok {
+		return false
+	}
+	delete(cur, last)
+	return true
+}
+
+// tomlEmptyValue reports whether v is the empty TOML string (a hand-written
+// empty value is replaced without record, like a JSON empty).
+func tomlEmptyValue(v any) bool {
+	s, ok := v.(string)
+	return ok && s == ""
+}
+
+// encodeTOMLSubtree renders a replaced TOML value (scalar or nested table) as
+// TOML source for the record, wrapped under a single key so a table round-trips.
+func encodeTOMLSubtree(v any) (string, error) {
+	data, err := toml.Marshal(map[string]any{"value": v})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// decodeTOMLSubtree parses what encodeTOMLSubtree wrote.
+func decodeTOMLSubtree(raw string) (any, error) {
+	m := map[string]any{}
+	if err := toml.Unmarshal([]byte(raw), &m); err != nil {
+		return nil, err
+	}
+	return m["value"], nil
 }
 
 // encodeTOMLValue renders a scalar TOML value as TOML source (a string as a basic

@@ -817,3 +817,163 @@ func TestPlanAuthKindChangeToOAuthToken(t *testing.T) {
 		t.Errorf("env.ANTHROPIC_API_KEY = %v (present %v), want empty", got, ok)
 	}
 }
+
+// --- Spec 006 (T008): feature-state-to-desired-entries derivation ---
+
+// featureProfile is a claude profile with telemetry enabled.
+func featureProfile(t *testing.T, params map[string]string) *profile.Profile {
+	t.Helper()
+	p := claudeProfile(t)
+	p.Model, p.Endpoint, p.ExtraEnv = "", "", nil
+	p.Features = []profile.FeatureState{{Feature: "telemetry", Params: params}}
+	return p
+}
+
+func TestPlanFeatureTelemetryBothSignalsOn(t *testing.T) {
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, settingsDoc(t, `{}`), launch.Record{})
+	env := envOf(t, res)
+	want := map[string]string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY":        "1",
+		"OTEL_TRACES_EXPORTER":                "otlp",
+		"OTEL_LOGS_EXPORTER":                  "otlp",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":         "https://otlp.example.com",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":         "http/protobuf", // per-harness default (FR-004)
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",             // when: traces
+	}
+	for k, v := range want {
+		if got, ok := env[k]; !ok || got != v {
+			t.Errorf("env.%s = %v (present %v), want %q", k, got, ok, v)
+		}
+		if !res.NewRecord.Has("settings.json", "env."+k) {
+			t.Errorf("env.%s not recorded as placed", k)
+		}
+	}
+	ks := stepKinds(res)
+	if ks["settings.json#env.OTEL_TRACES_EXPORTER"] != "set" {
+		t.Errorf("steps = %v", ks)
+	}
+}
+
+func TestPlanFeatureOffSignalPlacesNone(t *testing.T) {
+	// FR-011: a signal that is off places its exporter entry as none, so an
+	// inherited OTEL_* value cannot turn it back on; the when-gated beta flag is
+	// skipped entirely.
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "off", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, settingsDoc(t, `{}`), launch.Record{})
+	env := envOf(t, res)
+	if got := env["OTEL_TRACES_EXPORTER"]; got != "none" {
+		t.Errorf("env.OTEL_TRACES_EXPORTER = %v, want none", got)
+	}
+	if got := env["OTEL_LOGS_EXPORTER"]; got != "otlp" {
+		t.Errorf("env.OTEL_LOGS_EXPORTER = %v, want otlp", got)
+	}
+	if _, ok := env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"]; ok {
+		t.Error("the traces beta flag must not be placed with traces off")
+	}
+}
+
+func TestPlanFeatureParamReferenceAndProtocol(t *testing.T) {
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "on", "logs": "off", "endpoint": "http://collector:4317", "protocol": "grpc",
+	})
+	res := plan(t, p, d, settingsDoc(t, `{}`), launch.Record{})
+	env := envOf(t, res)
+	if got := env["OTEL_EXPORTER_OTLP_ENDPOINT"]; got != "http://collector:4317" {
+		t.Errorf("endpoint param reference not resolved: %v", got)
+	}
+	if got := env["OTEL_EXPORTER_OTLP_PROTOCOL"]; got != "grpc" {
+		t.Errorf("protocol override not applied: %v", got)
+	}
+}
+
+func TestPlanFeatureAutomodeLogLiteral(t *testing.T) {
+	d := builtin(t, "claude")
+	p := claudeProfile(t)
+	p.Model, p.Endpoint, p.ExtraEnv = "", "", nil
+	p.Features = []profile.FeatureState{{Feature: "automode-log"}}
+	res := plan(t, p, d, settingsDoc(t, `{}`), launch.Record{})
+	env := envOf(t, res)
+	if got := env["AUTOMODE_DECISION_LOG"]; got != "1" {
+		t.Errorf("env.AUTOMODE_DECISION_LOG = %v, want 1", got)
+	}
+	if !res.NewRecord.Has("settings.json", "env.AUTOMODE_DECISION_LOG") {
+		t.Error("automode-log entry not recorded")
+	}
+}
+
+func TestPlanFeatureDisableRemovesExactly(t *testing.T) {
+	// SC-002 / FR-010: disabling removes exactly the placed entries, restoring a
+	// hand-written value the feature replaced.
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	// A hand-written exporter the feature replaces.
+	res := plan(t, p, d, settingsDoc(t, `{"env":{"OTEL_LOGS_EXPORTER":"console","USER_KEY":"user"}}`), launch.Record{})
+	rec := res.NewRecord
+	if k := stepKinds(res)["settings.json#env.OTEL_LOGS_EXPORTER"]; k != "replace-user" {
+		t.Errorf("replacing a hand-written exporter: %q", k)
+	}
+	if e, ok := rec.Get("settings.json", "env.OTEL_LOGS_EXPORTER"); !ok || e.Replaced[""] != `"console"` {
+		t.Errorf("replaced hand-written value not recorded: %+v", e)
+	}
+
+	p.Features = nil
+	res = plan(t, p, d, settingsDoc(t, encodeSettings(t, writtenJSON(t, res, "settings.json"))), rec)
+	env := envOf(t, res)
+	for _, k := range []string{"CLAUDE_CODE_ENABLE_TELEMETRY", "OTEL_TRACES_EXPORTER",
+		"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_PROTOCOL", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"} {
+		if _, ok := env[k]; ok {
+			t.Errorf("env.%s still placed after disable", k)
+		}
+	}
+	if got, ok := env["OTEL_LOGS_EXPORTER"]; !ok || got != "console" {
+		t.Errorf("hand-written value not restored: %v (present %v)", got, ok)
+	}
+	if got, ok := env["USER_KEY"]; !ok || got != "user" {
+		t.Errorf("unrelated user entry changed: %v", env)
+	}
+	// The feature's locations are gone from the record; the profile's own launch
+	// entries (the neutralizing blanks) legitimately remain.
+	for _, k := range []string{"CLAUDE_CODE_ENABLE_TELEMETRY", "OTEL_TRACES_EXPORTER", "OTEL_LOGS_EXPORTER",
+		"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_PROTOCOL", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "AUTOMODE_DECISION_LOG"} {
+		if res.NewRecord.Has("settings.json", "env."+k) {
+			t.Errorf("record still lists env.%s after disable", k)
+		}
+	}
+}
+
+func TestPlanFeatureIdempotent(t *testing.T) {
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	res := plan(t, p, d, settingsDoc(t, `{"env":{"USER_KEY":"user"}}`), launch.Record{})
+	data := res.Writes()["settings.json"]
+	again := plan(t, p, d, launch.Doc{Files: map[string]launch.FileDoc{"settings.json": launch.ParseFileDoc("settings.json", data)}}, res.NewRecord)
+	if len(again.Steps) != 0 || len(again.Writes()) != 0 {
+		t.Errorf("second sync is not a no-op: steps %+v writes %v", again.Steps, again.Writes())
+	}
+}
+
+func TestPlanFeatureEnvCollisionIsError(t *testing.T) {
+	// FR-015 at plan time: a feature env name colliding with a hand-set extra env
+	// var is a reported problem, never silently resolved.
+	d := builtin(t, "claude")
+	p := featureProfile(t, map[string]string{
+		"traces": "on", "logs": "on", "endpoint": "https://otlp.example.com",
+	})
+	p.ExtraEnv = []profile.ExtraEnvVar{{Name: "OTEL_TRACES_EXPORTER", Value: "console", Literal: true}}
+	_, err := launch.Plan(p, d, settingsDoc(t, `{}`), launch.Record{})
+	if err == nil || !strings.Contains(err.Error(), "OTEL_TRACES_EXPORTER") {
+		t.Fatalf("collision should error naming the variable: %v", err)
+	}
+}

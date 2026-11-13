@@ -73,20 +73,28 @@ func ParseFileDoc(file string, data []byte) FileDoc {
 }
 
 // files returns the profile-relative files the definition's folder_launch names,
-// de-duplicated, in a fixed order (env file first).
+// de-duplicated, in a fixed order (env file first), plus the files its feature
+// placement rules name (spec 006).
 func files(def *harness.Definition) []string {
-	fl := def.FolderLaunch
-	if fl == nil {
-		return nil
-	}
 	var out []string
-	if f := fl.EnvFile(); fl.Env != "" && f != "" {
-		out = append(out, f)
-	}
-	if kc := fl.KeyCommand; kc != nil {
-		if f := kc.File(); f != "" && (len(out) == 0 || out[0] != f) {
+	seen := map[string]bool{}
+	add := func(f string) {
+		if f != "" && !seen[f] {
+			seen[f] = true
 			out = append(out, f)
 		}
+	}
+	fl := def.FolderLaunch
+	if fl != nil {
+		if fl.Env != "" {
+			add(fl.EnvFile())
+		}
+		if kc := fl.KeyCommand; kc != nil {
+			add(kc.File())
+		}
+	}
+	for _, f := range featureFiles(def) {
+		add(f)
 	}
 	return out
 }
