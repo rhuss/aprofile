@@ -272,6 +272,17 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 	if shareGiven {
 		p.ShareImplicit = false // the user set the level: it is stored from now on (FR-033)
 	}
+	// Spec 006 FR-014: a profile at share level all carries no feature entries;
+	// the move clears the feature state so none is left stranded as unrepairable
+	// drift (sync removes the orphaned placed entries through normal record
+	// maintenance).
+	var clearedFeatures []string
+	if newLevel == profile.ShareAll && len(p.Features) > 0 {
+		for _, fs := range p.Features {
+			clearedFeatures = append(clearedFeatures, fs.Feature)
+		}
+		p.Features = nil
+	}
 	if err := a.applyHookSetFlags(p, def, f.hookSets, f.excludeHookSets, changed("hook-sets"), changed("exclude-hook-sets"), newLevel != oldLevel); err != nil {
 		return err
 	}
@@ -335,6 +346,9 @@ func applyEditFields(a *app, cmd *cobra.Command, p *profile.Profile, def *harnes
 	if newLevel != oldLevel {
 		fmt.Fprintf(a.out, "  share level: %s -> %s: %s\n", oldLevel, newLevel, levelDescription(newLevel))
 		fmt.Fprintln(a.out, "  the wrapper and the registry are updated by: aprofile sync")
+	}
+	if len(clearedFeatures) > 0 {
+		fmt.Fprintf(a.out, "  features disabled: %s (share level all carries no feature entries; their placed entries are removed by the next sync)\n", strings.Join(clearedFeatures, ", "))
 	}
 	return nil
 }
@@ -480,8 +494,17 @@ func (a *app) changeShare(cmd *cobra.Command, p *profile.Profile, def *harness.D
 // auth-clearing list for it (spec 005 FR-001: every profile with a folder env
 // location and its own settings file carries those entries, launch settings or not).
 func launchLevelEffects(def *harness.Definition, p *profile.Profile, from, to profile.Share) (lines, linkedNow []string) {
+	// Spec 006 FR-014: moving to share level all clears the feature state, so no
+	// state is left stranded as unrepairable drift; the level plan says so.
+	if to == profile.ShareAll && len(p.Features) > 0 {
+		var names []string
+		for _, fs := range p.Features {
+			names = append(names, fs.Feature)
+		}
+		lines = append(lines, fmt.Sprintf("features disabled: %s (a profile at share level all carries no feature entries)", strings.Join(names, ", ")))
+	}
 	if def.FolderLaunch == nil {
-		return nil, nil
+		return lines, nil
 	}
 	neutralizes := def.FolderLaunch.Env != "" && len(def.UnsetAuthVars()) > 0
 	if !neutralizes && len(launch.Decide(p, def, launch.Doc{Files: map[string]launch.FileDoc{}})) == 0 {

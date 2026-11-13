@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cc-deck/aprofile/internal/testutil"
 )
 
 // featureSettingsPath returns the profile's settings.json path.
@@ -247,5 +249,74 @@ func TestFeaturesCodexTelemetryEndToEnd(t *testing.T) {
 	}
 	if _, has := otel["trace_exporter"]; has {
 		t.Error("aprofile-placed trace_exporter still present after disable")
+	}
+}
+
+// Quickstart Scenario 5 (User Story 5): features respect isolation and copy.
+func TestFeaturesIsolationAndCopy(t *testing.T) {
+	e := newEnv(t)
+	testutil.SeedDefaultsAt(t, e.root, "claude")
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "features", "claude/work", "--enable", "telemetry",
+		"--traces", "on", "--logs", "on", "--endpoint", "https://otlp.example.com")
+	e.run(nil, "sync")
+
+	// Mutation refused at share level all with the hint; bare status still works.
+	e.run(nil, "add", "claude", "tmp", "--auth-kind", "oauth-login", "--share", "all")
+	if out, err := e.tryRun(nil, "features", "claude/tmp", "--enable", "automode-log"); err == nil {
+		t.Fatalf("mutation at all should be refused:\n%s", out)
+	} else if !strings.Contains(out, "--share content") {
+		t.Errorf("refusal should hint at --share content:\n%s", out)
+	}
+	if out, err := e.tryRun(nil, "features", "claude/tmp"); err != nil {
+		t.Fatalf("bare status at all must work: %v\n%s", err, out)
+	}
+
+	// The copy carries the feature state.
+	e.run(nil, "copy", "claude/work", "claude/work2")
+	out := e.run(nil, "features", "claude/work2")
+	if !strings.Contains(out, "telemetry") || !strings.Contains(out, "on") {
+		t.Errorf("copy did not carry the feature state:\n%s", out)
+	}
+	data, _ := os.ReadFile(e.profileFile("claude", "work2"))
+	if !strings.Contains(string(data), "https://otlp.example.com") {
+		t.Errorf("copy lost the endpoint param:\n%s", data)
+	}
+
+	// edit --share all warns, clears the feature state and reports it (FR-014).
+	out = e.run(nil, "edit", "claude/work2", "--share", "all", "--yes")
+	if !strings.Contains(out, "features disabled") || !strings.Contains(out, "telemetry") {
+		t.Errorf("edit --share all should report the cleared features:\n%s", out)
+	}
+	data, _ = os.ReadFile(e.profileFile("claude", "work2"))
+	if strings.Contains(string(data), "features:") {
+		t.Errorf("feature state not cleared from the record:\n%s", data)
+	}
+	// The next sync removes the orphaned placed entries: settings.json is now a
+	// link to the default setup, and the feature's entries went with the
+	// profile's own file.
+	e.run(nil, "sync")
+	if raw := readFile(t, e.featureSettingsPath("claude", "work2")); strings.Contains(raw, "OTEL_TRACES_EXPORTER") {
+		t.Error("orphaned feature entry still placed after the clearing sync")
+	}
+
+	// Cross-harness copy: telemetry carries, automode-log is named as left out.
+	e.run(nil, "features", "claude/work", "--enable", "automode-log")
+	out = e.run(nil, "copy", "claude/work", "codex/ported")
+	if !strings.Contains(out, "features carried: telemetry") {
+		t.Errorf("cross-harness copy should carry telemetry:\n%s", out)
+	}
+	if !strings.Contains(out, "automode-log (harness codex does not support it)") {
+		t.Errorf("cross-harness copy should name the dropped feature:\n%s", out)
+	}
+	if !strings.Contains(out, "protocol") {
+		t.Errorf("cross-harness copy should report the dropped protocol param:\n%s", out)
+	}
+	data, _ = os.ReadFile(e.profileFile("codex", "ported"))
+	if strings.Contains(string(data), "automode-log") {
+		t.Errorf("unsupported feature carried to codex:\n%s", data)
+	}
+	if strings.Contains(string(data), "http/protobuf") {
+		t.Errorf("invalid protocol value carried to codex:\n%s", data)
 	}
 }

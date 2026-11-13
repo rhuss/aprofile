@@ -53,6 +53,10 @@ type copyReportJSON struct {
 	// Backup is the directory the replaced data of an existing target was copied to
 	// before an --overwrite copy (empty for a new target).
 	Backup string `json:"backup,omitempty"`
+	// Feature 006 (FR-009): the feature state carried to the target, and the
+	// features left out because the target harness does not support them.
+	FeaturesCarried []string `json:"features_carried,omitempty"`
+	FeaturesLeftOut []string `json:"features_left_out,omitempty"`
 	// Feature 003 (FR-018): the target's history group (copy never transfers
 	// history; the target is isolated unless --group), and a hint naming the flag
 	// when the source is a member and the target's harness has a group of that name.
@@ -329,6 +333,9 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	if sh == dh {
 		report.Mode = "same-harness"
 		applySameHarnessSettings(target, src, f)
+		// FR-009: a same-harness copy carries every feature.
+		target.Features = cloneFeatures(src.Features)
+		report.FeaturesCarried = featureNames(target.Features)
 		warnings, err := carryOwnedLayer(dstDef, srcConfigDir, dstConfigDir)
 		if err != nil {
 			return err
@@ -348,6 +355,12 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	} else {
 		report.Mode = "cross-harness"
 		applyCrossHarnessSettings(target, src, f, auth, targetExists)
+		// FR-009: the copy carries the feature state where the target harness
+		// supports the feature, and names what it does not (hook-set precedent).
+		carried, leftOut := carryFeatures(src, dstDef)
+		target.Features = carried
+		report.FeaturesCarried = featureNames(carried)
+		report.FeaturesLeftOut = leftOut
 		report.DroppedSettings = droppedCrossSettings(src)
 		report.OwnedNotConverted = ownedNotConverted(srcDef, srcConfigDir)
 		// MCP conversion through the neutral record.
@@ -398,6 +411,72 @@ func applySameHarnessSettings(target, src *profile.Profile, f *copyFlags) {
 	target.ExtraEnv = cloneExtra(src.ExtraEnv)
 	target.HerdrAgent = src.HerdrAgent
 	// Primary is not carried; an overwritten target keeps its own primary flag.
+}
+
+// cloneFeatures deep-copies a feature state list.
+func cloneFeatures(in []profile.FeatureState) []profile.FeatureState {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]profile.FeatureState, len(in))
+	for i, fs := range in {
+		out[i] = fs
+		if fs.Params != nil {
+			out[i].Params = make(map[string]string, len(fs.Params))
+			for k, v := range fs.Params {
+				out[i].Params[k] = v
+			}
+		}
+	}
+	return out
+}
+
+func featureNames(in []profile.FeatureState) []string {
+	var out []string
+	for _, fs := range in {
+		out = append(out, fs.Feature)
+	}
+	return out
+}
+
+// carryFeatures decides a cross-harness copy's feature state (FR-009): a feature
+// the target harness supports is carried, with params whose values the target
+// does not accept dropped (its default applies); the rest is reported as left
+// out instead of failing the copy.
+func carryFeatures(src *profile.Profile, dstDef *harness.Definition) ([]profile.FeatureState, []string) {
+	var carried []profile.FeatureState
+	var leftOut []string
+	for _, fs := range src.Features {
+		fm, ok := dstDef.FeatureMapping(fs.Feature)
+		if !ok {
+			leftOut = append(leftOut, fmt.Sprintf("%s (harness %s does not support it)", fs.Feature, dstDef.Name))
+			continue
+		}
+		params := make(map[string]string, len(fs.Params))
+		for k, v := range fs.Params {
+			params[k] = v
+		}
+		for k, v := range fs.Params {
+			if values := fm.Params[k].Values; len(values) > 0 && !stringIn(values, v) {
+				delete(params, k)
+				leftOut = append(leftOut, fmt.Sprintf("%s param %s (harness %s does not accept the value; its default applies)", fs.Feature, k, dstDef.Name))
+			}
+		}
+		carried = append(carried, profile.FeatureState{Feature: fs.Feature, Params: params})
+	}
+	if len(carried) == 0 {
+		carried = nil
+	}
+	return carried, leftOut
+}
+
+func stringIn(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // applyCrossHarnessSettings carries label/color/icon only and drops auth/model/endpoint
@@ -769,6 +848,12 @@ func printCopyReport(a *app, r copyReportJSON) {
 	}
 	if len(r.HookSetsCarried) > 0 {
 		fmt.Fprintf(a.out, "  hook sets carried: %s\n", strings.Join(r.HookSetsCarried, ", "))
+	}
+	if len(r.FeaturesCarried) > 0 {
+		fmt.Fprintf(a.out, "  features carried: %s\n", strings.Join(r.FeaturesCarried, ", "))
+	}
+	for _, fl := range r.FeaturesLeftOut {
+		fmt.Fprintf(a.out, "  feature left out: %s\n", fl)
 	}
 	for _, h := range r.HookSetsLeftOut {
 		fmt.Fprintf(a.out, "  hook set left out: %s\n", h)

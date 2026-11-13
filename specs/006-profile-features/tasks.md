@@ -137,13 +137,13 @@ Single Go module at repository root: `internal/` packages, `tests/integration/` 
 
 ### Tests for User Story 5 (test-first)
 
-- [ ] T026 [P] [US5] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 5 (refusal, bare status at `all`, copy carry, edit clearing with warning, cross-harness copy dropping the unsupported feature with a report line).
+- [X] T026 [P] [US5] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 5 (refusal, bare status at `all`, copy carry, edit clearing with warning, cross-harness copy dropping the unsupported feature with a report line).
 
 ### Implementation for User Story 5
 
-- [ ] T027 [US5] Share-level guard in `internal/cli/features.go`: mutation refused at `all` with the `--share content` hint, bare status allowed (FR-013).
-- [ ] T028 [US5] Extend `edit --share all` in `internal/cli/edit.go` (`launchLevelEffects` path, research R7): clear `Features` from the record, print a warning naming each cleared feature, report in the edit output (FR-014); sync removes the orphaned placed entries through normal record maintenance.
-- [ ] T029 [US5] Carry feature state in `internal/cli/copy.go`: same-harness copy carries all features; cross-harness copy drops features the target harness does not support and names them in the copy report (hook-set precedent, FR-009).
+- [X] T027 [US5] Share-level guard in `internal/cli/features.go`: mutation refused at `all` with the `--share content` hint, bare status allowed (FR-013).
+- [X] T028 [US5] Extend `edit --share all` in `internal/cli/edit.go` (`launchLevelEffects` path, research R7): clear `Features` from the record, print a warning naming each cleared feature, report in the edit output (FR-014); sync removes the orphaned placed entries through normal record maintenance.
+- [X] T029 [US5] Carry feature state in `internal/cli/copy.go`: same-harness copy carries all features; cross-harness copy drops features the target harness does not support and names them in the copy report (hook-set precedent, FR-009).
 
 **Checkpoint**: Stories 1-5 independently functional
 
