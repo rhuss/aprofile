@@ -77,7 +77,7 @@ var levelTable = []levelRow{
 	{"Other runtime state (logs, caches, per-process files)", "private", "private", "private"},
 	{"Owned (MCP servers, model, endpoint)", "private", "private", "private, starts empty"},
 	{"Content (instructions, skills, agents, commands, prompts)", "linked", "linked", "not present"},
-	{"Settings (permissions, enabled plugins, status line)", "linked", "own copy, taken once", "own, starts minimal"},
+	{"Settings (permissions, enabled plugins, status line)", "linked (no feature entries: features need content or none)", "own copy, taken once", "own, starts minimal"},
 	{"Plugin store (installed plugin code)", "linked", "linked", "private"},
 	{"Hooks", "the default setup's", "hook sets (named + every-profile)", "named hook sets only"},
 }

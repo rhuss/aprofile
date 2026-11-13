@@ -172,11 +172,11 @@ Single Go module at repository root: `internal/` packages, `tests/integration/` 
 
 **Purpose**: Consistency across the tool and final verification
 
-- [ ] T033 [P] Update `README.md` and `internal/cli/help_sharing.go`: the features command in the command overview, one sentence on the capability layer and the raw `--env` escape hatch, the share-level `all` refusal in the sharing guide's `all` row.
-- [ ] T034 Update `internal/cli/output.go` and any shared output helpers for the features section's plain/`--json`/NO_COLOR rendering (Principle VI).
-- [ ] T035 Run the full check suite: `gofmt`, `go vet ./...`, `go test ./...` green (constitution Development Workflow).
-- [ ] T036 Run `quickstart.md` scenarios 1-6 by hand against a scratch `HOME` and record the pass in `specs/006-profile-features/quickstart.md` (checkboxes or a dated note), including timing the bare `features` status call (SC-003: under a second).
-- [ ] T037 Cross-check FR coverage: every FR-001..FR-018 in `specs/006-profile-features/spec.md` maps to at least one passing test or doc task; record gaps as deviations, not silent omissions.
+- [X] T033 [P] Update `README.md` and `internal/cli/help_sharing.go`: the features command in the command overview, one sentence on the capability layer and the raw `--env` escape hatch, the share-level `all` refusal in the sharing guide's `all` row.
+- [X] T034 Update `internal/cli/output.go` and any shared output helpers for the features section's plain/`--json`/NO_COLOR rendering (Principle VI).
+- [X] T035 Run the full check suite: `gofmt`, `go vet ./...`, `go test ./...` green (constitution Development Workflow).
+- [X] T036 Run `quickstart.md` scenarios 1-6 by hand against a scratch `HOME` and record the pass in `specs/006-profile-features/quickstart.md` (checkboxes or a dated note), including timing the bare `features` status call (SC-003: under a second).
+- [X] T037 Cross-check FR coverage: every FR-001..FR-018 in `specs/006-profile-features/spec.md` maps to at least one passing test or doc task; record gaps as deviations, not silent omissions.
 
 ---
 

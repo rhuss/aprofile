@@ -70,8 +70,8 @@ var catalog = []Feature{
 			{Name: "logs", Type: TypeBool},
 			{Name: "endpoint", Type: TypeString},
 			{
-				Name:  "protocol",
-				Type:  TypeEnum,
+				Name:   "protocol",
+				Type:   TypeEnum,
 				Values: []string{"grpc", "http/json", "http/protobuf", "otlp-http json", "otlp-http binary", "otlp-grpc"},
 			},
 		},
@@ -111,7 +111,9 @@ func ByGroup(group string) []Feature {
 	return out
 }
 
-// Groups lists the display groups in the catalog, ordered by name.
+// Groups lists the display groups in catalog order (telemetry, logging), the
+// order the status output and its --json schema report them
+// (contracts/features-cli.md).
 func Groups() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -121,6 +123,5 @@ func Groups() []string {
 			out = append(out, f.Group)
 		}
 	}
-	sort.Strings(out)
 	return out
 }

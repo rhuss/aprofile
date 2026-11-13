@@ -85,6 +85,8 @@ History is separate from share level. A profile in no history group keeps its hi
 
 Profile changes can leave wrappers stale. Run `./bin/aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
 
+Curated capability toggles live one layer above the launch settings: `./bin/aprofile features <harness>/<name>` turns harness capabilities such as OTel telemetry or the Auto-mode decision log on or off for one profile, mapping them to whatever mechanism the harness itself uses (no hand-editing of its settings file). Run it without flags to list what the harness supports. Anything outside the catalog is still reachable through the raw `--env` and `--env-literal` escape hatch on `add` and `edit`.
+
 Tools such as Corgi can also start a profile from its folder alone. `sync` writes the launch settings the folder can hold, and for Claude profiles with their own settings it blocks provider switches and keys exported by the launching tool. A Claude login profile at share level `all` gets no such protection; [Register profiles with Corgi](docs/guide/docs/user/corgi.md) explains the details.
 
 ## Ways to run it

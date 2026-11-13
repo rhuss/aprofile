@@ -13,8 +13,8 @@ hand.
 
 ```sh
 export HOME=/tmp/aprofile-qs && rm -rf $HOME && mkdir -p $HOME
-/tmp/aprofile add claude/work --share content --yes
-/tmp/aprofile add codex/work --share content --yes
+/tmp/aprofile add claude work --share content --auth-kind oauth-login
+/tmp/aprofile add codex work --share content --auth-kind api-key --auth-key file:/keys/x
 ```
 
 ## Scenario 1: telemetry on Claude Code (User Story 1)
@@ -77,7 +77,7 @@ hand-written key survives, aprofile's keys are gone.
 ## Scenario 5: isolation and copy (User Story 5)
 
 ```sh
-/tmp/aprofile add claude/tmp --share all --yes
+/tmp/aprofile add claude tmp --share all --auth-kind oauth-login
 /tmp/aprofile features claude/tmp --enable automode-log     # refused, hint at --share content
 /tmp/aprofile features claude/tmp                          # bare status still works
 /tmp/aprofile copy claude/work claude/work2
@@ -88,10 +88,10 @@ hand-written key survives, aprofile's keys are gone.
 ## Scenario 6: collisions (User Story 6)
 
 ```sh
-/tmp/aprofile add claude/old --share content --yes
+/tmp/aprofile add claude old --share content --auth-kind oauth-login
 /tmp/aprofile edit claude/old --env-literal AUTOMODE_DECISION_LOG=1
 /tmp/aprofile features claude/old --enable automode-log    # fails naming the variable
-/tmp/aprofile add claude/new --share content --yes
+/tmp/aprofile add claude new --share content --auth-kind oauth-login
 /tmp/aprofile features claude/new --enable automode-log
 /tmp/aprofile edit claude/new --env-literal AUTOMODE_DECISION_LOG=1   # fails the other way
 ```
@@ -100,3 +100,16 @@ hand-written key survives, aprofile's keys are gone.
 
 `tests/integration/features_test.go` encodes every scenario above against temp homes; the
 quickstart is the manual pass over the same ground.
+
+## Pass record
+
+- **2026-11-13**: scenarios 1-6 run by hand against a scratch `HOME`
+  (`/tmp/aprofile-qs`) with the built binary, after the automated suite. All
+  six pass: the six mapped Claude telemetry entries place and remove exactly
+  (second sync a no-op); `AUTOMODE_DECISION_LOG` places and removes; codex
+  status lists telemetry only and `--enable automode-log` fails naming codex;
+  the `[otel]` exporters place in the verified encoding and the hand-written
+  `environment` key survives disable; the share-level-all refusal, copy carry
+  and `edit --share all` clearing behave as specified; both collision
+  directions fail naming `AUTOMODE_DECISION_LOG`. Bare `features` status:
+  0.022s (SC-003: under a second).
