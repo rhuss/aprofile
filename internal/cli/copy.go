@@ -293,6 +293,16 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 		}
 	}
 
+	// Strip source-managed placements in memory. The target sync places them
+	// afresh and captures the genuine source originals as its recovery values.
+	var launchSource *copyLaunchSource
+	if sh == dh {
+		launchSource, err = newCopyLaunchSource(srcConfigDir, a.paths.ManagedLaunchPath(sh, sn))
+		if err != nil {
+			return err
+		}
+	}
+
 	// From here on the copy writes. A new target's config dir that this copy creates
 	// is removed again if the copy fails before the profile is saved, so a retry
 	// needs no --adopt (FR-004). A dir that existed (adopted) or belongs to an
@@ -313,7 +323,7 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	// config dir is prepared, so preparation copies from the default setup only what
 	// is still absent.
 	if sh == dh && src.ShareLevel() != profile.ShareAll && level != profile.ShareAll {
-		names, warnings, err := carrySettings(srcDef, srcConfigDir, dstConfigDir)
+		names, warnings, err := carrySettings(srcDef, srcConfigDir, dstConfigDir, launchSource)
 		if err != nil {
 			return err
 		}
@@ -338,7 +348,7 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 		// data-model invariant).
 		target.Features, report.FeaturesLeftOut = carryFeaturesForLevel(src, dstDef, level)
 		report.FeaturesCarried = featureNames(target.Features)
-		warnings, err := carryOwnedLayer(dstDef, srcConfigDir, dstConfigDir)
+		warnings, err := carryOwnedLayerFrom(dstDef, srcConfigDir, dstConfigDir, launchSource)
 		if err != nil {
 			return err
 		}
@@ -387,6 +397,11 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 		}
 	}
 
+	if launchSource != nil {
+		if err := launchSource.forgetReplaced(a.paths.ManagedLaunchPath(dh, dn)); err != nil {
+			return err
+		}
+	}
 	if err := a.store.Save(target); err != nil {
 		return err
 	}
@@ -544,6 +559,10 @@ func droppedCrossSettings(src *profile.Profile) []string {
 // merges owned keys of mixed files (FR-033a), then returns warnings for owned MCP
 // values matching a secret pattern.
 func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.SecretWarning, error) {
+	return carryOwnedLayerFrom(def, srcDir, dstDir, &copyLaunchSource{})
+}
+
+func carryOwnedLayerFrom(def *harness.Definition, srcDir, dstDir string, source *copyLaunchSource) ([]mcp.SecretWarning, error) {
 	for i := range def.Classification {
 		rule := &def.Classification[i]
 		switch rule.Layer {
@@ -556,13 +575,12 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 			if !layer.PathExists(s) {
 				continue
 			}
-			if err := copyTree(s, filepath.Join(dstDir, rel)); err != nil {
+			if err := source.copyTree(srcDir, dstDir, rel); err != nil {
 				return nil, err
 			}
 		case harness.LayerMixed:
 			rel := filepath.FromSlash(rule.Entry)
-			s := filepath.Join(srcDir, rel)
-			srcData, err := os.ReadFile(s)
+			srcData, err := source.read(srcDir, rel)
 			if err != nil {
 				if os.IsNotExist(err) {
 					continue
@@ -577,7 +595,7 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("read target %s: %w", d, err)
 			}
-			merged, err := layer.MergeMixedOwned(rule, dstData, srcData, filepath.Ext(rel))
+			merged, keys, err := layer.MergeMixedKeys(rule, dstData, srcData, filepath.Ext(rel), harness.LayerOwned)
 			if err != nil {
 				return nil, err
 			}
@@ -585,6 +603,7 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 			if err := config.WriteFileAtomic(d, merged, ownedFileMode(d)); err != nil {
 				return nil, err
 			}
+			source.markKeys(rel, keys)
 		}
 	}
 	// Warn on owned MCP values matching a secret pattern (FR-033a).
@@ -738,7 +757,7 @@ func carrySkills(srcDef, dstDef *harness.Definition, level profile.Share, srcDir
 // carrySettings copies the source's own settings entries into an absent target
 // entry, leaving out the hook location key (FR-007a). It returns the copied entry
 // names and per-key secret warnings (research R6).
-func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []copySecretWarning, error) {
+func carrySettings(def *harness.Definition, srcDir, dstDir string, source *copyLaunchSource) ([]string, []copySecretWarning, error) {
 	var names []string
 	var warnings []copySecretWarning
 	for _, rule := range def.Classification {
@@ -753,13 +772,13 @@ func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []
 			continue
 		}
 		if fi.IsDir() {
-			if err := copyTree(s, d); err != nil {
+			if err := source.copyTree(srcDir, dstDir, rel); err != nil {
 				return nil, nil, err
 			}
 			names = append(names, rule.Path())
 			continue
 		}
-		data, err := os.ReadFile(s)
+		data, err := source.read(srcDir, rel)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -774,6 +793,7 @@ func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []
 		if err := config.WriteFileAtomic(d, data, fi.Mode().Perm()); err != nil {
 			return nil, nil, err
 		}
+		source.markFile(rel)
 		names = append(names, rule.Path())
 	}
 	return names, warnings, nil

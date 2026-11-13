@@ -553,23 +553,20 @@ func keyCommandFile(def *harness.Definition) string {
 
 // dropLaunchRecordFiles removes the record entries of the given files.
 func dropLaunchRecordFiles(path string, files []string) error {
-	rec, err := launch.Load(path)
-	if err != nil {
-		return err
-	}
-	drop := map[string]bool{}
-	for _, f := range files {
-		drop[f] = true
-	}
-	kept := rec.Entries[:0]
-	for _, e := range rec.Entries {
-		if !drop[e.File] {
-			kept = append(kept, e)
+	return launch.UpdateRecord(path, func(rec *launch.Record) error {
+		drop := map[string]bool{}
+		for _, f := range files {
+			drop[f] = true
 		}
-	}
-	rec.Entries = kept
-	_, err = rec.Save(path)
-	return err
+		kept := rec.Entries[:0]
+		for _, e := range rec.Entries {
+			if !drop[e.File] {
+				kept = append(kept, e)
+			}
+		}
+		rec.Entries = kept
+		return nil
+	})
 }
 
 // sameSteps reports whether two plans list the same steps, in order.

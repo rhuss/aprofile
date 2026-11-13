@@ -36,6 +36,8 @@ const (
 	ReasonHarnessRewrites Reason = "harness-rewrites"
 	// ReasonClearedSource: an env: key whose variable aprofile clears.
 	ReasonClearedSource Reason = "cleared-source"
+	// ReasonBootstrap: the variable is required before the harness starts.
+	ReasonBootstrap Reason = "bootstrap"
 	// ReasonHookEnv: a variable from the exec hook's env operation.
 	ReasonHookEnv Reason = "hook-env"
 )
@@ -102,6 +104,8 @@ func DecideWith(p *profile.Profile, def *harness.Definition, doc Doc, hookEnv []
 		switch {
 		case ref != nil:
 			s.Carrier, s.Reason = CarrierWrapper, ReasonReferenceValue
+		case name == "PATH":
+			s.Carrier, s.Reason = CarrierWrapper, ReasonBootstrap
 		case envReason != "":
 			s.Carrier, s.Reason = CarrierWrapper, envReason
 		}

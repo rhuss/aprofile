@@ -33,11 +33,26 @@ func FeatureEnvNames(def *harness.Definition, feature string) []string {
 	return def.FeatureEnvNames(feature)
 }
 
+// ValidateFeatures rejects enabled states that cannot be resolved on this
+// harness. Callers must validate before planning removals, so an invalid stored
+// value never looks like an intentional disable.
+func ValidateFeatures(def *harness.Definition, p *profile.Profile) error {
+	for _, fs := range p.Features {
+		if !def.SupportsFeature(fs.Feature) {
+			return fmt.Errorf("profile %s: harness %s does not support feature %q; restore its harness feature mapping or remove this feature from the stored profile record", p.ID(), def.Name, fs.Feature)
+		}
+		if _, err := def.ResolveFeatureParams(fs.Feature, fs.Params); err != nil {
+			return fmt.Errorf("profile %s: %w; correct the stored parameters with aprofile features %s --enable %s <parameter flags>, or disable it with: aprofile features %s --disable %s", p.ID(), err, p.ID(), fs.Feature, p.ID(), fs.Feature)
+		}
+	}
+	return nil
+}
+
 // FeatureDesired resolves a profile's Features against the harness capability
 // mapping into concrete desired entries (file, location, value). A feature the
 // harness does not support, or whose stored state fails the mapping's
-// validation, places nothing (data-model "Feature state"); the load warnings
-// and the features status carry the reason. Later rules for the same location
+// validation, places nothing. Call ValidateFeatures before using the entries to
+// plan changes; it reports invalid stored state. Later rules for the same location
 // win, so a mapping covers both branches of a gated signal.
 func FeatureDesired(def *harness.Definition, p *profile.Profile) []DesiredEntry {
 	if len(p.Features) == 0 || len(def.Features) == 0 {

@@ -52,7 +52,9 @@ claude/work
 ```
 
 Features the harness does not support are not listed. Effective defaults are shown for
-enabled features with unset params. Off a TTY or with `NO_COLOR`, plain text (Principle VI).
+both enabled and disabled features with unset params. Only parameters supported by the
+profile's harness are listed; required enable-time values (such as an unset endpoint)
+are shown empty while disabled. Off a TTY or with `NO_COLOR`, plain text (Principle VI).
 
 ## Status output (`--json`)
 
@@ -85,6 +87,10 @@ enabled features with unset params. Off a TTY or with `NO_COLOR`, plain text (Pr
   ]
 }
 ```
+
+Disabled features also include their supported parameters and effective defaults.
+Invalid stored parameters for the harness produce an actionable error in `features`
+and a warning in `show`; `sync` reports the problem without removing placed entries.
 
 Field order and names are stable; `params` is `{}` for parameterless features. This schema is
 a public interface (constitution Principle V registry note applies to breaking changes).

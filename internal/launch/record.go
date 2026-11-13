@@ -18,7 +18,8 @@ const RecordFormatVersion = 1
 // (feature 004, research R6, data-model.md "Launch record"). It lives at
 // <data>/aprofile/managed-launch/<harness>/<name>.json, never inside the harness's
 // files (FR-004). It holds locations and replaced keys only, never the value of a
-// placed env entry (Principle IV).
+// placed env entry (Principle IV). Recovery snapshots can contain private user
+// settings, including exporter credentials, and must remain private on disk.
 type Record struct {
 	FormatVersion int     `json:"format_version"`
 	Entries       []Entry `json:"entries"`
@@ -85,46 +86,109 @@ func Load(path string) (Record, error) {
 	if r.FormatVersion == 0 {
 		r.FormatVersion = RecordFormatVersion
 	}
+	if err := r.validatePaths(); err != nil {
+		return Record{}, fmt.Errorf("managed launch record %s: %w", path, err)
+	}
 	return r, nil
 }
 
-// Save writes the record atomically, or removes the file when the record is empty.
-// It writes only when the content changed, so an unchanged sync writes nothing.
-func (r Record) Save(path string) (changed bool, err error) {
-	if len(r.Entries) == 0 {
-		if _, err := os.Stat(path); err == nil {
-			return true, os.Remove(path)
+func (r Record) validatePaths() error {
+	for _, e := range r.Entries {
+		if !relPathSafe(e.File) {
+			return fmt.Errorf("unsafe managed launch record path %q", e.File)
 		}
-		return false, nil
+	}
+	return nil
+}
+
+// Save writes the record atomically, or removes the file when the record is empty.
+// It writes only when the content changed and repairs private permissions even
+// when contents match. Callers updating settings must hold lockRecord across the
+// full read/plan/Save transaction; Save alone cannot protect a stale snapshot.
+func (r Record) Save(path string) (changed bool, err error) {
+	if err := r.validatePaths(); err != nil {
+		return false, err
+	}
+	if len(r.Entries) == 0 {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, os.Remove(path)
 	}
 	data, err := json.MarshalIndent(r.sorted(), "", "  ")
 	if err != nil {
 		return false, err
 	}
 	data = append(data, '\n')
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(data) {
-		return false, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := privateRecordDir(path); err != nil {
 		return false, err
 	}
-	return true, config.WriteFileAtomic(path, data, 0o644)
+	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(data) {
+		return false, privateMode(path, 0o600)
+	}
+	return true, config.WriteFileAtomic(path, data, 0o600)
+}
+
+// UpdateRecord serializes a record-only read/modify/write with Apply's
+// per-profile transaction. A caller that also changes settings must use Apply
+// instead: keeping the lock across both halves is what protects recovery data.
+func UpdateRecord(path string, update func(*Record) error) error {
+	lock, err := lockRecord(path)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	rec, err := Load(path)
+	if err != nil {
+		return err
+	}
+	if err := update(&rec); err != nil {
+		return err
+	}
+	_, err = rec.Save(path)
+	return err
 }
 
 // Move renames a record (profile rename). A missing record is a no-op.
 func Move(from, to string) error {
-	if _, err := os.Stat(from); os.IsNotExist(err) {
+	paths := []string{filepath.Clean(from), filepath.Clean(to)}
+	if paths[0] == paths[1] {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+	sort.Strings(paths)
+	first, err := lockRecord(paths[0])
+	if err != nil {
+		return err
+	}
+	defer first.Close()
+	second, err := lockRecord(paths[1])
+	if err != nil {
+		return err
+	}
+	defer second.Close()
+	if _, err := os.Stat(from); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := privateMode(from, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(from, to)
 }
 
-// Delete removes a record (remove --purge, share level change to all). A missing
-// record is a no-op.
+// Delete removes a record (remove --purge, share level change to all), serialized
+// with Apply. A missing record is a no-op.
 func Delete(path string) error {
+	lock, err := lockRecord(path)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}

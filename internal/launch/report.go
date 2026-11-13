@@ -110,6 +110,8 @@ func ReasonText(r Reason, p *profile.Profile, def *harness.Definition) string {
 		return "passed by the wrapper because the harness rewrites it"
 	case ReasonClearedSource:
 		return "key referenced through a variable aprofile clears"
+	case ReasonBootstrap:
+		return "required before the harness starts"
 	case ReasonHookEnv:
 		return "set by the exec hook's env operation"
 	case ReasonNoSupport:

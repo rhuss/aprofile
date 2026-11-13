@@ -28,40 +28,34 @@ type featureJSON struct {
 }
 
 type featuresFlags struct {
-	enable   string
-	disable  string
-	traces   string
-	logs     string
-	endpoint string
-	protocol string
-	asJSON   bool
-	dryRun   bool
+	enable      string
+	disable     string
+	paramOwners map[string]string
+	asJSON      bool
+	dryRun      bool
 }
 
 func newFeaturesCmd() *cobra.Command {
 	f := &featuresFlags{}
+	var paramErr error
 	cmd := &cobra.Command{
 		Use:   "features <harness>/<name>",
 		Short: "Show or change a profile's harness capability features (telemetry, automode-log)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if paramErr != nil {
+				return paramErr
+			}
 			return runFeatures(cmd, args[0], f)
 		},
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&f.enable, "enable", "", "enable a feature")
 	fl.StringVar(&f.disable, "disable", "", "disable a feature; its entries are removed by the next sync")
-	fl.StringVar(&f.traces, "traces", "", "telemetry param (on|off); implies enabling telemetry")
-	fl.StringVar(&f.logs, "logs", "", "telemetry param (on|off); implies enabling telemetry")
-	fl.StringVar(&f.endpoint, "endpoint", "", "telemetry param: the OTLP endpoint URL; implies enabling telemetry")
-	fl.StringVar(&f.protocol, "protocol", "", "telemetry param: the OTLP protocol (values per harness); implies enabling telemetry")
 	fl.BoolVar(&f.asJSON, "json", false, "emit machine-readable JSON")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "with a mutation: report the would-be changes without storing them")
 	cmd.MarkFlagsMutuallyExclusive("enable", "disable")
-	cmd.MarkFlagsMutuallyExclusive("disable", "traces")
-	cmd.MarkFlagsMutuallyExclusive("disable", "logs")
-	cmd.MarkFlagsMutuallyExclusive("disable", "endpoint")
-	cmd.MarkFlagsMutuallyExclusive("disable", "protocol")
+	paramErr = registerFeatureParams(cmd, f, feature.All())
 	return cmd
 }
 
@@ -83,8 +77,11 @@ func runFeatures(cmd *cobra.Command, ref string, f *featuresFlags) error {
 	if !ok {
 		return fmt.Errorf("unknown harness %q", h)
 	}
-	mutating := f.enable != "" || f.disable != "" || cmd.Flags().Changed("traces") ||
-		cmd.Flags().Changed("logs") || cmd.Flags().Changed("endpoint") || cmd.Flags().Changed("protocol")
+	paramOwner, _, err := featureParamMutation(cmd, f)
+	if err != nil {
+		return err
+	}
+	mutating := f.enable != "" || f.disable != "" || paramOwner != ""
 	if !mutating {
 		return featuresStatus(a, p, def, f.asJSON)
 	}
@@ -100,6 +97,10 @@ func runFeatures(cmd *cobra.Command, ref string, f *featuresFlags) error {
 // grouped, with its state and parameter values including effective defaults
 // (FR-001, FR-017).
 func featuresStatus(a *app, p *profile.Profile, def *harness.Definition, asJSON bool) error {
+	if err := launch.ValidateFeatures(def, p); err != nil {
+		return err
+	}
+
 	type groupJSON struct {
 		Name     string        `json:"name"`
 		Features []featureJSON `json:"features"`
@@ -120,17 +121,12 @@ func featuresStatus(a *app, p *profile.Profile, def *harness.Definition, asJSON 
 			if !def.SupportsFeature(cat.ID) {
 				continue // features the harness does not support are not listed
 			}
-			fj := featureJSON{ID: cat.ID, Params: map[string]string{}}
-			if params, on := enabled[cat.ID]; on {
-				fj.Enabled = true
-				if resolved, err := def.ResolveFeatureParams(cat.ID, params); err == nil {
-					fj.Params = resolved
-				} else {
-					// Invalid stored state (a hand-edited record): shown as on with
-					// the raw params; the placement skips it and the load warned.
-					fj.Params = params
-				}
+			params, on := enabled[cat.ID]
+			resolved, err := def.ResolveFeatureParams(cat.ID, params)
+			if err != nil {
+				return err
 			}
+			fj := featureJSON{ID: cat.ID, Enabled: on, Params: resolved}
 			gj.Features = append(gj.Features, fj)
 		}
 		if len(gj.Features) == 0 {
@@ -147,9 +143,9 @@ func featuresStatus(a *app, p *profile.Profile, def *harness.Definition, asJSON 
 				state = "on"
 			}
 			lines = append(lines, fmt.Sprintf("    %-13s %s", fj.ID+":", state))
-			if fj.Enabled {
-				for _, cp := range catParams(fj.ID) {
-					lines = append(lines, fmt.Sprintf("      %-11s %s", cp+":", fj.Params[cp]))
+			for _, cp := range catParams(fj.ID) {
+				if value, supported := fj.Params[cp]; supported {
+					lines = append(lines, fmt.Sprintf("      %-11s %s", cp+":", value))
 				}
 			}
 		}
@@ -177,30 +173,86 @@ func catParams(id string) []string {
 	return out
 }
 
-// paramFlagFeature is the catalog feature the per-parameter flags belong to:
-// the spec's Clarifications fix them to telemetry's parameters. The flags
-// themselves are command surface (FR-002); everything else about the feature is
-// catalog data.
-const paramFlagFeature = "telemetry"
+// registerFeatureParams derives flag names and their single feature owner from
+// the catalog. Ambiguous names are rejected before registering any flags.
+func registerFeatureParams(cmd *cobra.Command, f *featuresFlags, catalog []feature.Feature) error {
+	owners := map[string]string{}
+	for _, cat := range catalog {
+		for _, param := range cat.Params {
+			if owner, exists := owners[param.Name]; exists {
+				return fmt.Errorf("parameter --%s has ambiguous feature owners %s and %s", param.Name, owner, cat.ID)
+			}
+			if cmd.Flags().Lookup(param.Name) != nil {
+				return fmt.Errorf("feature %s parameter --%s conflicts with a command flag", cat.ID, param.Name)
+			}
+			owners[param.Name] = cat.ID
+		}
+	}
+	f.paramOwners = owners
+	for _, cat := range catalog {
+		for _, param := range cat.Params {
+			kind := ""
+			switch param.Type {
+			case feature.TypeBool:
+				kind = " (on|off)"
+			case feature.TypeEnum:
+				kind = " (values per harness)"
+			}
+			cmd.Flags().String(param.Name, "", fmt.Sprintf("%s param%s; implies enabling %s", cat.ID, kind, cat.ID))
+			if cmd.Flags().Lookup("disable") != nil {
+				cmd.MarkFlagsMutuallyExclusive("disable", param.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// featureParamMutation collects only explicitly supplied parameters, including
+// empty strings, and ensures a single feature owns the mutation.
+func featureParamMutation(cmd *cobra.Command, f *featuresFlags) (string, map[string]string, error) {
+	params := map[string]string{}
+	owner := ""
+	names := make([]string, 0, len(f.paramOwners))
+	for name := range f.paramOwners {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !cmd.Flags().Changed(name) {
+			continue
+		}
+		nextOwner := f.paramOwners[name]
+		if owner != "" && owner != nextOwner {
+			return "", nil, fmt.Errorf("parameter flags for %s and %s cannot be combined in one mutation", owner, nextOwner)
+		}
+		owner = nextOwner
+		value, err := cmd.Flags().GetString(name)
+		if err != nil {
+			return "", nil, err
+		}
+		params[name] = value
+	}
+	return owner, params, nil
+}
 
 // featuresMutate applies --enable/--disable and the per-parameter flags
 // (FR-002), validates everything the spec demands at mutation time, and stores
 // the state with the sync reminder.
 func featuresMutate(a *app, cmd *cobra.Command, p *profile.Profile, def *harness.Definition, f *featuresFlags) error {
-	ch := cmd.Flags().Changed
-	paramFlags := map[string]string{
-		"traces": f.traces, "logs": f.logs, "endpoint": f.endpoint, "protocol": f.protocol,
+	paramOwner, paramFlags, err := featureParamMutation(cmd, f)
+	if err != nil {
+		return err
 	}
-	paramGiven := map[string]bool{"traces": ch("traces"), "logs": ch("logs"), "endpoint": ch("endpoint"), "protocol": ch("protocol")}
-	anyParam := paramGiven["traces"] || paramGiven["logs"] || paramGiven["endpoint"] || paramGiven["protocol"]
-
 	target := f.enable
 	if target == "" && f.disable == "" {
-		// A per-parameter flag implies enabling the feature (FR-002).
-		target = paramFlagFeature
+		target = paramOwner // parameter flags imply enabling their catalog owner
 	}
-	if f.enable != "" && f.enable != paramFlagFeature && anyParam {
-		return fmt.Errorf("--enable %s cannot be combined with %s's parameter flags (--traces, --logs, --endpoint, --protocol)", f.enable, paramFlagFeature)
+	if f.enable != "" && paramOwner != "" && f.enable != paramOwner {
+		var names []string
+		for _, name := range catParams(paramOwner) {
+			names = append(names, "--"+name)
+		}
+		return fmt.Errorf("--enable %s cannot be combined with %s's parameter flags (%s)", f.enable, paramOwner, strings.Join(names, ", "))
 	}
 
 	var changed featureJSON
@@ -240,9 +292,6 @@ func featuresMutate(a *app, cmd *cobra.Command, p *profile.Profile, def *harness
 			}
 		}
 		for name, given := range paramFlags {
-			if !paramGiven[name] {
-				continue
-			}
 			cat, _ := feature.ByID(target)
 			cp, ok := cat.Param(name)
 			if !ok {
@@ -363,6 +412,9 @@ func checkFeatureEnvCollision(p *profile.Profile, def *harness.Definition, name 
 func featureDriftWarnings(a *app, p *profile.Profile, def *harness.Definition) []string {
 	if def == nil {
 		return nil // no harness definition: nothing to resolve drift against
+	}
+	if err := launch.ValidateFeatures(def, p); err != nil {
+		return []string{err.Error()}
 	}
 	if len(p.Features) == 0 && len(def.Features) == 0 {
 		return nil

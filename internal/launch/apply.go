@@ -82,8 +82,19 @@ func HookEnv(p *profile.Profile, def *harness.Definition, configDir string) ([]h
 // setting, so a write that fails part way never loses a replaced setting and never
 // claims a user's own entry; a new entry left unrecorded is found equal and
 // recorded by the next sync. A planning error leaves every file and the record
-// unchanged.
+// unchanged. Apply holds a per-profile cross-process lock for the entire
+// transaction; dry runs only read and do not acquire or create a lock.
 func Apply(p *profile.Profile, def *harness.Definition, configDir, recPath string, dryRun bool) (Result, error) {
+	// Acquire before loading either half of the transaction. Refreshing only the
+	// settings with a stale record can overwrite the original recovery values.
+	// Dry runs are read-only, including when no record directory exists yet.
+	if !dryRun {
+		lock, err := lockRecord(recPath)
+		if err != nil {
+			return Result{}, err
+		}
+		defer lock.Close()
+	}
 	rec, err := Load(recPath)
 	if err != nil {
 		return Result{}, err
@@ -97,7 +108,10 @@ func Apply(p *profile.Profile, def *harness.Definition, configDir, recPath strin
 		return res, err
 	}
 	if len(res.writes) == 0 && recordEqual(res.NewRecord, rec) {
-		return res, nil
+		// An unchanged record can still expose sensitive recovery snapshots if
+		// an earlier version wrote public permissions. Repair without rewriting.
+		_, err := rec.Save(recPath)
+		return res, err
 	}
 	if beforeWrite != nil {
 		beforeWrite()
@@ -109,6 +123,9 @@ func Apply(p *profile.Profile, def *harness.Definition, configDir, recPath strin
 	}
 	files := make([]string, 0, len(res.writes))
 	for f := range res.writes {
+		if !relPathSafe(f) {
+			return res, fmt.Errorf("unsafe launch settings path %q", f)
+		}
 		if doc.Files[f].Linked {
 			return res, fmt.Errorf("%s: is a link; launch settings are never written through it", f)
 		}

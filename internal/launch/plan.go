@@ -84,6 +84,12 @@ type desired struct {
 
 // PlanWith is Plan with the exec hook's env output (listed in APROFILE_SET_VARS).
 func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, hookEnv []harness.EnvVar) (Result, error) {
+	if err := rec.validatePaths(); err != nil {
+		return Result{}, err
+	}
+	if err := ValidateFeatures(def, p); err != nil {
+		return Result{}, err
+	}
 	res := Result{Settings: DecideWith(p, def, doc, hookEnv), NewRecord: Record{FormatVersion: RecordFormatVersion}}
 	fl := def.FolderLaunch
 	featAll := FeatureDesired(def, p)
@@ -134,6 +140,9 @@ func PlanWith(p *profile.Profile, def *harness.Definition, doc Doc, rec Record, 
 	}
 	var all []string
 	for f := range fileSet {
+		if !relPathSafe(f) {
+			return res, fmt.Errorf("unsafe launch settings path %q", f)
+		}
 		all = append(all, f)
 	}
 	sort.Strings(all)
