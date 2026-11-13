@@ -78,12 +78,12 @@ Single Go module at repository root: `internal/` packages, `tests/integration/` 
 
 ### Tests for User Story 2 (test-first)
 
-- [ ] T015 [P] [US2] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 2 (enable/disable lifecycle of the automode-log entry).
+- [X] T015 [P] [US2] Integration tests in `tests/integration/features_test.go` for quickstart Scenario 2 (enable/disable lifecycle of the automode-log entry).
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Add `features.automode-log` to `internal/harness/builtin/claude.yaml`: single literal placement rule `env.AUTOMODE_DECISION_LOG=1`, no params; no entry in `internal/harness/builtin/codex.yaml` (FR-003, User Story 3's gating depends on the asymmetry).
-- [ ] T017 [US2] Status and mutation for a parameterless feature in `internal/cli/features.go` (covered by T012's machinery): bare status line, `--enable`/`--disable` without param flags.
+- [X] T016 [US2] Add `features.automode-log` to `internal/harness/builtin/claude.yaml`: single literal placement rule `env.AUTOMODE_DECISION_LOG=1`, no params; no entry in `internal/harness/builtin/codex.yaml` (FR-003, User Story 3's gating depends on the asymmetry).
+- [X] T017 [US2] Status and mutation for a parameterless feature in `internal/cli/features.go` (covered by T012's machinery): bare status line, `--enable`/`--disable` without param flags.
 
 **Checkpoint**: User Stories 1 and 2 both work independently
 

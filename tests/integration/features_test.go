@@ -114,3 +114,34 @@ func TestFeaturesTelemetryClaudeEndToEnd(t *testing.T) {
 		t.Errorf("more than the feature's entries were removed: %v -> %v", envBlock(t, before), envBlock(t, after))
 	}
 }
+
+// Quickstart Scenario 2 (User Story 2): the Auto-mode decision log.
+func TestFeaturesAutomodeLogLifecycle(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "private", "--auth-kind", "oauth-login", "--share", "content")
+
+	e.run(nil, "features", "claude/private", "--enable", "automode-log")
+	e.run(nil, "sync")
+	m := readSettings(t, e.featureSettingsPath("claude", "private"))
+	if got, ok := envBlock(t, m)["AUTOMODE_DECISION_LOG"]; !ok || got != "1" {
+		t.Fatalf("env.AUTOMODE_DECISION_LOG = %v (present %v), want 1", got, ok)
+	}
+	entries := featureRecordEntries(t, e.featureRecordPath("claude", "private"))
+	found := false
+	for _, en := range entries {
+		if en["location"] == "env.AUTOMODE_DECISION_LOG" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("automode-log entry not recorded as placed: %v", entries)
+	}
+
+	// Disabling removes it on the next sync.
+	e.run(nil, "features", "claude/private", "--disable", "automode-log")
+	e.run(nil, "sync")
+	m = readSettings(t, e.featureSettingsPath("claude", "private"))
+	if _, ok := envBlock(t, m)["AUTOMODE_DECISION_LOG"]; ok {
+		t.Error("env.AUTOMODE_DECISION_LOG still present after disable")
+	}
+}
