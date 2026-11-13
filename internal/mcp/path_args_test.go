@@ -25,12 +25,12 @@ func TestPathArgsAreNotOverDropped(t *testing.T) {
 		}
 	}
 	drop := []string{
-		"--token=" + argBlob,                             // length check on the value
-		"--token=" + argEqToken,                          // prefix check on the value
-		"-t=" + argEqToken,                               // short flag
-		"ghp_CANARYARGTOKEN0000000000000000000000abc.js", // prefix token with a fake extension
-		"--file=ghp_CANARYARGTOKEN0000000000000000000000abc.js",
-		"--dir=/Users/x/ghp_CANARYARGTOKEN0000000000000000000000/dir", // prefix check on each path segment
+		"--token=" + argBlob,                                          // length check on the value
+		"--token=" + argEqToken,                                       // prefix check on the value
+		"-t=" + argEqToken,                                            // short flag
+		"ghp_CANARYARGTOKEN0000000000000000000000abc.js",              // prefix token with a fake extension; betterleaks:allow
+		"--file=ghp_CANARYARGTOKEN0000000000000000000000abc.js",       // betterleaks:allow
+		"--dir=/Users/x/ghp_CANARYARGTOKEN0000000000000000000000/dir", // prefix check on each path segment; betterleaks:allow
 		argBlob,                                // long opaque token, no extension
 		"AbCdEf0123456789AbCdEf0123456789XyZ0", // mixed letters/digits, no extension
 	}

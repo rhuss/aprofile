@@ -43,11 +43,11 @@ func MergeMixedKeys(rule *harness.EntryRule, dst, src []byte, ext string, layers
 	if !IsJSONExt(ext) {
 		return nil, nil, fmt.Errorf("mixed-file merge supports only JSON files, not %q", ext)
 	}
-	dstMap, err := decodeJSONObject(dst)
+	dstMap, err := DecodeJSONObject(dst)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode target mixed file: %w", err)
 	}
-	srcMap, err := decodeJSONObject(src)
+	srcMap, err := DecodeJSONObject(src)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode source mixed file: %w", err)
 	}
@@ -116,11 +116,11 @@ func MixedSeededDrift(rule *harness.EntryRule, profileFile, defaultFile []byte, 
 	if !IsJSONExt(ext) {
 		return nil, nil
 	}
-	pm, err := decodeJSONObject(profileFile)
+	pm, err := DecodeJSONObject(profileFile)
 	if err != nil {
 		return nil, err
 	}
-	dm, err := decodeJSONObject(defaultFile)
+	dm, err := DecodeJSONObject(defaultFile)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +144,9 @@ func MixedSeededDrift(rule *harness.EntryRule, profileFile, defaultFile []byte, 
 	return drift, nil
 }
 
-// decodeJSONObject parses a JSON object into a key->raw-value map, preserving each
+// DecodeJSONObject parses a JSON object into a key->raw-value map, preserving each
 // value's bytes verbatim. An empty document decodes to an empty map.
-func decodeJSONObject(data []byte) (map[string]json.RawMessage, error) {
+func DecodeJSONObject(data []byte) (map[string]json.RawMessage, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return map[string]json.RawMessage{}, nil
 	}

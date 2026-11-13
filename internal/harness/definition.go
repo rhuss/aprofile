@@ -188,7 +188,6 @@ type Definition struct {
 	MCP             *MCPLocation    `yaml:"mcp" json:"mcp,omitempty"`
 	SkillsLocation  *SkillsLocation `yaml:"skills_location" json:"skills_location,omitempty"`
 	PluginMechanism string          `yaml:"plugin_mechanism" json:"plugin_mechanism,omitempty"`
-	OmarchyProvider string          `yaml:"omarchy_provider" json:"omarchy_provider,omitempty"`
 	Capabilities    []string        `yaml:"capabilities" json:"capabilities,omitempty"`
 	ExecHook        *ExecHook       `yaml:"exec_hook" json:"exec_hook,omitempty"`
 	// DefaultLocations maps a profile-relative prefix to its default-setup location,
@@ -205,6 +204,24 @@ type Definition struct {
 	// HistoryNote is free text about version sensitivity of the history entries
 	// (spec 003), shown by harness show and help sharing.
 	HistoryNote string `yaml:"history_note,omitempty" json:"history_note,omitempty"`
+	// FolderLaunch declares where the harness reads launch settings from its own
+	// folder (feature 004, FR-002), so a tool that only sets the config-folder
+	// variable launches the profile correctly. Absent: every launch setting stays
+	// in the wrapper.
+	FolderLaunch *FolderLaunch `yaml:"folder_launch" json:"folder_launch,omitempty"`
+	// LaunchClear lists the launch variables every wrapper of this harness clears
+	// before launching, so a profile session's variables never leak into another
+	// profile's launch (feature 004, FR-014).
+	LaunchClear []string `yaml:"launch_clear" json:"launch_clear,omitempty"`
+	// ModelArg lists the arguments the wrapper passes before the caller's to carry
+	// the profile's model; {model:toml} expands to a TOML basic string, {model} to
+	// the raw model (feature 004, FR-002a, FR-016).
+	ModelArg []string `yaml:"model_arg" json:"model_arg,omitempty"`
+	// Features is the capability mapping (spec 006, FR-005): per catalog feature,
+	// the supported params with per-harness defaults and enums, and the placement
+	// rules an enabled feature materializes into the harness's own settings
+	// files. Overridable through harnesses.d like every other section.
+	Features map[string]FeatureMapping `yaml:"features,omitempty" json:"features,omitempty"`
 
 	// Source records, per field, where the effective value came from:
 	// "builtin" or an absolute file path. Populated by Load's override-merge; for a
@@ -220,6 +237,106 @@ type AuthKind struct {
 	// marker is "ref" when the variable expects a secret reference; a kind with no
 	// vars (e.g. an interactive login) carries credentials in files/Keychain.
 	Vars map[string]string `yaml:"vars" json:"vars,omitempty"`
+	// FolderKey reports whether the profile folder can carry this kind's key
+	// through folder_launch.key_command (feature 004, FR-002).
+	FolderKey bool `yaml:"folder_key,omitempty" json:"folder_key,omitempty"`
+}
+
+// Key command forms (feature 004, contracts/harness-definition.md).
+const (
+	// KeyFormShell writes a shell command string at the key command location.
+	KeyFormShell = "shell"
+	// KeyFormProviderAuth writes an `auth` table (command, args) into the provider
+	// table the selector names.
+	KeyFormProviderAuth = "provider-auth"
+)
+
+// FolderLaunch declares the folder locations of launch settings (feature 004).
+type FolderLaunch struct {
+	// Env is "file#key" of an object of environment entries the harness applies at
+	// start (Claude Code: settings.json#env).
+	Env string `yaml:"env,omitempty" json:"env,omitempty"`
+	// KeyCommand declares where and in which form the auth key command goes.
+	KeyCommand *KeyCommand `yaml:"key_command,omitempty" json:"key_command,omitempty"`
+}
+
+// EnvFile returns the profile-relative file of the env location ("" when unset).
+func (f *FolderLaunch) EnvFile() string { return locFile(f.Env) }
+
+// EnvKey returns the key of the env location inside its file.
+func (f *FolderLaunch) EnvKey() string { return locKey(f.Env) }
+
+// KeyCommand declares the auth key command location and form.
+type KeyCommand struct {
+	Location string `yaml:"location" json:"location"`
+	Form     string `yaml:"form" json:"form"`
+	// Selector names the top-level key whose value selects the provider table
+	// (provider-auth only; Codex: model_provider).
+	Selector string `yaml:"selector,omitempty" json:"selector,omitempty"`
+	// Replaces lists keys of the provider table that conflict with `auth`; they are
+	// replaced, recorded and restored when the `auth` block goes (provider-auth only).
+	Replaces []string `yaml:"replaces,omitempty" json:"replaces,omitempty"`
+}
+
+// File returns the profile-relative file of the key command location.
+func (k *KeyCommand) File() string { return locFile(k.Location) }
+
+// Key returns the key inside the file of the key command location.
+func (k *KeyCommand) Key() string { return locKey(k.Location) }
+
+// locFile and locKey split a "file#key" location.
+func locFile(loc string) string {
+	if i := strings.IndexByte(loc, '#'); i >= 0 {
+		return loc[:i]
+	}
+	return loc
+}
+
+func locKey(loc string) string {
+	if i := strings.IndexByte(loc, '#'); i >= 0 {
+		return loc[i+1:]
+	}
+	return ""
+}
+
+// CarriesModel reports whether the harness can carry a profile's model: through a
+// model variable or a launch argument (feature 004, FR-023).
+func (d *Definition) CarriesModel() bool {
+	return d.ModelVar != "" || len(d.ModelArg) > 0
+}
+
+// FolderKeyFor reports whether the folder can carry the key of the named auth
+// kind: the kind declares folder_key and the definition has a key command.
+func (d *Definition) FolderKeyFor(kind string) bool {
+	if d.FolderLaunch == nil || d.FolderLaunch.KeyCommand == nil {
+		return false
+	}
+	k, ok := d.AuthKind(kind)
+	return ok && k.FolderKey
+}
+
+// Model argument placeholders (feature 004, FR-016).
+const (
+	ModelArgTOML = "{model:toml}"
+	ModelArgRaw  = "{model}"
+)
+
+// ExpandModelArg returns the model_arg list with the placeholder replaced by the
+// model ({model:toml}: TOML basic string with backslash and double quote escaped;
+// {model}: raw). It returns nil when the definition has no model_arg or the model
+// is empty.
+func (d *Definition) ExpandModelArg(model string) []string {
+	if len(d.ModelArg) == 0 || model == "" {
+		return nil
+	}
+	toml := `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(model) + `"`
+	// One pass, so a model containing a placeholder is never expanded twice.
+	r := strings.NewReplacer(ModelArgTOML, toml, ModelArgRaw, model)
+	out := make([]string, len(d.ModelArg))
+	for i, a := range d.ModelArg {
+		out[i] = r.Replace(a)
+	}
+	return out
 }
 
 // LoginCommand declares how `aprofile login` runs the harness's own login flow

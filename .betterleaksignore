@@ -1,0 +1,40 @@
+# Deliberate test canaries and fixtures.
+#
+# This repository is a scanner for secret-shaped values, so its tests must
+# contain values that match the same patterns. Every entry below is a fake
+# canary (most contain CANARY, FAKE or a known test literal) and none is a
+# usable credential. Entries are SHA-256 digests of the exact test value.
+#
+# Keep this file in sync when canaries change. See docs/guide/guide-rules.yaml
+# for the lint rules that also mention these prefixes.
+
+# internal/mcp/literal_test.go
+2bbd60c3537782300a3eb0d45f18fd652c2619f9b34fb80f48436eaec6759572
+5a902a13ae7e47326c7e8805f586c0529949cd46adacf70066ccf7f30b94dbc8
+f728bcabc17b57854eb0107c2ee7632b36ed643b679b562fe1a71d7b0a780ef7
+3c0003541423618d24c9b749c21d9ae4a74da7186fa375603bb570c22826eb88
+813dbfc8ed722153ba92fb33b0ff9bef4d4f34e28f0b96f71532dbda1b3caf3a
+
+# internal/mcp/path_args_test.go
+03cd2af730179778f9512c123c42785eb33c2d38cc1bbbdaaa77ce9d2af07952
+
+# tests/integration/mcp_literal_secret_test.go
+10bcf19f4ca0e49bf9da7e774a00bd9c1fa6fe5c8d7b24aeea6cf4099b79db61
+2ffede2aca27abbb417251b4d5465ebd05990feab5ab44a1a9cd14ad3dacb655
+
+# internal/layer/settings_test.go
+c85096460d2d890b2e08fc0c96cc1ab46c33f32f6fede904d4abd891e7cbba81
+3a53d0a064baf78cea93be533489094bf896fb7644d9331619ec25b927e7ce27
+8ffba25df0fd24058ba6e34549d7ed17b13cc2b9bab87fced01c97faa877b516
+bc3ab75173c2fbede6005716edf106b8882565c8689180b2d15e4e6244d6bd59
+
+# internal/cli/copy_report_test.go
+1cc884b3b170b88c138c1b32235f9ecfbb0a98c828a67b42a8c1f2d06818c2b6
+9f2b9257b970ea4b5fc6cf78e145beeeb33993eb3dab79d109d86c5e11c5f6bf
+
+# tests/integration/copy_phase11_test.go
+082677965e9f1bdfeb321cb7a5d1108ae48274cddd04ef0dfb30069f9db0b6e2
+
+# internal/importer/importer_test.go
+f85985650edc7c59f98dcd241aedb790f5d9fbd2f6065d652b9d97ca52d57eb2
+3202cba6975e4512c191a21d8723dc27611b4a9f58164fb4319741d33bc2e603

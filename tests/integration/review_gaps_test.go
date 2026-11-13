@@ -89,8 +89,17 @@ func TestHandEditedLevel(t *testing.T) {
 	if !strings.Contains(out, "aprofile edit claude/work --share all") {
 		t.Errorf("sync names the completing command:\n%s", out)
 	}
-	if got := readFile(t, settings); got != `{"own":true}` {
-		t.Errorf("sync must not replace profile data: %s", got)
+	// The settings file is still the profile's own until edit --share completes the
+	// level change, so sync restores its placed neutralizing entries there (spec 005
+	// FR-001, the same linked-file rule as every launch entry) but never replaces
+	// the file.
+	if fi, _ := os.Lstat(settings); fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("sync must not replace profile data with a link")
+	}
+	if m := readSettings(t, settings); m["own"] != true || len(m) != 2 {
+		t.Errorf("sync must not replace profile data: %v", m)
+	} else if delete(m, "own"); !onlyNeutralizing(t, m) {
+		t.Errorf("sync added more than the neutralizing entries: %v", m)
 	}
 	if fi, _ := os.Lstat(filepath.Join(e.configDir("claude", "work"), "CLAUDE.md")); fi.Mode()&os.ModeSymlink == 0 {
 		t.Error("content links stay")
@@ -99,7 +108,7 @@ func TestHandEditedLevel(t *testing.T) {
 	if fi, _ := os.Lstat(settings); fi.Mode()&os.ModeSymlink == 0 {
 		t.Error("edit --share with the current level completes the replace")
 	}
-	if b := backupsOf(t, e, "claude", "work", "settings.json"); len(b) != 1 || readFile(t, b[0]) != `{"own":true}` {
+	if b := backupsOf(t, e, "claude", "work", "settings.json"); len(b) != 1 || readSettings(t, b[0])["own"] != true {
 		t.Errorf("the profile's settings are backed up first: %v", b)
 	}
 }
@@ -137,10 +146,16 @@ func TestSettingsPullApplies(t *testing.T) {
 	if b := backupsOf(t, e, "claude", "work", "settings.json"); len(b) != 1 || readFile(t, b[0]) != before {
 		t.Errorf("the backup holds the previous content: %v", b)
 	}
-	// Nothing left to pull: no prompt, no new backup.
-	out := e.run(nil, "settings", "pull", "claude/work", "--replace")
-	if !strings.Contains(out, "nothing to change") {
-		t.Errorf("a second pull has nothing to change:\n%s", out)
+	// The pull places the neutralizing entries again right after the copy.
+	if env, _ := m["env"].(map[string]any); env == nil || env["CLAUDE_CODE_USE_VERTEX"] != "" {
+		t.Errorf("the neutralizing entries are not placed again after the pull: %v", m["env"])
+	}
+	// Nothing left to pull but the env block of the neutralizing entries aprofile
+	// placed (spec 005 FR-001), which the pull names and places again.
+	out := e.run(nil, "settings", "pull", "claude/work", "--replace", "--dry-run")
+	if !strings.Contains(out, "removed: env") || strings.Contains(out, "changed:") ||
+		!strings.Contains(out, "launch settings aprofile placed are placed again after the pull") {
+		t.Errorf("a second pull lists only the placed env block:\n%s", out)
 	}
 
 	pi := filepath.Join(e.configDir("pi", "pp"), "agent", "settings.json")

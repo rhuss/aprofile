@@ -79,6 +79,10 @@ Start with the fix printed beside the finding. These common cases explain what t
 
 6. If `doctor` reports an orphan wrapper, it is an aprofile-marked wrapper left by a removed or renamed profile. Run `./bin/aprofile sync` to remove it. Sync removes temporary `.aprofile-tmp-*` and `.aprofile-new-*` entries left by interrupted writes after they are older than a minute. It restores a directory-swap temporary named `.<entry>.aprofile-new-*-old` by renaming it back. If a temporary entry cannot be removed or restored, sync reports a problem instead of claiming it is up to date.
 
+## Check the profile folder
+
+`show` prints `folder:` (self-contained, or which settings only the wrapper supplies and why) and `folder sync:`. When it says `stale`, or `doctor` reports `profile folder is stale`, run `./bin/aprofile sync`; it restores launch entries you edited by hand. When `doctor` reports that `settings.json` sets a launch variable the profile does not set, remove that entry from the file or set the value on the profile with `./bin/aprofile edit`. A `settings.json` that does not parse makes `sync` exit non-zero and leaves that profile's file, wrapper and registry entry unchanged until you fix the file.
+
 ## Check which profile owns the session
 
 If a conversation is missing after you switch profiles, inspect the original profile and its history-group membership. An isolated profile keeps its history to itself. Members of a group use that group's shared history store. Leaving a group removes the profile's history links and gives it fresh, empty history. A share level or profile copy does not transfer history.

@@ -121,7 +121,8 @@ func runLogin(cmd *cobra.Command, ref string) error {
 // loginEnv builds the process environment for an interactive login from the
 // caller's environment: the environment the profile's wrapper gives the harness
 // (wrapper.Environ shares the wrapper's environment model), with hookEnv, the exec
-// hook's env output, as caller-overridable variables listed in APROFILE_SET_VARS.
+// hook's env output, set unconditionally and listed in APROFILE_SET_VARS. Settings
+// the profile folder carries are not in it: the harness reads them from its folder.
 func loginEnv(p *profile.Profile, def *harness.Definition, configDir string, hookEnv []harness.EnvVar, environ []string) ([]string, error) {
 	return wrapper.Environ(p, def, configDir, wrapper.RenderOptions{HookEnv: hookEnv}, environ)
 }

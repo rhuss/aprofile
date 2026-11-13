@@ -36,6 +36,7 @@ aprofile edit claude/corp --group work
 aprofile sync
 
 claude-corp       # company endpoint and model; shares history with work profiles only
+claude-corp --model other-model   # one run with another model (exported variables never override a profile)
 ```
 
 Logins always stay inside their profile. Per profile, you choose whether instructions, skills and settings come from your normal setup or stay separate. The guide below explains the details.
@@ -83,6 +84,10 @@ You create profiles, then run `./bin/aprofile sync` from the repository checkout
 History is separate from share level. A profile in no history group keeps its history to itself, which is the default for new profiles. You can optionally put profiles of the same harness in a history group so they can resume one another's conversations. Group membership selects history; the share level continues to control setup reuse. Logins stay private in a group. See [History groups](docs/guide/docs/user/history-groups.md) for details.
 
 Profile changes can leave wrappers stale. Run `./bin/aprofile sync` after adding, editing, renaming, copying, importing, or removing profiles to bring the launchers up to date.
+
+Curated capability toggles live one layer above the launch settings: `./bin/aprofile features <harness>/<name>` turns harness capabilities such as OTel telemetry or the Auto-mode decision log on or off for one profile, mapping them to whatever mechanism the harness itself uses (no hand-editing of its settings file). Run it without flags to list what the harness supports. Anything outside the catalog is still reachable through the raw `--env` and `--env-literal` escape hatch on `add` and `edit`.
+
+Tools such as Corgi can also start a profile from its folder alone. `sync` writes the launch settings the folder can hold, and for Claude profiles with their own settings it blocks provider switches and keys exported by the launching tool. A Claude login profile at share level `all` gets no such protection; [Register profiles with Corgi](docs/guide/docs/user/corgi.md) explains the details.
 
 ## Ways to run it
 

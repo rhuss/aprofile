@@ -49,6 +49,10 @@ Use `all` when the profile should behave like your default setup. Choose `conten
 
 New profiles use `content` by default, unless `default_share` in `<config dir>/aprofile/settings.yaml` sets another default. You can set the level when adding, editing, copying, or importing a profile, or in the `./bin/aprofile ui` form.
 
+## Launch settings at each level
+
+At `content` and `none` the profile has its own `settings.json`, so `sync` places the profile's launch settings there and the folder launches on its own. At `all` the settings file is linked to the default setup, which aprofile never writes: the launch settings stay with the wrapper, and `edit --share all --dry-run` says so. Codex keeps its key command in `config.toml`, which is the profile's own at every level.
+
 ## What each level shares
 
 A share level and history-group membership answer different questions. The share level controls setup entries; a history group selects which history entries profiles of the same harness share. Membership does not change how settings, content, credentials, or plugins follow the selected share level.

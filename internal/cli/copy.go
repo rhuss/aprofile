@@ -53,6 +53,10 @@ type copyReportJSON struct {
 	// Backup is the directory the replaced data of an existing target was copied to
 	// before an --overwrite copy (empty for a new target).
 	Backup string `json:"backup,omitempty"`
+	// Feature 006 (FR-009): the feature state carried to the target, and the
+	// features left out because the target harness does not support them.
+	FeaturesCarried []string `json:"features_carried,omitempty"`
+	FeaturesLeftOut []string `json:"features_left_out,omitempty"`
 	// Feature 003 (FR-018): the target's history group (copy never transfers
 	// history; the target is isolated unless --group), and a hint naming the flag
 	// when the source is a member and the target's harness has a group of that name.
@@ -289,6 +293,16 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 		}
 	}
 
+	// Strip source-managed placements in memory. The target sync places them
+	// afresh and captures the genuine source originals as its recovery values.
+	var launchSource *copyLaunchSource
+	if sh == dh {
+		launchSource, err = newCopyLaunchSource(srcConfigDir, a.paths.ManagedLaunchPath(sh, sn))
+		if err != nil {
+			return err
+		}
+	}
+
 	// From here on the copy writes. A new target's config dir that this copy creates
 	// is removed again if the copy fails before the profile is saved, so a retry
 	// needs no --adopt (FR-004). A dir that existed (adopted) or belongs to an
@@ -309,7 +323,7 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	// config dir is prepared, so preparation copies from the default setup only what
 	// is still absent.
 	if sh == dh && src.ShareLevel() != profile.ShareAll && level != profile.ShareAll {
-		names, warnings, err := carrySettings(srcDef, srcConfigDir, dstConfigDir)
+		names, warnings, err := carrySettings(srcDef, srcConfigDir, dstConfigDir, launchSource)
 		if err != nil {
 			return err
 		}
@@ -329,7 +343,12 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	if sh == dh {
 		report.Mode = "same-harness"
 		applySameHarnessSettings(target, src, f)
-		warnings, err := carryOwnedLayer(dstDef, srcConfigDir, dstConfigDir)
+		// FR-009: a same-harness copy carries every feature, unless the target
+		// uses share level all (a profile there carries no feature entries,
+		// data-model invariant).
+		target.Features, report.FeaturesLeftOut = carryFeaturesForLevel(src, dstDef, level)
+		report.FeaturesCarried = featureNames(target.Features)
+		warnings, err := carryOwnedLayerFrom(dstDef, srcConfigDir, dstConfigDir, launchSource)
 		if err != nil {
 			return err
 		}
@@ -348,6 +367,11 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 	} else {
 		report.Mode = "cross-harness"
 		applyCrossHarnessSettings(target, src, f, auth, targetExists)
+		// FR-009: the copy carries the feature state where the target harness
+		// supports the feature, and names what it does not (hook-set precedent);
+		// a target at share level all carries none (data-model invariant).
+		target.Features, report.FeaturesLeftOut = carryFeaturesForLevel(src, dstDef, level)
+		report.FeaturesCarried = featureNames(target.Features)
 		report.DroppedSettings = droppedCrossSettings(src)
 		report.OwnedNotConverted = ownedNotConverted(srcDef, srcConfigDir)
 		// MCP conversion through the neutral record.
@@ -373,6 +397,11 @@ func runCopy(cmd *cobra.Command, srcRef, dstRef string, f *copyFlags) (err error
 		}
 	}
 
+	if launchSource != nil {
+		if err := launchSource.forgetReplaced(a.paths.ManagedLaunchPath(dh, dn)); err != nil {
+			return err
+		}
+	}
 	if err := a.store.Save(target); err != nil {
 		return err
 	}
@@ -398,6 +427,95 @@ func applySameHarnessSettings(target, src *profile.Profile, f *copyFlags) {
 	target.ExtraEnv = cloneExtra(src.ExtraEnv)
 	target.HerdrAgent = src.HerdrAgent
 	// Primary is not carried; an overwritten target keeps its own primary flag.
+}
+
+// cloneFeatures deep-copies a feature state list.
+func cloneFeatures(in []profile.FeatureState) []profile.FeatureState {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]profile.FeatureState, len(in))
+	for i, fs := range in {
+		out[i] = fs
+		if fs.Params != nil {
+			out[i].Params = make(map[string]string, len(fs.Params))
+			for k, v := range fs.Params {
+				out[i].Params[k] = v
+			}
+		}
+	}
+	return out
+}
+
+func featureNames(in []profile.FeatureState) []string {
+	var out []string
+	for _, fs := range in {
+		out = append(out, fs.Feature)
+	}
+	return out
+}
+
+// carryFeaturesForLevel decides a copy's feature state (FR-009): a target at
+// share level all carries none (its settings are linked to the default setup,
+// so feature entries would be unplaceable and undisableable); otherwise
+// carryFeatures applies.
+func carryFeaturesForLevel(src *profile.Profile, dstDef *harness.Definition, level profile.Share) ([]profile.FeatureState, []string) {
+	if level == profile.ShareAll {
+		var leftOut []string
+		for _, fs := range src.Features {
+			leftOut = append(leftOut, fmt.Sprintf("%s (the target uses share level all)", fs.Feature))
+		}
+		return nil, leftOut
+	}
+	return carryFeatures(src, dstDef)
+}
+
+// carryFeatures decides a cross-harness copy's feature state (FR-009): a feature
+// the target harness supports is carried, with params whose values the target
+// does not accept dropped (its default applies); the rest is reported as left
+// out instead of failing the copy.
+func carryFeatures(src *profile.Profile, dstDef *harness.Definition) ([]profile.FeatureState, []string) {
+	var carried []profile.FeatureState
+	var leftOut []string
+	for _, fs := range src.Features {
+		fm, ok := dstDef.FeatureMapping(fs.Feature)
+		if !ok {
+			leftOut = append(leftOut, fmt.Sprintf("%s (harness %s does not support it)", fs.Feature, dstDef.Name))
+			continue
+		}
+		params := make(map[string]string, len(fs.Params))
+		for k, v := range fs.Params {
+			params[k] = v
+		}
+		for k, v := range fs.Params {
+			if _, declared := fm.Params[k]; !declared {
+				// The target mapping does not take the param at all (a subset
+				// mapping through harnesses.d): carrying it would store a state
+				// the target cannot resolve, so it is dropped and named.
+				delete(params, k)
+				leftOut = append(leftOut, fmt.Sprintf("%s param %s (harness %s does not support it)", fs.Feature, k, dstDef.Name))
+				continue
+			}
+			if values := fm.Params[k].Values; len(values) > 0 && !stringIn(values, v) {
+				delete(params, k)
+				leftOut = append(leftOut, fmt.Sprintf("%s param %s (harness %s does not accept the value; its default applies)", fs.Feature, k, dstDef.Name))
+			}
+		}
+		carried = append(carried, profile.FeatureState{Feature: fs.Feature, Params: params})
+	}
+	if len(carried) == 0 {
+		carried = nil
+	}
+	return carried, leftOut
+}
+
+func stringIn(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // applyCrossHarnessSettings carries label/color/icon only and drops auth/model/endpoint
@@ -441,6 +559,10 @@ func droppedCrossSettings(src *profile.Profile) []string {
 // merges owned keys of mixed files (FR-033a), then returns warnings for owned MCP
 // values matching a secret pattern.
 func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.SecretWarning, error) {
+	return carryOwnedLayerFrom(def, srcDir, dstDir, &copyLaunchSource{})
+}
+
+func carryOwnedLayerFrom(def *harness.Definition, srcDir, dstDir string, source *copyLaunchSource) ([]mcp.SecretWarning, error) {
 	for i := range def.Classification {
 		rule := &def.Classification[i]
 		switch rule.Layer {
@@ -453,13 +575,12 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 			if !layer.PathExists(s) {
 				continue
 			}
-			if err := copyTree(s, filepath.Join(dstDir, rel)); err != nil {
+			if err := source.copyTree(srcDir, dstDir, rel); err != nil {
 				return nil, err
 			}
 		case harness.LayerMixed:
 			rel := filepath.FromSlash(rule.Entry)
-			s := filepath.Join(srcDir, rel)
-			srcData, err := os.ReadFile(s)
+			srcData, err := source.read(srcDir, rel)
 			if err != nil {
 				if os.IsNotExist(err) {
 					continue
@@ -474,7 +595,7 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("read target %s: %w", d, err)
 			}
-			merged, err := layer.MergeMixedOwned(rule, dstData, srcData, filepath.Ext(rel))
+			merged, keys, err := layer.MergeMixedKeys(rule, dstData, srcData, filepath.Ext(rel), harness.LayerOwned)
 			if err != nil {
 				return nil, err
 			}
@@ -482,6 +603,7 @@ func carryOwnedLayer(def *harness.Definition, srcDir, dstDir string) ([]mcp.Secr
 			if err := config.WriteFileAtomic(d, merged, ownedFileMode(d)); err != nil {
 				return nil, err
 			}
+			source.markKeys(rel, keys)
 		}
 	}
 	// Warn on owned MCP values matching a secret pattern (FR-033a).
@@ -635,7 +757,7 @@ func carrySkills(srcDef, dstDef *harness.Definition, level profile.Share, srcDir
 // carrySettings copies the source's own settings entries into an absent target
 // entry, leaving out the hook location key (FR-007a). It returns the copied entry
 // names and per-key secret warnings (research R6).
-func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []copySecretWarning, error) {
+func carrySettings(def *harness.Definition, srcDir, dstDir string, source *copyLaunchSource) ([]string, []copySecretWarning, error) {
 	var names []string
 	var warnings []copySecretWarning
 	for _, rule := range def.Classification {
@@ -650,13 +772,13 @@ func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []
 			continue
 		}
 		if fi.IsDir() {
-			if err := copyTree(s, d); err != nil {
+			if err := source.copyTree(srcDir, dstDir, rel); err != nil {
 				return nil, nil, err
 			}
 			names = append(names, rule.Path())
 			continue
 		}
-		data, err := os.ReadFile(s)
+		data, err := source.read(srcDir, rel)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -671,6 +793,7 @@ func carrySettings(def *harness.Definition, srcDir, dstDir string) ([]string, []
 		if err := config.WriteFileAtomic(d, data, fi.Mode().Perm()); err != nil {
 			return nil, nil, err
 		}
+		source.markFile(rel)
 		names = append(names, rule.Path())
 	}
 	return names, warnings, nil
@@ -769,6 +892,12 @@ func printCopyReport(a *app, r copyReportJSON) {
 	}
 	if len(r.HookSetsCarried) > 0 {
 		fmt.Fprintf(a.out, "  hook sets carried: %s\n", strings.Join(r.HookSetsCarried, ", "))
+	}
+	if len(r.FeaturesCarried) > 0 {
+		fmt.Fprintf(a.out, "  features carried: %s\n", strings.Join(r.FeaturesCarried, ", "))
+	}
+	for _, fl := range r.FeaturesLeftOut {
+		fmt.Fprintf(a.out, "  feature left out: %s\n", fl)
 	}
 	for _, h := range r.HookSetsLeftOut {
 		fmt.Fprintf(a.out, "  hook set left out: %s\n", h)

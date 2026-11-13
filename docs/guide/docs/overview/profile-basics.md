@@ -18,7 +18,7 @@ pi:README.md:13-19
 
 You can run work, personal, or client accounts side by side and start each with a short command. aprofile manages named accounts or configurations of coding tools, so you do not have to switch configuration directories by hand. That matters when separate accounts need separate conversations, or when selected accounts should be able to continue the same conversation.
 
-Without separate profiles, a manual configuration switch can mix transcripts, memory, or billing. aprofile prepares a wrapper for each profile, such as `claude-work`, so the short command starts the intended account. A profile uses its own login, endpoint, and model.
+Without separate profiles, a manual configuration switch can mix transcripts, memory, or billing. aprofile prepares a wrapper for each profile, such as `claude-work`, so the short command starts the intended account. A profile uses its own login, endpoint, and model. aprofile also writes those settings into the profile's folder where the harness reads them, so tools that start a harness from the folder alone get the same profile.
 
 ## What a profile is
 

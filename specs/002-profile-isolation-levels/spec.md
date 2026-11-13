@@ -427,10 +427,14 @@ deleted.
   servers in it) MUST NOT be linked at any level; at `all` it is the profile's own and is created
   as at `content`. A definition MAY declare such a file mixed (per slice one FR-013) when its format
   supports per-key layers. Where the hook location is a separate entry, it MUST be linked at `all`.
+  *Clarified by spec 004 (FR-008): launch entries are owned only where the folder carries them; a
+  settings file linked at `all` carries none and stays linkable.*
 - **FR-010**: At `content`, settings entries MUST be the profile's own. When aprofile creates them,
   it MUST copy them once from the default setup, leaving out the hook location; afterwards aprofile
   never changes them except through `settings pull`, a share level change, or the owned keys and
   managed hook entries it already maintains.
+  *Extended by spec 004 (FR-003 to FR-005): `sync` also maintains the launch entries it placed in
+  the profile's own settings.*
 - **FR-011**: At `none`, the profile MUST have no content links and its own settings entries,
   created with only the keys aprofile owns; the harness's own defaults apply to everything else.
   At `none`, aprofile MUST NOT seed or copy any entry or key from the default setup, including the
@@ -458,6 +462,9 @@ deleted.
   except a change that replaces profile-owned data with a link, which MUST back the data up and
   ask for confirmation (or require `--yes` when not on a terminal). A share level change MUST be
   refused while the profile is running.
+  *Extended by spec 004 (FR-008a): a change to `all` drops the profile's record of placed launch
+  entries and makes them wrapper-only; a change from `all` lets the next `sync` place them; the
+  dry run lists both effects.*
 - **FR-017a**: `edit --share` (and the TUI) MUST apply the config dir changes of a level change
   itself, as one operation, and then mark the wrapper and registry entry stale until the next
   `sync`, as slice one does for other edits. When the level in a profile file changes by other
@@ -474,6 +481,8 @@ deleted.
   setup's, still excluding the hook location and owned keys. It MUST support `--dry-run`, back up
   the profile's file before writing, and ask for confirmation (or require `--yes` when not on a
   terminal). It MUST refuse `all` and `none` profiles with a message explaining why.
+  *Extended by spec 004 (FR-010): the profile's folder-carried launch entries are placed again
+  once the pull completes.*
 - **FR-019**: The registry entry of each profile and the wrapper contract MUST include the share
   level (an additive registry field and an `APROFILE_SHARE` variable), so hooks and other tools
   can read it.

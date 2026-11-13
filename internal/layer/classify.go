@@ -200,7 +200,7 @@ func UndeclaredDefaultKeys(def *harness.Definition) ([]UndeclaredKeys, error) {
 		if err != nil {
 			continue
 		}
-		m, err := decodeJSONObject(data)
+		m, err := DecodeJSONObject(data)
 		if err != nil {
 			continue
 		}

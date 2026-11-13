@@ -181,6 +181,107 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+// Spec 006, data-model "Feature state": features round-trip sorted by feature id
+// through Save/Load.
+func TestFeaturesRoundTripSorted(t *testing.T) {
+	store := newStore(t)
+	in := &profile.Profile{Harness: "claude", Name: "work", AuthKind: "oauth-login"}
+	in.Features = []profile.FeatureState{
+		{Feature: "telemetry", Params: map[string]string{
+			"traces": "on", "logs": "off", "endpoint": "https://otlp.example.com", "protocol": "http/protobuf",
+		}},
+		{Feature: "automode-log"},
+	}
+	if err := store.Save(in); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(store.Path("claude", "work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "features:") {
+		t.Errorf("features not stored:\n%s", data)
+	}
+	// Stored sorted by feature id: automode-log before telemetry.
+	autoIdx := strings.Index(string(data), "feature: automode-log")
+	telIdx := strings.Index(string(data), "feature: telemetry")
+	if autoIdx < 0 || telIdx < 0 || autoIdx > telIdx {
+		t.Errorf("features not sorted by feature id:\n%s", data)
+	}
+	out, err := store.Load("claude", "work")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(out.Features) != 2 {
+		t.Fatalf("features not round-tripped: %+v", out.Features)
+	}
+	if out.Features[0].Feature != "automode-log" || out.Features[1].Feature != "telemetry" {
+		t.Errorf("features not sorted after load: %+v", out.Features)
+	}
+	tel := out.Features[1]
+	if tel.Params["traces"] != "on" || tel.Params["endpoint"] != "https://otlp.example.com" {
+		t.Errorf("telemetry params not round-tripped: %+v", tel.Params)
+	}
+	// A profile without features stores no features key (SC-002-style minimal file).
+	_ = store.Save(&profile.Profile{Harness: "claude", Name: "solo", AuthKind: "oauth-login"})
+	data, _ = os.ReadFile(store.Path("claude", "solo"))
+	if strings.Contains(string(data), "features") {
+		t.Errorf("featureless profile stores a features key:\n%s", data)
+	}
+}
+
+// Unknown feature ids and out-of-enum stored params each add a LoadWarning and
+// place nothing (data-model "Feature state").
+func TestFeaturesLoadWarnings(t *testing.T) {
+	store := newStore(t)
+	var got []string
+	store.Warn = func(msg string) { got = append(got, msg) }
+	reset := func() { got = nil }
+	// Unknown feature id.
+	path := store.Path("claude", "work")
+	testutil.WriteFile(t, path, "harness: claude\nname: work\nauth_kind: oauth-login\nfeatures:\n  - feature: time-travel\n")
+	reset()
+	p, err := store.Load("claude", "work")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "time-travel") {
+		t.Errorf("unknown feature id should warn naming it: %v", got)
+	}
+	if len(p.Features) != 0 {
+		t.Errorf("unknown feature id should be dropped from the record: %+v", p.Features)
+	}
+	// Out-of-enum stored param (not in the catalog's cross-harness union): the
+	// whole feature drops, so the harness default cannot re-supply the param and
+	// place entries from a malformed state.
+	testutil.WriteFile(t, path, "harness: claude\nname: work\nauth_kind: oauth-login\nfeatures:\n  - feature: telemetry\n    params:\n      traces: on\n      logs: on\n      endpoint: https://e\n      protocol: carrier-pigeon\n")
+	reset()
+	p, err = store.Load("claude", "work")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "protocol") {
+		t.Errorf("out-of-enum param should warn naming it: %v", got)
+	}
+	if len(p.Features) != 0 {
+		t.Fatalf("a malformed feature state should place nothing: %+v", p.Features)
+	}
+	// Unknown param name and a bad bool value warn the same way and drop the
+	// feature.
+	testutil.WriteFile(t, path, "harness: claude\nname: work\nauth_kind: oauth-login\nfeatures:\n  - feature: telemetry\n    params:\n      traces: maybe\n      flavor: vanilla\n")
+	reset()
+	p, err = store.Load("claude", "work")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("bad bool and unknown param should each warn: %v", got)
+	}
+	if len(p.Features) != 0 {
+		t.Fatalf("a malformed feature state should place nothing: %+v", p.Features)
+	}
+}
+
 func TestHistoryGroupRoundTripAndValidation(t *testing.T) {
 	store := newStore(t)
 	in := &profile.Profile{Harness: "claude", Name: "lab", HistoryGroup: "home"}

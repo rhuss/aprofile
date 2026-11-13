@@ -529,8 +529,8 @@ func buildProfile(e ccEntry, def *harness.Definition, share profile.Share, sourc
 		extra.set(profile.ExtraEnvVar{Name: name, Value: val, Literal: true})
 	}
 	p.ExtraEnv = extra.vars
-	if p.Model != "" && def.ModelVar == "" {
-		warn("model %q kept in the profile, but harness %q declares no model variable, so the wrapper does not set it", p.Model, def.Name)
+	if p.Model != "" && !def.CarriesModel() {
+		warn("model %q kept in the profile, but harness %q declares no model variable or argument, so the wrapper does not set it", p.Model, def.Name)
 	}
 
 	if err := p.Validate(); err != nil {

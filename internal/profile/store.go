@@ -100,6 +100,7 @@ func decodeProfile(data []byte, harness, name string) (*Profile, error) {
 		return nil, fmt.Errorf("profile %s/%s: file identity (%s/%s) does not match its location", harness, name, p.Harness, p.Name)
 	}
 	p.repairAppearance()
+	p.repairFeatures()
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}

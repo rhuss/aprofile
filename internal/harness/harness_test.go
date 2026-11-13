@@ -25,9 +25,6 @@ func TestLoadBuiltinsClaude(t *testing.T) {
 	if d.ModelVar != "ANTHROPIC_MODEL" || d.EndpointVar != "ANTHROPIC_BASE_URL" {
 		t.Errorf("unexpected model/endpoint vars: %+v", d)
 	}
-	if d.OmarchyProvider != "anthropic" {
-		t.Errorf("omarchy provider = %q", d.OmarchyProvider)
-	}
 	if !d.HasCapability("mcp") || !d.HasCapability("login") {
 		t.Errorf("missing capabilities: %v", d.Capabilities)
 	}

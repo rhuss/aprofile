@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/testutil"
@@ -85,5 +86,39 @@ func TestTreatmentsHistoryIsolatedUnchanged(t *testing.T) {
 	}
 	if s := treatmentOf(a, "sessions"); s == nil || s.Treatment != layer.TreatmentPrivate || s.Status != layer.StatusOK {
 		t.Errorf("isolated sessions = %+v", s)
+	}
+}
+
+// Feature 004 T024: a content profile whose own settings.json differs from the
+// default setup's only by the launch entries aprofile placed does not read
+// "differs from the default setup".
+func TestTreatmentsIgnorePlacedLaunchEntries(t *testing.T) {
+	h := testutil.HermeticHome(t)
+	set, err := harness.LoadBuiltins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, _ := set.Get("claude")
+	testutil.WriteFile(t, filepath.Join(h.Root, ".claude", "settings.json"), `{"theme":"dark","env":{"MLFLOW":"x"}}`)
+	dir := filepath.Join(h.DataHome, "p")
+	testutil.WriteFile(t, filepath.Join(dir, "settings.json"),
+		`{"theme":"dark","env":{"MLFLOW":"x","ANTHROPIC_MODEL":"m","ANTHROPIC_API_KEY":""},"apiKeyHelper":"cat k"}`)
+	p := &profile.Profile{Harness: "claude", Name: "p", Share: profile.ShareContent}
+
+	plain, _ := layer.TreatmentsWith(def, p, h.Root, dir, nil)
+	if s := treatmentOf(plain, "settings.json"); s == nil || s.Status != layer.StatusDiffersFromDefault {
+		t.Fatalf("without placed keys: %+v", s)
+	}
+	placed := layer.PlacedKeys{"settings.json": {"env.ANTHROPIC_MODEL", "env.ANTHROPIC_API_KEY", "apiKeyHelper"}}
+	got, _ := layer.TreatmentsWithPlaced(def, p, h.Root, dir, nil, placed)
+	if s := treatmentOf(got, "settings.json"); s == nil || s.Status != layer.StatusOK {
+		t.Errorf("with placed keys: %+v", s)
+	}
+	// A user change besides the placed entries still differs.
+	testutil.WriteFile(t, filepath.Join(dir, "settings.json"),
+		`{"theme":"light","env":{"MLFLOW":"x","ANTHROPIC_MODEL":"m"},"apiKeyHelper":"cat k"}`)
+	got, _ = layer.TreatmentsWithPlaced(def, p, h.Root, dir, nil, placed)
+	if s := treatmentOf(got, "settings.json"); s == nil || s.Status != layer.StatusDiffersFromDefault {
+		t.Errorf("a user change must still differ: %+v", s)
 	}
 }

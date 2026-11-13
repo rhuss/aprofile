@@ -145,14 +145,6 @@ func (p *Paths) RegistryPath() string {
 	return filepath.Join(p.DataDir, "registry.json")
 }
 
-// OmarchyAccountsDir is the default Omarchy accounts directory (FR-031):
-// `$XDG_STATE_HOME/omarchy/agents/accounts`, which lives beside aprofile's own state
-// dir, not inside it. StateDir is `<state base>/aprofile`, so its parent is the state
-// base. The CLI may override this with --output-dir.
-func (p *Paths) OmarchyAccountsDir() string {
-	return filepath.Join(filepath.Dir(p.StateDir), "omarchy", "agents", "accounts")
-}
-
 // ProfileStoreDir is the directory holding a harness's profile store files.
 func (p *Paths) ProfileStoreDir(harness string) string {
 	return filepath.Join(p.ConfigDir, "profiles", harness)
@@ -196,6 +188,13 @@ func (p *Paths) HooksDir() string {
 // unknown entry.
 func (p *Paths) ManagedHooksPath(harness, name string) string {
 	return filepath.Join(p.DataDir, "managed-hooks", harness, name+".json")
+}
+
+// ManagedLaunchPath is the record of launch entries aprofile placed into one
+// profile's harness files (feature 004, research R6). Like the hooks record it lives
+// in aprofile's data dir, so the harness's files carry no marker.
+func (p *Paths) ManagedLaunchPath(harness, name string) string {
+	return filepath.Join(p.DataDir, "managed-launch", harness, name+".json")
 }
 
 // LoadSettings reads the global settings file from configDir. A missing file is

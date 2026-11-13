@@ -164,3 +164,16 @@ func TestHistoryGroupPaths(t *testing.T) {
 		}
 	}
 }
+
+// Feature 004: the launch record lives beside the hooks record in the data dir.
+func TestManagedLaunchPath(t *testing.T) {
+	testutil.HermeticHome(t)
+	p, err := config.ResolvePaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(p.DataDir, "managed-launch", "claude", "work.json")
+	if got := p.ManagedLaunchPath("claude", "work"); got != want {
+		t.Errorf("ManagedLaunchPath = %q, want %q", got, want)
+	}
+}

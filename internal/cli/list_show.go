@@ -13,6 +13,7 @@ import (
 	"github.com/cc-deck/aprofile/internal/harness"
 	"github.com/cc-deck/aprofile/internal/history"
 	"github.com/cc-deck/aprofile/internal/hooksets"
+	"github.com/cc-deck/aprofile/internal/launch"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
 	"github.com/cc-deck/aprofile/internal/secret"
@@ -51,6 +52,9 @@ type profileJSON struct {
 	ShareImplicit    bool   `json:"share_implicit,omitempty"`
 	// Feature 003: the history group (empty when isolated).
 	HistoryGroup string `json:"history_group"`
+	// Feature 004: whether the profile folder's placed launch entries are current:
+	// synced | stale | unknown (FR-020a).
+	FolderSync string `json:"folder_sync"`
 }
 
 type listJSON struct {
@@ -111,6 +115,11 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 		def, _ := a.set.Get(p.Harness)
 		status, serr := a.wrapperStatusErr(p, def)
 		reasons.add(p.Harness, serr)
+		if def != nil {
+			if st, _ := a.folderStatus(p, def); st.Sync == launch.SyncStale {
+				status += ", folder stale"
+			}
+		}
 		primary := ""
 		if p.Primary {
 			primary = " (primary)"
@@ -185,6 +194,15 @@ type showJSON struct {
 	History string `json:"history"`
 	// SetAside lists the profile's set-aside history (FR-020).
 	SetAside []history.SetAsideRun `json:"set_aside"`
+	// Folder reports whether the profile folder is self-contained (spec 004 FR-020).
+	Folder *launch.FolderReport `json:"folder,omitempty"`
+	// Features lists the profile's enabled features with their parameter values
+	// (spec 006, FR-016), the same feature objects the features command reports.
+	Features []featureJSON `json:"features"`
+	// FeatureDrift lists drift between the recorded feature state and the placed
+	// entries (FR-016): entries that differ, entries of a disabled feature still
+	// placed, and collisions (FR-015).
+	FeatureDrift []string `json:"feature_drift,omitempty"`
 	// Problems lists where the profile does not fit its harness definition (FR-006):
 	// an undeclared auth kind, or a model or endpoint the harness has no variable for.
 	Problems []string `json:"problems"`
@@ -215,10 +233,11 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	go func() { creds <- a.credentialStatus(p, def, true) }()
 	pj, statusErr := a.profileToJSONErr(p)
 	sj := showJSON{FormatVersion: schemaVersion, profileJSON: pj, HookSets: []hookSetJSON{}, HomeEscapes: []harness.HomeEscape{}, UnborrowedDefaultEntries: []string{},
-		Problems: []string{}}
+		Problems: []string{}, Features: []featureJSON{}}
 	sj.Credentials = <-creds
 	sj.HasCredentials = sj.Credentials.Present
 	fit := map[string]wrapper.FitIssue{}
+	var folderSt launch.StatusReport
 	if def != nil {
 		for _, fi := range wrapper.FitIssues(p, def) {
 			fit[fi.Field] = fi
@@ -230,12 +249,19 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 		} else if herr != nil {
 			sj.Problems = append(sj.Problems, herr.Error()+"; fix: aprofile edit "+p.ID()+" --group <group>, or --no-group")
 		}
-		entries, err := layer.TreatmentsWith(def, p, "", sj.ConfigDir, hs)
+		entries, err := layer.TreatmentsWithPlaced(def, p, "", sj.ConfigDir, hs, launch.LoadPlaced(a.paths.ManagedLaunchPath(p.Harness, p.Name)))
 		if err != nil {
 			return err
 		}
 		sj.Entries = entries
 		sj.SettingsDiffer = len(layer.SettingsDiffer(entries)) > 0
+		var ferr error
+		folderSt, ferr = a.folderStatus(p, def)
+		fr := folderSt.Folder()
+		sj.Folder = &fr
+		if ferr != nil {
+			sj.Problems = append(sj.Problems, fmt.Sprintf("cannot tell whether the profile folder is current: %v; fix the file, then run: aprofile sync", ferr))
+		}
 		if def.HomeEscapes != nil {
 			sj.HomeEscapes = def.HomeEscapes
 		}
@@ -256,6 +282,17 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 				sj.HookSets = append(sj.HookSets, hookSetJSON{Name: name, Reason: "failed-to-load"})
 			}
 		}
+		// Spec 006 FR-016: the features section, one entry per enabled feature
+		// with its parameter values.
+		for _, fs := range p.Features {
+			fj := featureJSON{ID: fs.Feature, Enabled: true, Params: map[string]string{}}
+			if resolved, err := def.ResolveFeatureParams(fs.Feature, fs.Params); err == nil {
+				fj.Params = resolved
+			} else {
+				fj.Params = fs.Params
+			}
+			sj.Features = append(sj.Features, fj)
+		}
 	}
 	if sj.Entries == nil {
 		sj.Entries = []layer.EntryTreatment{}
@@ -268,6 +305,13 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 
 	if statusErr != nil {
 		fmt.Fprintf(a.errOut, "aprofile: wrapper status is unknown: %v\n", statusErr)
+	}
+	// FR-016 / FR-015: drift between the recorded feature state and the placed
+	// entries, and collisions, surface as show warnings even when no feature is
+	// enabled anymore (a disabled feature whose entries are still placed).
+	// Computed before the JSON return so both output forms carry it.
+	if drift := featureDriftWarnings(a, p, def); len(drift) > 0 {
+		sj.FeatureDrift = drift
 	}
 	if asJSON {
 		return writeJSON(a.out, sj)
@@ -302,6 +346,23 @@ func runShow(cmd *cobra.Command, ref string, asJSON bool) error {
 	}
 	fmt.Fprintf(a.out, "  config dir:     %s\n", pj.ConfigDir)
 	fmt.Fprintf(a.out, "  wrapper:        %s [%s]\n", pj.WrapperPath, pj.WrapperStatus)
+	if sj.Folder != nil {
+		printFolder(a, p, def, folderSt, *sj.Folder)
+	}
+	if len(sj.Features) > 0 {
+		for i, f := range sj.Features {
+			label := "  features:       "
+			if i > 0 {
+				label = "                  "
+			}
+			fmt.Fprintf(a.out, "%s%s\n", label, featureChangeLine(f))
+		}
+	}
+	if len(sj.FeatureDrift) > 0 {
+		for _, w := range sj.FeatureDrift {
+			fmt.Fprintf(a.out, "  features:       warning: %s\n", w)
+		}
+	}
 	var sets []string
 	for _, hs := range sj.HookSets {
 		sets = append(sets, hs.Name+" ("+reasonText(hs.Reason)+")")
@@ -423,6 +484,8 @@ func (a *app) profileToJSONErr(p *profile.Profile) (profileJSON, error) {
 		// it down); show does, and may report present where list does not.
 		pj.HasCredentials = a.credentialStatus(p, def, false).Present
 		pj.WrapperPath = filepath.Join(a.paths.BinDir, def.WrapperName(p.Name))
+		st, _ := a.folderStatus(p, def)
+		pj.FolderSync = st.Sync
 	}
 	if len(p.AuthRefs) > 0 {
 		pj.AuthRefs = map[string]string{}
@@ -441,6 +504,39 @@ func (a *app) profileToJSONErr(p *profile.Profile) (profileJSON, error) {
 		pj.ExtraEnv = append(pj.ExtraEnv, ej)
 	}
 	return pj, statusErr
+}
+
+// printFolder prints show's folder lines (contracts/cli.md): self-containment,
+// wrapper-only settings with their reasons, folder sync and unplaced entries.
+func printFolder(a *app, p *profile.Profile, def *harness.Definition, st launch.StatusReport, f launch.FolderReport) {
+	fmt.Fprintf(a.out, "  folder:         %s\n", f.StatusText())
+	for _, w := range f.WrapperOnly {
+		fmt.Fprintf(a.out, "                  wrapper-only: %s (%s)\n", w.SettingName(), launch.ReasonText(w.Reason, p, def))
+	}
+	sync := f.Sync
+	if sync == launch.SyncStale {
+		sync = "stale (run: aprofile sync)"
+	}
+	fmt.Fprintf(a.out, "  folder sync:    %s\n", sync)
+	for i, e := range st.Unplaced {
+		label := "  unplaced:       "
+		if i > 0 {
+			label = "                  "
+		}
+		_, _, short := st.UnplacedText(e)
+		what := e.Location
+		if name, ok := strings.CutPrefix(e.Location, "env."); ok {
+			what = "env " + name
+		}
+		fmt.Fprintf(a.out, "%s%s: %s (%s)\n", label, e.File, what, short)
+	}
+}
+
+// folderStatus reports the profile folder's launch settings (spec 004 FR-020 to
+// FR-020b): carriers, whether sync would change the placed entries, and the launch
+// entries aprofile did not place.
+func (a *app) folderStatus(p *profile.Profile, def *harness.Definition) (launch.StatusReport, error) {
+	return launch.Status(p, def, a.paths.ProfileConfigDir(p.Harness, p.Name), a.paths.ManagedLaunchPath(p.Harness, p.Name))
 }
 
 // wrapperStatus reports whether a profile's on-disk wrapper matches what sync

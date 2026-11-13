@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 
+	"github.com/cc-deck/aprofile/internal/feature"
 	"github.com/cc-deck/aprofile/internal/secret"
 )
 
@@ -44,6 +45,11 @@ type Profile struct {
 	// belongs to (spec 003); empty means isolated. "home" is the built-in group whose
 	// store is the default setup.
 	HistoryGroup string `yaml:"history_group,omitempty"`
+	// Features lists the profile's enabled features with their parameter values
+	// (spec 006, FR-009), stored sorted by feature id beside ExtraEnv. Values are
+	// validated at mutation time; an invalid stored value loads with a warning and
+	// places nothing.
+	Features []FeatureState `yaml:"features,omitempty"`
 
 	// ShareImplicit is true when the file did not store a share level and the
 	// profile was loaded as all (FR-033); show uses it for the upgrade hint.
@@ -93,6 +99,79 @@ func (p *Profile) ShareLevel() Share {
 func (p *Profile) normalizeLists() {
 	p.HookSets = sortedUnique(p.HookSets)
 	p.ExcludeHookSets = sortedUnique(p.ExcludeHookSets)
+	p.NormalizeFeatures()
+}
+
+// NormalizeFeatures sorts the feature states by feature id and drops a
+// duplicate id (keeping the first), so the stored file is deterministic (spec
+// 006, data-model "Feature state"). Exported for the features command's
+// mutation path.
+func (p *Profile) NormalizeFeatures() {
+	if len(p.Features) == 0 {
+		return
+	}
+	sort.SliceStable(p.Features, func(i, j int) bool { return p.Features[i].Feature < p.Features[j].Feature })
+	out := p.Features[:0]
+	seen := map[string]bool{}
+	for _, fs := range p.Features {
+		if seen[fs.Feature] {
+			continue
+		}
+		seen[fs.Feature] = true
+		out = append(out, fs)
+	}
+	p.Features = out
+}
+
+// repairFeatures validates the stored feature states against the catalog
+// (repairAppearance's pattern, spec 006): an unknown feature id, a param the
+// feature does not declare, or a param value that fails its catalog type or enum
+// drops the whole feature state with a LoadWarning, so the state is repaired
+// instead of failing the load. Dropping the feature (not just the param)
+// matters: a dropped param would let the harness's default re-supply it at
+// placement time and a malformed state would still place entries. The harness's
+// own capability mapping (supported features, per-harness enums) is checked
+// where features are resolved (mutation and placement), not here: the profile
+// store is harness-independent.
+func (p *Profile) repairFeatures() {
+	var out []FeatureState
+	for _, fs := range p.Features {
+		f, ok := feature.ByID(fs.Feature)
+		if !ok {
+			p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: unknown feature %q; it was dropped and places nothing (re-enable a feature with: aprofile features %s --enable <feature>)", p.ID(), fs.Feature, p.ID()))
+			continue
+		}
+		drop := func(reason string) {
+			p.LoadWarnings = append(p.LoadWarnings, fmt.Sprintf("profile %s: feature %q %s; it was dropped and places nothing (re-enable it with: aprofile features %s --enable %s)", p.ID(), fs.Feature, reason, p.ID(), fs.Feature))
+		}
+		bad := false
+		for name, v := range fs.Params {
+			fp, has := f.Param(name)
+			switch {
+			case !has:
+				drop(fmt.Sprintf("has no param %q", name))
+				bad = true
+			case fp.Type == feature.TypeBool && v != "on" && v != "off":
+				drop(fmt.Sprintf("param %q must be on or off, not %q", name, v))
+				bad = true
+			case fp.Type == feature.TypeEnum && !fp.HasValue(v):
+				drop(fmt.Sprintf("param %q has an invalid value", name))
+				bad = true
+			}
+		}
+		if bad {
+			continue
+		}
+		if len(fs.Params) == 0 {
+			fs.Params = nil
+		}
+		out = append(out, fs)
+	}
+	if len(out) == 0 {
+		out = nil
+	}
+	p.Features = out
+	p.NormalizeFeatures()
 }
 
 func sortedUnique(in []string) []string {
@@ -117,6 +196,14 @@ type ExtraEnvVar struct {
 	Name    string `yaml:"name"`
 	Value   string `yaml:"value"`
 	Literal bool   `yaml:"literal,omitempty"`
+}
+
+// FeatureState is one enabled feature of a profile (spec 006, data-model
+// "Feature state"): a catalog id and its parameter values as strings, validated
+// at mutation time against the catalog and the harness's capability mapping.
+type FeatureState struct {
+	Feature string            `yaml:"feature"`
+	Params  map[string]string `yaml:"params,omitempty"`
 }
 
 // ID returns the canonical "<harness>/<name>" identifier used in messages.
@@ -146,6 +233,13 @@ func (p *Profile) Validate() error {
 	}
 	if err := ValidateIcon(p.Icon); err != nil {
 		return fmt.Errorf("profile %s: %w", p.ID(), err)
+	}
+	// A model is passed to some harnesses as a TOML string argument (spec 004
+	// FR-016); a control character cannot be one, and no model name has one.
+	for _, r := range p.Model {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("profile %s: model must not contain control characters", p.ID())
+		}
 	}
 	if p.Share != "" && !p.Share.Valid() {
 		return fmt.Errorf("profile %s: share level %q must be all, content or none", p.ID(), p.Share)

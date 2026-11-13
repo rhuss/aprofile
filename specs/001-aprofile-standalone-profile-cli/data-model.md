@@ -154,6 +154,9 @@ Always-set (never caller-overridable): the profile's `config_env` variables, `AP
 profile's auth variables (and unset of other auth kinds' variables). Caller-overridable
 (`${VAR:-default}`): model, endpoint, extra variables, unless started inside another profile's
 session (FR-027). Exports `APROFILE_SET_VARS` listing the model/endpoint/extra names it set.
+*Superseded by spec 004 (FR-012 to FR-016): no caller overrides; folder-carried settings are
+only cleared, wrapper-only settings are set unconditionally, `APROFILE_SET_VARS` lists every
+launch variable the profile supplies.*
 Reference values render as launch-time resolution; every other value renders shell-quoted (FR-028b).
 
 ## 5. Registry and RegistryEntry
@@ -163,6 +166,7 @@ No timestamps or volatile fields (an unchanged sync rewrites nothing).
 
 RegistryEntry per profile: `harness`, `name`, `label`, `color`, `icon`, `auth_kind`, `primary`,
 `config_dir`, `wrapper_path`. Top-level `format_version`. No secret values (FR-014, FR-028).
+*Extended by spec 004 (FR-018): `model` after `auth_kind`, `""` when unset.*
 
 **Omarchy export** (opt-in, FR-031): per-provider accounts file
 `{accounts:[{id,label,home,primary}]}` with `id = aprofile:<harness>/<name>`; non-aprofile entries

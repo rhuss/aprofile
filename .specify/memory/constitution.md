@@ -1,6 +1,30 @@
 <!--
 Sync Impact Report
 - Version change: (unversioned template) → 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4 → 1.1.0 → 1.2.0
+  → 2.0.0 → 2.0.1
+- 2.0.1 (PATCH, spec 006-profile-features FR-018): Principle II's launch-entry
+  parenthetical now names feature-placed entries alongside the launch variables, key
+  command and provider `auth` block ("the launch variables, key command, provider
+  `auth` block and feature-placed entries aprofile placed"), mirroring spec 005's
+  precedent for neutralizing entries: the curated capability toggles of the `features`
+  command (spec 006) materialize into the harness's own settings files as recorded,
+  idempotent placed entries. Modified principles: II (title unchanged). Added/removed
+  sections: none. Follow-up: none.
+- 2.0.0 (MAJOR, spec 004-corgi-integration FR-024): Principle V's caller-override rule
+  (`${VAR:-default}`) is removed and replaced by the single-source rule: a profile's settings are
+  fixed for every launch, the folder (or, where it cannot hold a setting or the harness rewrites
+  it, the wrapper) is the single source, one-run changes go through the harness's own flags, and
+  wrappers clear the launch variables a profile session may have set. Principle I lists as
+  definition data the folder locations of launch settings, how the wrapper passes a setting as a
+  launch argument, the per-auth-kind `folder_key` flag and the launch variable names wrappers
+  clear. Principle II allows aprofile-placed launch entries in a harness's settings files
+  (recorded in aprofile's data directory, the rest of the file preserved, re-read before every
+  write). Principle III states that launch entries are owned only where the folder carries them;
+  a settings file linked at share level `all` carries none, so it stays linkable.
+  Modified principles: I, II, III, V (titles unchanged). Added/removed sections: none.
+  Follow-up: spec 001 (FR-006, FR-026, FR-027, FR-030) and spec 002 (FR-009a, FR-010, FR-017,
+  FR-018) carry notes pointing to spec 004; the Claude Code definition's `settings.json`
+  classification comment is updated.
 - 1.2.0 (MINOR, spec 003-history-groups FR-025): Principle III gains an opt-in exception for
   history groups: the history entries of a member of an explicitly chosen history group are
   linked to the group store; credentials and all other state stay private, and isolated profiles
@@ -63,7 +87,10 @@ permission presets; documentation MUST make that distinction the first time the 
 - Per-harness knowledge (binary, config dir variable, env mapping for model and endpoint, auth
   kinds, entry classification and its treatment per share level, config patches, MCP location and
   schema flavor, skills directory, plugin mechanism and plugin store, hook location and form,
-  `$HOME` escapes, capability flags) MUST live in harness definition records, not in Go code
+  `$HOME` escapes, the folder locations where the harness reads launch settings, how the wrapper
+  passes a setting as a launch argument, whether the folder can carry each auth kind's key
+  (`folder_key`), the launch variable names every wrapper clears (`launch_clear`), capability
+  flags) MUST live in harness definition records, not in Go code
   branching on harness names.
 - Built-in definitions ship as data embedded in the binary and use the same format that users
   load from `harnesses.d`. A user definition MUST be able to override or add a harness without a
@@ -85,7 +112,12 @@ Rationale: a tool that must be edited every time a harness ships a new flag is a
   empty state entries at creation; one-time seeding of the shared keys of a mixed file when
   aprofile creates that file; a one-time copy of the default setup's settings (without the hook
   location) when aprofile creates a profile's own settings; managed hook entries and links to
-  hook-set files (only entries aprofile placed, never other hook entries); credential files an
+  hook-set files (only entries aprofile placed, never other hook entries); launch entries in a
+  harness's settings files (the launch variables, key command, provider `auth` block and
+  feature-placed entries aprofile placed, recorded per profile in aprofile's data directory,
+  never marked inside the harness's
+  files; the rest of the file is preserved and the file is re-read immediately before every
+  write); credential files an
   explicit `import` brings in (after a backup); on explicit request, replacing a leaking link with
   an empty real entry (never touching the link target); on an explicit, confirmed request and
   after a backup, `settings pull`, a share level change that replaces profile data with a link,
@@ -130,7 +162,10 @@ Each profile has one share level that decides how borrowable entries are treated
 - `none`: nothing is linked or copied from the default setup; settings and skills are the
   profile's own and start minimal; hooks come only from hook sets the profile names.
 
-A settings file that also holds owned or credentials keys MUST NOT be linked at any level. The
+A settings file that also holds owned or credentials keys MUST NOT be linked at any level. Launch
+entries (model, endpoint, extra variables, key command) are owned only where the profile folder
+carries them; a settings file linked to the default setup at `all` carries none, so it stays
+linkable, and those settings stay with the wrapper. The
 enabled plugin set is therefore per profile at `content` and `none`, and shared at `all`. An
 entry the definition does not classify MUST default to a non-leaking treatment (neither linked
 nor copied) and be reported, never silently shared; built-in definitions MUST NOT use a
@@ -160,10 +195,12 @@ Rationale: wrappers that embed secrets are a stated failure, and generated files
 ### V. Transparent Wrappers, Pull-Only Integration
 
 - Wrappers MUST be exec-style so process-based detection (herdr, corgi) sees the real harness.
-- Non-auth wrapper variables (model, endpoint, extra variables) use `${VAR:-default}` so a caller
-  can override them for one run. Auth variables, the config dir variable and the `APROFILE_*`
-  contract variables are always set by the wrapper and are not caller-overridable; each wrapper
-  clears the auth variables of every auth kind other than its profile's own.
+- A profile's settings are fixed for every launch: the folder (or, where the folder cannot hold a
+  setting or the harness rewrites it, the wrapper) is the single source. One-run changes go
+  through the harness's own flags. Wrappers clear the launch variables a profile session may have
+  set, so inherited values never leak into a launch. The config dir variable and the `APROFILE_*`
+  contract variables are always set by the wrapper; each wrapper clears the auth variables of
+  every auth kind other than its profile's own.
 - Integration with herdr, corgi and cc-deck is pull-only: aprofile publishes a machine-readable
   registry and a neutral env contract (`APROFILE_*`). aprofile MUST NOT require changes in those
   tools, and MUST NOT import from or write into them.
@@ -235,4 +272,4 @@ Rationale: a bug in this tool damages live accounts; tests are the only safe pla
 - Compliance is reviewed at each spex gate and in code review. Violations are either fixed or
   recorded as justified exceptions in the plan's Complexity Tracking section.
 
-**Version**: 1.2.0 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-07
+**Version**: 2.0.1 | **Ratified**: 2026-11-02 | **Last Amended**: 2026-11-13

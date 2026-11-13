@@ -9,8 +9,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/cc-deck/aprofile/internal/launch"
 	"github.com/cc-deck/aprofile/internal/layer"
 	"github.com/cc-deck/aprofile/internal/profile"
+	syncpkg "github.com/cc-deck/aprofile/internal/sync"
 )
 
 func newSettingsCmd() *cobra.Command {
@@ -67,6 +69,8 @@ type settingsPullJSON struct {
 	Mode          string               `json:"mode"` // merge | replace
 	DryRun        bool                 `json:"dry_run"`
 	Changes       []settingsChangeJSON `json:"changes"`
+	// Launch lists the launch entries placed again after the pull (spec 004 FR-010).
+	Launch []string `json:"launch,omitempty"`
 }
 
 func runSettingsPull(cmd *cobra.Command, ref string, keys []string, f *settingsPullFlags) error {
@@ -106,6 +110,11 @@ func runSettingsPull(cmd *cobra.Command, ref string, keys []string, f *settingsP
 	}
 	if !f.asJSON {
 		printSettingsPlan(a, out)
+		// Spec 004 FR-010: entries aprofile placed in these files are placed again
+		// right after the pull, so a change listed for them above is undone.
+		if rec, rerr := launch.Load(a.paths.ManagedLaunchPath(h, n)); rerr == nil && len(rec.Entries) > 0 && len(steps) > 0 {
+			fmt.Fprintln(a.out, "  launch settings aprofile placed are placed again after the pull")
+		}
 	}
 	if f.dryRun || len(steps) == 0 {
 		if f.asJSON {
@@ -137,10 +146,26 @@ func runSettingsPull(cmd *cobra.Command, ref string, keys []string, f *settingsP
 			fmt.Fprintf(a.out, "backed up to %s\n", s.Backup)
 		}
 	}
-	if f.asJSON {
-		return writeJSON(a.out, out)
+	// Spec 004 FR-010: the pull may have replaced or dropped the profile's placed
+	// launch entries (they live in the same env block); place them again now.
+	lr, lerr := launch.Apply(p, def, configDir, a.paths.ManagedLaunchPath(h, n), false)
+	for _, st := range lr.Steps {
+		line, _ := syncpkg.LaunchStepText(st)
+		out.Launch = append(out.Launch, st.File+": "+line)
 	}
-	fmt.Fprintf(a.out, "updated the settings of %s\n", p.ID())
+	if f.asJSON {
+		if err := writeJSON(a.out, out); err != nil {
+			return err
+		}
+	} else {
+		for _, l := range out.Launch {
+			fmt.Fprintf(a.out, "launch settings: %s\n", l)
+		}
+		fmt.Fprintf(a.out, "updated the settings of %s\n", p.ID())
+	}
+	if lerr != nil {
+		return fmt.Errorf("profile %s: the settings were pulled, but the launch settings could not be placed again: %w (run: aprofile sync)", p.ID(), lerr)
+	}
 	return nil
 }
 

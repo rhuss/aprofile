@@ -8,11 +8,11 @@ import (
 // Canaries for args/url literal secrets (FR-035, T061). Each matches the FR-028
 // prefix check; argBlob matches only the length check.
 const (
-	argToken   = "ghp_CANARYARGTOKEN0000000000000000000000"
-	argEqToken = "sk-ant-CANARYARGEQ000000000000000000"
-	argBlob    = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU2Nzg5"
-	urlKey     = "sk-ant-api03-CANARYURLQUERY000000000000"
-	urlPass    = "ghp_CANARYURLPASSWORD00000000000000000000"
+	argToken   = "ghp_CANARYARGTOKEN0000000000000000000000"         // betterleaks:allow
+	argEqToken = "sk-ant-CANARYARGEQ000000000000000000"             // betterleaks:allow
+	argBlob    = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU2Nzg5" // betterleaks:allow
+	urlKey     = "sk-ant-api03-CANARYURLQUERY000000000000"          // betterleaks:allow
+	urlPass    = "ghp_CANARYURLPASSWORD00000000000000000000"        // betterleaks:allow
 )
 
 // TestArgsLiteralSecretNeverWritten proves every args element is checked (prefix and

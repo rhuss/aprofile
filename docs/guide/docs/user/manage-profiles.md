@@ -171,4 +171,6 @@ Hook sets let profiles choose named groups of hooks. Attach a set by editing the
    Check: the dry run lists the hook entries aprofile plans to re-place.
    <!-- expect: exit 0 -->
 
+`sync` also writes each profile's launch settings (model, endpoint, literal extra variables and a key command, never a key) into the harness's own files, so the profile folder launches on its own; see [Register profiles with Corgi](corgi.md). For a one-run change use the harness's own flag (`claude-work --model <m>`, `codex-work -m <m>`); exported variables never override a profile.
+
 Run `./bin/aprofile sync` after add, edit, rename, copy, remove, or import. Until then, list, show, and doctor report affected wrappers as stale. Continue with [Troubleshoot profiles](troubleshooting.md), then use the [command reference](../reference/commands.md) as needed.

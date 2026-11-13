@@ -155,9 +155,9 @@ func TestSecretWarningsSkipEnvVarNames(t *testing.T) {
 // T093 follow-up: the env-var-name exemption is tied to a key that names a
 // variable, so all-caps secrets under plain credential keys warn.
 func TestSecretWarningsAllCapsSecrets(t *testing.T) {
-	doc := `{"a":{"password":"HUNTER2"},"b":{"api_key":"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"},
-	  "c":{"token":"ABCDEF0123456789ABCDEF0123456789ABCDEF01"},"d":{"secret":"X9K2_PROD_KEY_2024"},
-	  "model_providers":{"openai":{"env_key":"OPENAI_API_KEY"}}}`
+	doc := `{"a":{"password":"HUNTER2"},"b":{"api_key":"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"},` + // betterleaks:allow
+		`"c":{"token":"ABCDEF0123456789ABCDEF0123456789ABCDEF01"},"d":{"secret":"X9K2_PROD_KEY_2024"},` + // betterleaks:allow
+		`"model_providers":{"openai":{"env_key":"OPENAI_API_KEY"}}}`
 	got := strings.Join(layer.SecretWarnings([]byte(doc)), ",")
 	if got != "a.password,b.api_key,c.token,d.secret" {
 		t.Errorf("SecretWarnings = %q", got)

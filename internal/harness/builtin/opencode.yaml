@@ -19,7 +19,6 @@ config_env:
   XDG_STATE_HOME: "state"
 
 default_config_location: "~/.config/opencode"
-omarchy_provider: opencode
 plugin_mechanism: "opencode.json plugins"
 
 capabilities: [login, mcp]

@@ -20,8 +20,29 @@ default_locations:
   ".claude.json": "~/.claude.json"
 model_var: ANTHROPIC_MODEL
 endpoint_var: ANTHROPIC_BASE_URL
-omarchy_provider: anthropic
 plugin_mechanism: "enabledPlugins in settings.json"
+
+# Launch settings the profile folder carries (feature 004, specs/004-corgi-integration
+# research.md R1 and R2, verified with Claude Code 2.1.319 on 2026-11-09): Claude
+# Code applies the env block of settings.json before gateway model discovery, the
+# block beats the launching environment and its ANTHROPIC_MODEL beats the model key
+# /model writes; apiKeyHelper output is sent as API key and as bearer token, so it
+# serves api-key and auth-token (oauth-token is a different mechanism).
+folder_launch:
+  env: "settings.json#env"
+  key_command:
+    location: "settings.json#apiKeyHelper"
+    form: shell
+# Launch variables a profile session may leave in the environment (Claude Code
+# exports the env block into the processes it starts); every wrapper clears them.
+launch_clear:
+  - ANTHROPIC_MODEL
+  - ANTHROPIC_BASE_URL
+  - ANTHROPIC_DEFAULT_OPUS_MODEL
+  - ANTHROPIC_DEFAULT_SONNET_MODEL
+  - ANTHROPIC_DEFAULT_HAIKU_MODEL
+  - ANTHROPIC_DEFAULT_FABLE_MODEL
+  - CLAUDE_CODE_SUBAGENT_MODEL
 
 capabilities: [login, oauth-token, native-profiles, mcp]
 
@@ -30,8 +51,10 @@ default_auth_kind: auth-token
 auth_kinds:
   - name: api-key
     vars: { ANTHROPIC_API_KEY: ref }
+    folder_key: true
   - name: auth-token
     vars: { ANTHROPIC_AUTH_TOKEN: ref }
+    folder_key: true
   - name: oauth-token
     vars: { CLAUDE_CODE_OAUTH_TOKEN: ref }
   - name: oauth-login
@@ -280,7 +303,10 @@ classification:
   # scripts that settings.json hooks run (walkthrough observation, RUNBOOK Step 7).
   - { entry: "hooks/", layer: content }
   # Settings: written by Claude Code at runtime (permissions, enabledPlugins,
-  # statusLine). settings.json holds no owned keys, so it is linkable at all.
+  # statusLine). settings.json holds no owned keys, so it is linkable at all. The
+  # launch entries aprofile places (env entries, apiKeyHelper; feature 004) are
+  # owned only where the profile has its own settings.json; a file linked at all
+  # carries none, so it stays linkable (Constitution Principle III, 2.0.0).
   - { entry: "settings.json", layer: settings }
   - { entry: "settings.local.json", layer: settings }
   # Installed plugin code and install records.
@@ -298,3 +324,36 @@ mcp:
 skills_location:
   path: "skills"
   scope: per-profile # ignored since feature 002: skills are content
+
+# Capability mapping (spec 006): the curated features this harness supports and
+# the entries an enabled feature places into the profile's own settings.json.
+# Variable names verified against Claude Code 2.1.319 (spec 006 research): the
+# master switch, the per-signal OTEL_* exporters (otlp, console, none), the shared
+# endpoint and protocol, and the traces beta flag. A signal that is off places its
+# exporter entry as none, so an inherited OTEL_* value cannot turn it back on
+# (FR-011). The profile-level settings.json is honored; repo-level settings are
+# not (Claude Code ignores OTEL_* there).
+features:
+  telemetry:
+    params:
+      traces: {}
+      logs: {}
+      endpoint: {}
+      protocol:
+        default: http/protobuf
+        values: [grpc, http/json, http/protobuf]
+    place:
+      - { file: settings.json, location: env.CLAUDE_CODE_ENABLE_TELEMETRY, value: "1" }
+      - { file: settings.json, location: env.OTEL_TRACES_EXPORTER, value: otlp, when: traces }
+      - { file: settings.json, location: env.OTEL_TRACES_EXPORTER, value: none, when-not: traces }
+      - { file: settings.json, location: env.OTEL_LOGS_EXPORTER, value: otlp, when: logs }
+      - { file: settings.json, location: env.OTEL_LOGS_EXPORTER, value: none, when-not: logs }
+      - { file: settings.json, location: env.OTEL_EXPORTER_OTLP_ENDPOINT, value: "{param:endpoint}" }
+      - { file: settings.json, location: env.OTEL_EXPORTER_OTLP_PROTOCOL, value: "{param:protocol}" }
+      - { file: settings.json, location: env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA, value: "1", when: traces }
+  # AUTOMODE_DECISION_LOG=1 makes Claude Code write .automode_decisions.jsonl in
+  # the session's working directory (undocumented, version-dependent; AgentTacho
+  # ingests it). Codex declares no automode-log: the asymmetry gates the flag.
+  automode-log:
+    place:
+      - { file: settings.json, location: env.AUTOMODE_DECISION_LOG, value: "1" }

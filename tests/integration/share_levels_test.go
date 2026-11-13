@@ -69,8 +69,9 @@ func TestUS2NoneProfile(t *testing.T) {
 	if l := links(t, dir); len(l) != 0 {
 		t.Errorf("a none profile links nothing, found %v", l)
 	}
-	if got := strings.TrimSpace(readFile(t, filepath.Join(dir, "settings.json"))); got != "{}" {
-		t.Errorf("settings at none start minimal, got %s", got)
+	// Minimal apart from the neutralizing entries sync places (spec 005 FR-001).
+	if m := readSettings(t, filepath.Join(dir, "settings.json")); !onlyNeutralizing(t, m) {
+		t.Errorf("settings at none start minimal (neutralizing entries only), got %v", m)
 	}
 	if got := strings.TrimSpace(readFile(t, filepath.Join(dir, ".claude.json"))); got != "{}" {
 		t.Errorf("nothing is seeded at none, not even MCP servers (FR-011): %s", got)

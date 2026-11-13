@@ -123,3 +123,58 @@ func assertFileNoCanary(t *testing.T, path, canary string) {
 		t.Errorf("canary secret leaked into %s", path)
 	}
 }
+
+// Feature 004 (SC-003): with API-key profiles whose keys the folder carries through
+// file: and env: references, no written file (settings.json, config.toml, the
+// managed-launch records, wrappers, registry) and no sync, show or doctor output
+// contains the key.
+func TestSC003LaunchCanarySweep(t *testing.T) {
+	e := newEnv(t)
+	const canary = "CANARYlaunchk3yzzzneverleak"
+	secretEnv := []string{"LAUNCH_KEY=" + canary}
+	keyFile := filepath.Join(e.root, "launch-key.txt")
+	if err := os.WriteFile(keyFile, []byte(canary+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.run(secretEnv, "add", "claude", "filekey", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+keyFile, "--model", "m", "--endpoint", "http://e")
+	e.run(secretEnv, "add", "claude", "envkey", "--share", "content", "--auth-kind", "auth-token", "--auth-key", "env:LAUNCH_KEY", "--model", "m")
+	e.run(secretEnv, "add", "codex", "cxfile", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+keyFile, "--model", "1.5")
+	e.run(secretEnv, "add", "codex", "cxenv", "--share", "content", "--auth-kind", "api-key", "--auth-key", "env:LAUNCH_KEY")
+	for _, n := range []string{"cxfile", "cxenv"} {
+		cfg := e.configDir("codex", n)
+		if err := os.MkdirAll(cfg, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("model_provider = \"gw\"\n[model_providers.gw]\nbase_url = \"http://gw\"\nenv_key = \"OPENAI_API_KEY\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"sync", "--dry-run", "--json"}, {"sync", "--json"}, {"sync"}} {
+		so, se, _ := e.tryRunSplit(secretEnv, args...)
+		if strings.Contains(so+se, canary) {
+			t.Errorf("canary leaked in 'aprofile %s'", strings.Join(args, " "))
+		}
+	}
+	// The folders carry the key commands (sanity: the sweep looks at real files).
+	if data, _ := os.ReadFile(filepath.Join(e.configDir("claude", "filekey"), "settings.json")); !strings.Contains(string(data), "apiKeyHelper") {
+		t.Fatalf("settings.json lacks apiKeyHelper:\n%s", data)
+	}
+	if data, _ := os.ReadFile(filepath.Join(e.configDir("codex", "cxenv"), "config.toml")); !strings.Contains(string(data), "LAUNCH_KEY") {
+		t.Fatalf("config.toml lacks the env key command:\n%s", data)
+	}
+	for _, root := range []string{
+		filepath.Join(e.root, ".local", "share", "aprofile"),
+		filepath.Join(e.root, ".config", "aprofile"),
+	} {
+		walkAndAssertNoCanary(t, root, canary)
+	}
+	for _, args := range [][]string{
+		{"show", "claude/filekey", "--json"}, {"show", "claude/envkey", "--json"}, {"show", "codex/cxfile", "--json"},
+		{"show", "claude/envkey"}, {"doctor", "--json"}, {"list", "--json"},
+	} {
+		so, se, _ := e.tryRunSplit(secretEnv, args...)
+		if strings.Contains(so+se, canary) {
+			t.Errorf("canary leaked in 'aprofile %s'", strings.Join(args, " "))
+		}
+	}
+}

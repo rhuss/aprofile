@@ -38,6 +38,10 @@ references.
 `none`) was added additively at `format_version` 1; a reader that ignores unknown fields is
 unaffected. Profiles without a stored level are published as `all`.
 
+**Addition (feature 004, `specs/004-corgi-integration`)**: `model` (the profile's configured model
+from the profile store, `""` when unset) was added additively at `format_version` 1, after
+`auth_kind`; a reader that ignores unknown fields is unaffected.
+
 ## Omarchy export (opt-in, FR-031)
 
 Written only on `aprofile registry export --format omarchy`, one file per provider at
@@ -84,7 +88,7 @@ Every wrapper sets these, never caller-overridable (FR-026):
 | `APROFILE_ICON` | profile icon |
 | `APROFILE_CONFIG_DIR` | the profile config dir |
 | `APROFILE_SHARE` | the profile's share level: `all`, `content` or `none` (added by feature 002) |
-| `APROFILE_SET_VARS` | space-separated names of the model/endpoint/extra variables the wrapper set |
+| `APROFILE_SET_VARS` | space-separated names of every launch variable the profile supplies (model, endpoint, extra variables, exec-hook `env` variables), whether the folder or the wrapper carries it; carried by the folder's `env` block when the folder carries any launch variable, otherwise exported by the wrapper (feature 004) |
 
 The wrapper also sets the harness's own config-dir variable (e.g. `CLAUDE_CONFIG_DIR`) and the
 profile's auth variables, and unsets other auth kinds' variables and the definition's `auth_clears`
@@ -95,6 +99,14 @@ the clear. `aprofile login` builds the same environment (one shared model, `wrap
 including the nested-session cleanup, the exec hook's `env` variables and `APROFILE_SET_VARS`; a
 declared `env` operation that fails or is not installed stops the login. Consumers (corgi, herdr, cc-deck) read the registry file or these
 variables; aprofile requires no change in them (FR-032).
+
+**Wrapper behavior since feature 004** (`specs/004-corgi-integration/contracts/registry-and-env.md`):
+model, endpoint and extra variables are no longer caller-overridable. Every wrapper first clears,
+unconditionally, the definition's `launch_clear` names, every name in an inherited
+`APROFILE_SET_VARS` and its own profile's launch variables; settings the profile folder carries
+are only cleared (the harness reads them from its folder), wrapper-only settings are set
+unconditionally, and a Codex model is passed as `-c model="…"` before the caller's arguments.
+One-run changes use the harness's own flags (`--model`, `-m`).
 
 **aprofile inside a profile session.** A harness isolated through the XDG base directories
 (its `config_env` names `XDG_*` variables, as OpenCode's does) runs with those variables

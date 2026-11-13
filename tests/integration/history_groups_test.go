@@ -214,16 +214,19 @@ func TestHistoryGroupUS1HomeSharesDefaultHistory(t *testing.T) {
 		t.Errorf("show text lacks the group line:\n%s", text)
 	}
 
-	// The wrapper still sets the profile's own endpoint and model.
+	// The profile keeps its own endpoint and model: the profile folder carries them
+	// (spec 004), so the wrapper only points the harness at the folder.
 	e.run(nil, "sync")
 	wout, err := e.runWrapper("claude-lab", nil, "--version")
 	if err != nil {
 		t.Fatalf("wrapper: %v\n%s", err, wout)
 	}
-	for _, want := range []string{"ANTHROPIC_BASE_URL=https://lab.example.com", "ANTHROPIC_MODEL=lab-model",
-		"CLAUDE_CONFIG_DIR=" + e.configDir("claude", "lab")} {
-		if !strings.Contains(wout, "STUB_ENV: "+want) {
-			t.Errorf("wrapper environment lacks %s", want)
+	if !strings.Contains(wout, "STUB_ENV: CLAUDE_CONFIG_DIR="+e.configDir("claude", "lab")) {
+		t.Errorf("wrapper environment lacks CLAUDE_CONFIG_DIR")
+	}
+	for _, unwanted := range []string{"ANTHROPIC_BASE_URL=", "ANTHROPIC_MODEL="} {
+		if strings.Contains(wout, "STUB_ENV: "+unwanted) {
+			t.Errorf("wrapper exports the folder-carried %s", unwanted)
 		}
 	}
 	// sync keeps the links and writes nothing into the default setup.

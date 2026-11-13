@@ -72,7 +72,7 @@ func TestOwnedSecretWarningsWholeOwnedFile(t *testing.T) {
 	def := copyTestDef(t, "pi")
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "agent", "mcp.json"),
-		`{"settings":{"apiToken":"sk-ant-OWNED"},"mcpServers":{"x":{"env":{"K":"sk-ant-MCP"}}}}`)
+		`{"settings":{"apiToken":"sk-ant-OWNED"},"mcpServers":{"x":{"env":{"K":"sk-ant-MCP"}}}}`) // betterleaks:allow
 	want := []copySecretWarning{{Source: "owned", Entry: "agent/mcp.json", Key: "settings.apiToken"}}
 	if got := ownedSecretWarnings(def, dir); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)

@@ -9,9 +9,8 @@ import (
 )
 
 // TestScenario4RegistryAndEnvContract covers quickstart Scenario 4 (US3, SC-007):
-// the registry file carries every field + format_version and no secrets; a running
-// wrapper's process env carries the APROFILE_* contract; and the Omarchy export
-// writes per-provider files that preserve non-aprofile entries and drop stale ones.
+// the registry file carries every field + format_version and no secrets, and a running
+// wrapper's process env carries the APROFILE_* contract.
 func TestScenario4RegistryAndEnvContract(t *testing.T) {
 	e := newEnv(t)
 	e.run(nil, "add", "claude", "work", "--primary", "--label", "Work",
@@ -50,7 +49,7 @@ func TestScenario4RegistryAndEnvContract(t *testing.T) {
 	if len(reg.Profiles) != 2 {
 		t.Fatalf("want 2 registry profiles, got %d", len(reg.Profiles))
 	}
-	for _, field := range []string{"harness", "name", "label", "color", "icon", "auth_kind", "primary", "config_dir", "wrapper_path"} {
+	for _, field := range []string{"harness", "name", "label", "color", "icon", "auth_kind", "model", "primary", "config_dir", "wrapper_path"} {
 		if _, ok := reg.Profiles[0][field]; !ok {
 			t.Errorf("registry entry missing field %q", field)
 		}
@@ -68,69 +67,48 @@ func TestScenario4RegistryAndEnvContract(t *testing.T) {
 		"STUB_ENV: APROFILE_COLOR=blue",
 		"STUB_ENV: APROFILE_ICON=W",
 		"STUB_ENV: APROFILE_CONFIG_DIR=" + e.configDir("claude", "work"),
-		"STUB_ENV: APROFILE_SET_VARS=ANTHROPIC_MODEL",
 	} {
 		if !strings.Contains(out, v) {
 			t.Errorf("wrapper env missing %q\n%s", v, out)
 		}
 	}
+	// The profile folder carries the model and APROFILE_SET_VARS (spec 004 FR-014).
+	if strings.Contains(out, "STUB_ENV: APROFILE_SET_VARS=") || strings.Contains(out, "STUB_ENV: ANTHROPIC_MODEL=") {
+		t.Errorf("wrapper exports folder-carried variables:\n%s", out)
+	}
+}
 
-	// Omarchy export: pre-seed a non-aprofile entry and a stale aprofile entry.
-	accountsDir := filepath.Join(e.root, ".local", "state", "omarchy", "agents", "accounts")
-	anthropic := filepath.Join(accountsDir, "anthropic.json")
-	writeFile(t, anthropic, `{"accounts":[`+
-		`{"id":"manual:other","label":"Other","home":"/x","primary":false},`+
-		`{"id":"aprofile:claude/gone","label":"Gone","home":"/y","primary":false}]}`)
-
-	e.run(nil, "registry", "export", "--format", "omarchy")
-
-	ad, err := os.ReadFile(anthropic)
+// Feature 004 US3: the registry carries each profile's configured model, from the
+// profile store only; a /model-style change in settings.json does not change it.
+func TestRegistryModelFromProfileStore(t *testing.T) {
+	e := newEnv(t)
+	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw-model")
+	e.run(nil, "add", "claude", "plain", "--auth-kind", "oauth-login")
+	e.run(nil, "sync")
+	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
+	m := readSettings(t, settings)
+	m["model"] = "haiku"
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(settings, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.run(nil, "sync")
+	raw, err := os.ReadFile(strings.TrimSpace(e.run(nil, "registry", "path")))
 	if err != nil {
-		t.Fatalf("read omarchy accounts file: %v", err)
+		t.Fatal(err)
 	}
-	var omf struct {
-		Accounts []struct {
-			ID      string `json:"id"`
-			Label   string `json:"label"`
-			Home    string `json:"home"`
-			Primary bool   `json:"primary"`
-		} `json:"accounts"`
+	var reg struct {
+		FormatVersion int              `json:"format_version"`
+		Profiles      []map[string]any `json:"profiles"`
 	}
-	if err := json.Unmarshal(ad, &omf); err != nil {
-		t.Fatalf("omarchy file not valid JSON: %v\n%s", err, ad)
+	if err := json.Unmarshal(raw, &reg); err != nil {
+		t.Fatal(err)
 	}
-	byID := map[string]struct {
-		Label   string
-		Home    string
-		Primary bool
-	}{}
-	for _, a := range omf.Accounts {
-		byID[a.ID] = struct {
-			Label   string
-			Home    string
-			Primary bool
-		}{a.Label, a.Home, a.Primary}
+	got := map[string]any{}
+	for _, p := range reg.Profiles {
+		got[p["name"].(string)] = p["model"]
 	}
-	if _, ok := byID["manual:other"]; !ok {
-		t.Error("non-aprofile entry must be preserved")
-	}
-	if _, ok := byID["aprofile:claude/gone"]; ok {
-		t.Error("stale aprofile entry (profile no longer exists) must be removed")
-	}
-	work, ok := byID["aprofile:claude/work"]
-	if !ok {
-		t.Fatalf("aprofile:claude/work entry missing: %v", byID)
-	}
-	if !work.Primary {
-		t.Error("work is primary; Omarchy entry should reflect it")
-	}
-	if work.Home != e.configDir("claude", "work") {
-		t.Errorf("work home = %q, want the config dir %q", work.Home, e.configDir("claude", "work"))
-	}
-	if work.Label != "Work" {
-		t.Errorf("work label = %q, want Work", work.Label)
-	}
-	if _, ok := byID["aprofile:claude/private"]; !ok {
-		t.Error("aprofile:claude/private entry missing")
+	if reg.FormatVersion != 1 || got["work"] != "gw-model" || got["plain"] != "" {
+		t.Errorf("registry models = %v (format %d)", got, reg.FormatVersion)
 	}
 }

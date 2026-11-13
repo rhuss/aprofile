@@ -4,16 +4,14 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/cc-deck/aprofile/internal/registry"
 )
 
 func newRegistryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "registry",
-		Short: "Inspect and export the profile registry",
+		Short: "Inspect the profile registry",
 	}
-	cmd.AddCommand(newRegistryPathCmd(), newRegistryExportCmd())
+	cmd.AddCommand(newRegistryPathCmd())
 	return cmd
 }
 
@@ -31,79 +29,4 @@ func newRegistryPathCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-func newRegistryExportCmd() *cobra.Command {
-	var format, outputDir string
-	cmd := &cobra.Command{
-		Use:   "export",
-		Short: "Export the registry in another tool's format (only on explicit request)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runRegistryExport(cmd, format, outputDir)
-		},
-	}
-	cmd.Flags().StringVar(&format, "format", "omarchy", "export format (omarchy)")
-	cmd.Flags().StringVar(&outputDir, "output-dir", "", "override the output directory")
-	return cmd
-}
-
-func runRegistryExport(cmd *cobra.Command, format, outputDir string) error {
-	if format != "omarchy" {
-		return fmt.Errorf("unsupported export format %q (supported: omarchy)", format)
-	}
-	a, err := newApp(cmd)
-	if err != nil {
-		return err
-	}
-	profiles, failures, err := a.store.List()
-	if err != nil {
-		return err
-	}
-	// keep: profiles that exist but cannot be exported keep their entries unchanged;
-	// only entries of removed profiles are dropped (FR-031).
-	var keep []string
-	for _, f := range failures {
-		fmt.Fprintf(a.errOut, "aprofile: profile %s failed to load; its entries are kept unchanged\n", f.ID())
-		keep = append(keep, f.ID())
-	}
-
-	var exportProfiles []registry.OmarchyProfile
-	for _, p := range profiles {
-		def, ok := a.set.Get(p.Harness)
-		if !ok {
-			fmt.Fprintf(a.errOut, "aprofile: profile %s: harness %q has no usable definition; its entries are kept unchanged\n", p.ID(), p.Harness)
-			keep = append(keep, p.ID())
-			continue
-		}
-		if def.OmarchyProvider == "" {
-			fmt.Fprintf(a.errOut, "aprofile: profile %s has no Omarchy provider; skipped\n", p.ID())
-			continue
-		}
-		exportProfiles = append(exportProfiles, registry.OmarchyProfile{
-			Harness:  p.Harness,
-			Name:     p.Name,
-			Provider: def.OmarchyProvider,
-			Label:    p.DisplayLabel(),
-			Home:     a.paths.ProfileConfigDir(p.Harness, p.Name),
-			Primary:  p.Primary,
-		})
-	}
-
-	dir := outputDir
-	if dir == "" {
-		dir = a.paths.OmarchyAccountsDir()
-	}
-	written, err := registry.ExportOmarchy(dir, exportProfiles, keep)
-	if err != nil {
-		return err
-	}
-	if len(written) == 0 {
-		fmt.Fprintf(a.out, "omarchy export up to date in %s\n", dir)
-		return nil
-	}
-	for _, path := range written {
-		fmt.Fprintf(a.out, "wrote %s\n", path)
-	}
-	return nil
 }

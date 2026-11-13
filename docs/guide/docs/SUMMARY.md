@@ -14,6 +14,7 @@
 - [Share conversation history with a group](user/history-groups.md)
 - [Manage profiles](user/manage-profiles.md)
 - [Troubleshoot profiles](user/troubleshooting.md)
+- [Register profiles with Corgi](user/corgi.md)
 
 ## Reference
 

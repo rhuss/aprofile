@@ -196,7 +196,6 @@ func runHarnessShow(cmd *cobra.Command, name string, asJSON bool) error {
 		line("skills_location", "skills_location", d.SkillsLocation.Path)
 	}
 	line("plugin_mechanism", "plugin_mechanism", d.PluginMechanism)
-	line("omarchy_provider", "omarchy_provider", d.OmarchyProvider)
 	line("capabilities", "capabilities", strings.Join(d.Capabilities, ", "))
 	if d.ExecHook != nil {
 		line("exec_hook", "exec_hook", strings.Join(d.ExecHook.Operations, ", "))
@@ -204,6 +203,29 @@ func runHarnessShow(cmd *cobra.Command, name string, asJSON bool) error {
 	if d.Hooks != nil {
 		line("hooks", "hooks", d.Hooks.Location+" ("+d.Hooks.Form+")")
 	}
+	// Feature 004: where the profile folder carries launch settings.
+	if fl := d.FolderLaunch; fl != nil {
+		line("folder_launch", "folder_launch.env", fl.Env)
+		if kc := fl.KeyCommand; kc != nil {
+			desc := kc.Location + " (" + kc.Form
+			if kc.Selector != "" {
+				desc += ", selector " + kc.Selector
+			}
+			if len(kc.Replaces) > 0 {
+				desc += ", replaces " + strings.Join(kc.Replaces, ", ")
+			}
+			line("folder_launch", "folder_launch.key_command", desc+")")
+		}
+	}
+	var folderKinds []string
+	for _, k := range d.AuthKinds {
+		if k.FolderKey {
+			folderKinds = append(folderKinds, k.Name)
+		}
+	}
+	line("auth_kinds", "folder_key", strings.Join(folderKinds, ", "))
+	line("launch_clear", "launch_clear", strings.Join(d.LaunchClear, ", "))
+	line("model_arg", "model_arg", strings.Join(d.ModelArg, " "))
 
 	// Spec 003: the history entries a history group links, or that there are none.
 	if hist := d.HistoryRules(); len(hist) > 0 {

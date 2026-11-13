@@ -50,7 +50,8 @@ func AuthKindIssue(p *profile.Profile, def *harness.Definition) *FitIssue {
 }
 
 // IgnoredSettingIssues reports a model or endpoint the profile sets although the
-// definition declares no variable for it, so the wrapper cannot carry it.
+// definition declares no variable (or, for the model, no launch argument) for it,
+// so neither the folder nor the wrapper can carry it.
 func IgnoredSettingIssues(p *profile.Profile, def *harness.Definition) []FitIssue {
 	var out []FitIssue
 	add := func(field, value, varName, key string) {
@@ -65,7 +66,11 @@ func IgnoredSettingIssues(p *profile.Profile, def *harness.Definition) []FitIssu
 			Fix:     fmt.Sprintf("aprofile edit %s --%s \"\"", p.ID(), field),
 		})
 	}
-	add("model", p.Model, def.ModelVar, "model_var")
+	modelCarrier := def.ModelVar
+	if modelCarrier == "" && len(def.ModelArg) > 0 {
+		modelCarrier = "model_arg" // passed as a launch argument (spec 004 FR-016)
+	}
+	add("model", p.Model, modelCarrier, "model_var")
 	add("endpoint", p.Endpoint, def.EndpointVar, "endpoint_var")
 	return out
 }

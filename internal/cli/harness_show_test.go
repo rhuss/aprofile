@@ -59,3 +59,42 @@ func TestHarnessShowHistoryEntries(t *testing.T) {
 		t.Errorf("harness show opencode:\n%s", out)
 	}
 }
+
+// Feature 004 T007: harness show prints folder_launch, launch_clear, model_arg and
+// the per-kind folder_key flag with their origins.
+func TestHarnessShowLaunchFields(t *testing.T) {
+	testutil.HermeticHome(t)
+	out, err := runCLI(t, "harness", "show", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"folder_launch.env:", "settings.json#env",
+		"folder_launch.key_command:", "settings.json#apiKeyHelper (shell)",
+		"launch_clear:", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"folder_key:", "api-key, auth-token",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("harness show claude missing %q:\n%s", want, out)
+		}
+	}
+	out, err = runCLI(t, "harness", "show", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"model_arg:", `-c model={model:toml}`,
+		"config.toml#model_providers (provider-auth, selector model_provider, replaces env_key)",
+		"launch_clear:", "OPENAI_BASE_URL", "folder_key:", "api-key",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("harness show codex missing %q:\n%s", want, out)
+		}
+	}
+	out, _ = runCLI(t, "harness", "show", "claude", "--json")
+	for _, want := range []string{`"folder_launch"`, `"launch_clear"`, `"folder_key": true`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("harness show --json missing %q", want)
+		}
+	}
+}
