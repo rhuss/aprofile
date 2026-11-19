@@ -101,7 +101,7 @@ func TestLaunchClaudeFolderCarriesSettings(t *testing.T) {
 	key := e.keyFile("work", launchKey+"\n")
 	e.writeDefaultClaudeSettings(`{"model":"opus","permissions":{"allow":["Bash(ls)"]},` +
 		`"env":{"MLFLOW_TRACKING_URI":"http://ml","ANTHROPIC_BASE_URL":"http://user"}}`)
-	e.run(nil, "add", "claude", "work", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key,
+	e.run(nil, "add", "claude/work", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key,
 		"--model", "gw-model", "--endpoint", "http://127.0.0.1:18801",
 		"--env", "ANTHROPIC_DEFAULT_HAIKU_MODEL=gw-haiku")
 	out := e.run(nil, "sync")
@@ -193,7 +193,7 @@ func TestLaunchClaudeFolderCarriesSettings(t *testing.T) {
 
 func TestLaunchClaudeOAuthTokenKeyWrapperOnly(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "tok", "--share", "content", "--auth-kind", "oauth-token", "--auth-key", "env:TOK", "--model", "m")
+	e.run(nil, "add", "claude/tok", "--share", "content", "--auth-kind", "oauth-token", "--auth-key", "env:TOK", "--model", "m")
 	e.run(nil, "sync")
 	m := readSettings(t, filepath.Join(e.configDir("claude", "tok"), "settings.json"))
 	if _, ok := m["apiKeyHelper"]; ok {
@@ -215,7 +215,7 @@ func TestLaunchClaudeShareAllPlacesNothing(t *testing.T) {
 	e := newEnv(t)
 	def := e.writeDefaultClaudeSettings(`{"theme":"dark"}`)
 	key := e.keyFile("all", launchKey+"\n")
-	e.run(nil, "add", "claude", "shared", "--share", "all", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--model", "m")
+	e.run(nil, "add", "claude/shared", "--share", "all", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--model", "m")
 	e.run(nil, "sync")
 	if data, _ := os.ReadFile(def); string(data) != `{"theme":"dark"}` {
 		t.Errorf("the default setup's settings.json changed: %s", data)
@@ -232,7 +232,7 @@ func TestLaunchClaudeShareAllPlacesNothing(t *testing.T) {
 func TestLaunchClaudeBrokenSettingsLeavesProfile(t *testing.T) {
 	e := newEnv(t)
 	key := e.keyFile("work", launchKey+"\n")
-	e.run(nil, "add", "claude", "work", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--model", "a")
+	e.run(nil, "add", "claude/work", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--model", "a")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	if err := os.WriteFile(settings, []byte(`{broken`), 0o644); err != nil {

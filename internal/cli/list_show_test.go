@@ -26,7 +26,7 @@ func TestShowTreatmentsPerLevel(t *testing.T) {
 		"none":    {{"projects", layer.TreatmentPrivate}, {"settings.json", layer.TreatmentOwnCopy}, {"plugins", layer.TreatmentOwnCopy}, {"skills", layer.TreatmentOwnCopy}},
 	}
 	for level, wants := range cases {
-		if _, err := runCLI(t, "add", "claude", "p-"+level, "--auth-kind", "oauth-login", "--share", level); err != nil {
+		if _, err := runCLI(t, "add", "claude/p-"+level, "--auth-kind", "oauth-login", "--share", level); err != nil {
 			t.Fatal(err)
 		}
 		if out, err := runCLI(t, "sync"); err != nil {
@@ -111,7 +111,7 @@ func TestShowAbsentAndMinimalEntries(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(h.Root, ".claude", "CLAUDE.md"), "# default\n")
 	testutil.WriteFile(t, filepath.Join(h.Root, ".claude", "hooks", "rtk.sh"), "#!/bin/sh\n")
 	testutil.WriteFile(t, filepath.Join(h.Root, ".claude", "settings.json"), `{"permissions":{}}`)
-	if _, err := runCLI(t, "add", "claude", "pc", "--auth-kind", "oauth-login", "--share", "content"); err != nil {
+	if _, err := runCLI(t, "add", "claude/pc", "--auth-kind", "oauth-login", "--share", "content"); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := runCLI(t, "sync"); err != nil {
@@ -170,8 +170,8 @@ func TestListGroupColumnAndShowSetAside(t *testing.T) {
 	h := testutil.HermeticHome(t)
 	testutil.SeedDefaults(t, h, "claude")
 	for _, args := range [][]string{
-		{"add", "claude", "lab", "--auth-kind", "oauth-login", "--group", "home"},
-		{"add", "claude", "solo", "--auth-kind", "oauth-login"},
+		{"add", "claude/lab", "--auth-kind", "oauth-login", "--group", "home"},
+		{"add", "claude/solo", "--auth-kind", "oauth-login"},
 	} {
 		if out, err := runCLI(t, args...); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)

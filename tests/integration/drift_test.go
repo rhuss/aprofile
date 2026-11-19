@@ -35,7 +35,7 @@ func doctorJSON(t *testing.T, e *env) (doctorReport, error) {
 func TestUS5LinkReplacedByFile(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "all")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "all")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	_ = os.Remove(settings)
@@ -85,8 +85,8 @@ func TestUS5HomeEscapesAndInfo(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "opencode")
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "opencode", "client", "--auth-kind", "login", "--share", "none")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "opencode/client", "--auth-kind", "login", "--share", "none")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "work"), "settings.json"), `{"mine":true}`)
 

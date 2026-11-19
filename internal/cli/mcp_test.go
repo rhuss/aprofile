@@ -20,7 +20,7 @@ func mcpTestProfiles(t *testing.T, names ...string) map[string]string {
 	}
 	dirs := map[string]string{}
 	for _, n := range names {
-		if out, err := runCLI(t, "add", "claude", n, "--auth-kind", "oauth-login"); err != nil {
+		if out, err := runCLI(t, "add", "claude/"+n, "--auth-kind", "oauth-login"); err != nil {
 			t.Fatalf("add %s: %v\n%s", n, err, out)
 		}
 		dirs[n] = p.ProfileConfigDir("claude", n)

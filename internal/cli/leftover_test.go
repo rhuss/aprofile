@@ -17,7 +17,7 @@ func TestLeftoverWrappersAreReported(t *testing.T) {
 	testutil.HermeticHome(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
 	for _, n := range []string{"zap", "old", "keep"} {
-		if out, err := runCLI(t, "add", "claude", n, "--auth-kind", "oauth-login"); err != nil {
+		if out, err := runCLI(t, "add", "claude/"+n, "--auth-kind", "oauth-login"); err != nil {
 			t.Fatalf("add %s: %v\n%s", n, err, out)
 		}
 	}
@@ -28,7 +28,7 @@ func TestLeftoverWrappersAreReported(t *testing.T) {
 	mine := filepath.Join(paths.BinDir, "claude-mine")
 	testutil.WriteFile(t, mine, "#!/bin/sh\necho mine\n")
 
-	out, err := runCLI(t, "remove", "claude", "zap")
+	out, err := runCLI(t, "remove", "claude/zap")
 	if err != nil {
 		t.Fatalf("remove: %v\n%s", err, out)
 	}

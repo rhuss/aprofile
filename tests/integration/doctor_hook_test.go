@@ -56,7 +56,7 @@ func TestDoctorAuthStatusHook(t *testing.T) {
 		return string(out), err
 	}
 
-	if out, err := run("add", "hooked", "h1"); err != nil {
+	if out, err := run("add", "hooked/h1"); err != nil {
 		t.Fatalf("add hooked/h1: %v\n%s", err, out)
 	}
 	if out, err := run("sync"); err != nil {

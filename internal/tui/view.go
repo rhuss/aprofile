@@ -50,7 +50,7 @@ func sortRows(rows []ProfileRow) []ProfileRow {
 // table-testable.
 func renderBrowse(ordered []ProfileRow, cursor int, color bool) string {
 	if len(ordered) == 0 {
-		return "no profiles yet (add one with 'a' or: aprofile add <harness> <name>)\n"
+		return "no profiles yet (add one with 'a' or: aprofile add <harness>/<name>)\n"
 	}
 
 	var b strings.Builder

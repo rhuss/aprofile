@@ -117,7 +117,7 @@ func TestHarnessDefinitionScenario7(t *testing.T) {
 	// Add a profile for the fake harness and sync it. sync reports the invalid
 	// definition and exits non-zero (FR-022), but the other harnesses keep working:
 	// the fake-demo wrapper is still generated (FR-012 isolation).
-	e.mustRun("add", "fake", "demo")
+	e.mustRun("add", "fake/demo")
 	syncOut, _ := e.run("sync")
 	if !strings.Contains(syncOut, "broken.yaml") || !strings.Contains(syncOut, "wrapper_prefix") {
 		t.Errorf("sync should name the invalid file and field:\n%s", syncOut)

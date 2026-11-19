@@ -13,7 +13,7 @@ import (
 func TestScenario1Launch(t *testing.T) {
 	e := newEnv(t)
 
-	e.run(nil, "add", "claude", "work",
+	e.run(nil, "add", "claude/work",
 		"--model", "X", "--endpoint", "Y", "--color", "blue", "--icon", "W",
 		"--label", "Work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
 
@@ -86,7 +86,7 @@ func TestScenario1Launch(t *testing.T) {
 // launch stops the wrapper naming the profile/reference before the harness starts.
 func TestWrapperFailClosedMissingReference(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
 	e.run(nil, "sync")
 
 	// Run the wrapper WITHOUT WORK_TOKEN set.
@@ -107,7 +107,7 @@ func TestWrapperFailClosedMissingReference(t *testing.T) {
 // secret on the command line is rejected and names a reference instead.
 func TestLiteralSecretRejected(t *testing.T) {
 	e := newEnv(t)
-	out, err := e.tryRun(nil, "add", "claude", "bad", "--auth-kind", "oauth-token", "--auth-key", "sk-REALSECRET")
+	out, err := e.tryRun(nil, "add", "claude/bad", "--auth-kind", "oauth-token", "--auth-key", "sk-REALSECRET")
 	if err == nil {
 		t.Fatalf("literal secret should be rejected\n%s", out)
 	}

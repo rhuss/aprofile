@@ -30,14 +30,14 @@ func TestScenario6CanarySweep(t *testing.T) {
 	if err := os.WriteFile(secretFile, []byte(canary+"\n"), 0o600); err != nil {
 		t.Fatalf("write secret file: %v", err)
 	}
-	e.run(secretEnv, "add", "claude", "work",
+	e.run(secretEnv, "add", "claude/work",
 		"--label", "Work", "--color", "blue", "--icon", "W",
 		"--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN",
 		"--env", "MY_SECRET=env:EXTRA_SECRET",
 		"--env", "FILE_SECRET=file:"+secretFile)
 	// A second profile and copy targets so the copy / mcp-copy conversion reports (the
 	// richest --json producers) carry real content to sweep.
-	e.run(secretEnv, "add", "claude", "other", "--auth-kind", "oauth-login")
+	e.run(secretEnv, "add", "claude/other", "--auth-kind", "oauth-login")
 	e.run(secretEnv, "copy", "claude/work", "claude/copytarget")
 	e.run(secretEnv, "copy", "claude/work", "codex/cross")
 	e.run(secretEnv, "sync")
@@ -136,10 +136,10 @@ func TestSC003LaunchCanarySweep(t *testing.T) {
 	if err := os.WriteFile(keyFile, []byte(canary+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e.run(secretEnv, "add", "claude", "filekey", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+keyFile, "--model", "m", "--endpoint", "http://e")
-	e.run(secretEnv, "add", "claude", "envkey", "--share", "content", "--auth-kind", "auth-token", "--auth-key", "env:LAUNCH_KEY", "--model", "m")
-	e.run(secretEnv, "add", "codex", "cxfile", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+keyFile, "--model", "1.5")
-	e.run(secretEnv, "add", "codex", "cxenv", "--share", "content", "--auth-kind", "api-key", "--auth-key", "env:LAUNCH_KEY")
+	e.run(secretEnv, "add", "claude/filekey", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+keyFile, "--model", "m", "--endpoint", "http://e")
+	e.run(secretEnv, "add", "claude/envkey", "--share", "content", "--auth-kind", "auth-token", "--auth-key", "env:LAUNCH_KEY", "--model", "m")
+	e.run(secretEnv, "add", "codex/cxfile", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+keyFile, "--model", "1.5")
+	e.run(secretEnv, "add", "codex/cxenv", "--share", "content", "--auth-kind", "api-key", "--auth-key", "env:LAUNCH_KEY")
 	for _, n := range []string{"cxfile", "cxenv"} {
 		cfg := e.configDir("codex", n)
 		if err := os.MkdirAll(cfg, 0o755); err != nil {

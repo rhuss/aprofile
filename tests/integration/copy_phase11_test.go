@@ -50,7 +50,7 @@ func copyJSON(t *testing.T, e *env, args ...string) copyReport11 {
 // never overwritten.
 func TestCopyTargetLoadErrorFails(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	store := filepath.Join(e.root, ".config", "aprofile", "profiles", "claude", "broken.yaml")
 	writeFile(t, store, "harness: claude\nname: broken\nshare: [not, a, level\n")
 
@@ -72,7 +72,7 @@ func TestCopyTargetLoadErrorFails(t *testing.T) {
 // T067 / FR-004: a leftover config dir without a profile needs --adopt.
 func TestCopyLeftoverConfigDirNeedsAdopt(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	leftover := e.configDir("claude", "old")
 	writeFile(t, filepath.Join(leftover, ".credentials.json"), `{"kept":true}`)
 
@@ -93,7 +93,7 @@ func TestCopyLeftoverConfigDirNeedsAdopt(t *testing.T) {
 // T067: --auth is validated before anything is written for the target.
 func TestCopyInvalidAuthWritesNothing(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	out, err := e.tryRun(nil, "copy", "claude/work", "codex/cx", "--auth", "bogus")
 	if err == nil || !strings.Contains(out, "bogus") {
 		t.Fatalf("an unknown --auth must fail naming it (err %v):\n%s", err, out)
@@ -106,7 +106,7 @@ func TestCopyInvalidAuthWritesNothing(t *testing.T) {
 // T075: a target auth kind that needs a reference requires --auth-key.
 func TestCopyAuthKeyRequired(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "codex", "src")
+	e.run(nil, "add", "codex/src")
 
 	// claude's default kind (auth-token) carries its credential in a variable.
 	out, err := e.tryRun(nil, "copy", "codex/src", "claude/dst")
@@ -149,8 +149,8 @@ func TestCopyWrapperNameClash(t *testing.T) {
 	e := newEnv(t)
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "harnesses.d", "claudex.yaml"),
 		"name: claudex\nbinary: claudex\nwrapper_prefix: claude-x\nconfig_env:\n  CLAUDEX_DIR: \".\"\n")
-	e.run(nil, "add", "claudex", "work")
-	e.run(nil, "add", "claude", "src", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claudex/work")
+	e.run(nil, "add", "claude/src", "--auth-kind", "oauth-login")
 
 	out, err := e.tryRun(nil, "copy", "claude/src", "claude/x-work")
 	if err == nil || !strings.Contains(out, "claude-x-work") || !strings.Contains(out, "claudex/work") {
@@ -177,7 +177,7 @@ env = { API_KEY = "sk-ant-MCPSECRET0000000000000000000000" }
 // MCP ones, and labels the servers as carried.
 func TestCopySameHarnessOwnedSecretsAndCarried(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "codex", "src")
+	e.run(nil, "add", "codex/src")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("codex", "src"), "config.toml"), codexOwnedTOML)
 
@@ -216,7 +216,7 @@ func TestCopySameHarnessOwnedSecretsAndCarried(t *testing.T) {
 // T072: a cross-harness copy reports the owned keys it does not convert.
 func TestCopyCrossReportsUnconvertedOwned(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "codex", "src")
+	e.run(nil, "add", "codex/src")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("codex", "src"), "config.toml"), codexOwnedTOML)
 
@@ -237,7 +237,7 @@ func TestCopyCrossReportsUnconvertedOwned(t *testing.T) {
 // T072 / FR-036: skipped plugins are listed by name with their skills and MCP servers.
 func TestCopyListsSkippedPlugins(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "none")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "none")
 	e.run(nil, "sync")
 	dir := e.configDir("claude", "work")
 	install := filepath.Join(dir, "plugins", "cache", "market", "superpowers", "1.0.0")
@@ -274,7 +274,7 @@ func TestCopyCrossSkillsPresentMissing(t *testing.T) {
 	writeFile(t, filepath.Join(e.root, ".claude", "skills", "only-claude", "SKILL.md"), "# o\n")
 	writeFile(t, filepath.Join(e.root, ".claude", "skills", "shared-agent", "SKILL.md"), "# s\n")
 	writeFile(t, filepath.Join(e.root, ".agents", "skills", "shared-agent", "SKILL.md"), "# s\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 
 	rep := copyJSON(t, e, "claude/work", "opencode/oc")

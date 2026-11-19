@@ -51,7 +51,7 @@ func timeTwentyProfileSyncs(t *testing.T) (first, second time.Duration) {
 	for n := 0; n < 20; n++ {
 		h := allHarnesses[n%len(allHarnesses)]
 		lv := allLevels[n%len(allLevels)]
-		e.run(nil, "add", h, fmt.Sprintf("p%02d", n), "--auth-kind", interactiveKind[h], "--share", lv)
+		e.run(nil, "add", fmt.Sprintf("%s/p%02d", h, n), "--auth-kind", interactiveKind[h], "--share", lv)
 	}
 	timeSync := func() time.Duration {
 		start := time.Now()
@@ -78,7 +78,7 @@ func TestHistoryGroupJoinTwoThousandFilesUnderFiveSeconds(t *testing.T) {
 		e := newEnv(t)
 		testutil.SeedDefaultsAt(t, e.root, "claude")
 		e.run(nil, "group", "create", "claude/work")
-		e.run(nil, "add", "claude", "big", "--auth-kind", "oauth-login")
+		e.run(nil, "add", "claude/big", "--auth-kind", "oauth-login")
 		e.run(nil, "sync")
 		dir := e.configDir("claude", "big")
 		for i := 0; i < 2000; i++ {
@@ -112,7 +112,7 @@ func TestHistoryGroupSyncTwentyProfilesUnderOneSecond(t *testing.T) {
 		}
 		for n := 0; n < 20; n++ {
 			h := allHarnesses[n%len(allHarnesses)]
-			args := []string{"add", h, fmt.Sprintf("p%02d", n), "--auth-kind", interactiveKind[h], "--share", allLevels[n%len(allLevels)]}
+			args := []string{"add", fmt.Sprintf("%s/p%02d", h, n), "--auth-kind", interactiveKind[h], "--share", allLevels[n%len(allLevels)]}
 			if n%2 == 0 && h != "opencode" {
 				args = append(args, "--group", "home")
 			}
@@ -141,7 +141,7 @@ func TestHistoryGroupMemberWrapperOverhead(t *testing.T) {
 	}
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "member", "--auth-kind", "oauth-login", "--group", "home")
+	e.run(nil, "add", "claude/member", "--auth-kind", "oauth-login", "--group", "home")
 	e.run(nil, "sync")
 	wrapper := filepath.Join(e.root, ".local", "share", "aprofile", "bin", "claude-member")
 	stub := filepath.Join(e.stubDir, "claude")

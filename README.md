@@ -10,8 +10,8 @@ Profiles and groups are named `<harness>/<name>`, for example `claude/work`; `ap
 
 ```sh
 # Create a profile for each account; each one signs in on first start
-aprofile add claude work --auth-kind oauth-login
-aprofile add claude personal --auth-kind oauth-login --group home   # join the built-in "home" group: share history with plain claude
+aprofile add claude/work --auth-kind oauth-login
+aprofile add claude/personal --auth-kind oauth-login --group home   # join the built-in "home" group: share history with plain claude
 
 # Write the launcher commands (claude-work, claude-personal) and put them on your PATH
 aprofile sync
@@ -26,7 +26,7 @@ Each developer runs the same few commands once:
 
 ```sh
 # A profile that talks to the company gateway with a token from your environment
-aprofile add claude corp --endpoint https://llm.example.com \
+aprofile add claude/corp --endpoint https://llm.example.com \
   --auth-kind auth-token --auth-key env:CORP_LLM_TOKEN --model team-default
 
 # Optional: a "work" group, so corp and your other work profiles (say, a client

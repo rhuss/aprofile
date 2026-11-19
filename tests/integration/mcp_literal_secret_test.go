@@ -29,7 +29,7 @@ const claudeArgsURLJSON = `{
 // JSON report and in the human-readable output.
 func TestCrossHarnessCopyDropsArgsAndURLSecrets(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
+	e.run(nil, "add", "claude/work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "work"), ".claude.json"), claudeArgsURLJSON)
 
@@ -83,7 +83,7 @@ func TestCrossHarnessCopyDropsArgsAndURLSecrets(t *testing.T) {
 			t.Errorf("copy output missing %q:\n%s", want, out)
 		}
 	}
-	e.run(nil, "add", "opencode", "o1")
+	e.run(nil, "add", "opencode/o1")
 	mcpOut := e.run(nil, "mcp", "copy", "claude/work", "opencode/o1")
 	if !strings.Contains(mcpOut, "gh args[1] (literal-secret)") {
 		t.Errorf("mcp copy output missing the args drop:\n%s", mcpOut)
@@ -94,7 +94,7 @@ func TestCrossHarnessCopyDropsArgsAndURLSecrets(t *testing.T) {
 // literal secrets in args and url as well (FR-033a).
 func TestSameHarnessCopyWarnsArgsAndURLSecrets(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
+	e.run(nil, "add", "claude/work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "work"), ".claude.json"), claudeArgsURLJSON)
 
@@ -117,8 +117,8 @@ func TestSameHarnessCopyWarnsArgsAndURLSecrets(t *testing.T) {
 // file's mode (a 0600 .claude.json stays 0600) and create a new MCP file as 0600.
 func TestMCPFileModePreserved(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
-	e.run(nil, "add", "codex", "src")
+	e.run(nil, "add", "claude/work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
+	e.run(nil, "add", "codex/src")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "work"), ".claude.json"), claudeArgsURLJSON)
 	writeFile(t, filepath.Join(e.configDir("codex", "src"), "config.toml"), "[mcp_servers.tool]\ncommand = \"mcp-tool\"\n")

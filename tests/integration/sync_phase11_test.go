@@ -48,8 +48,8 @@ func TestSyncFailedOverrideKeepsWrapperAndRegistry(t *testing.T) {
 	e := newEnv(t)
 	override := filepath.Join(e.harnessesDir(), "claude.yaml")
 	writeFile(t, override, "name: claude\nbinary: claude2\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
-	e.run(nil, "add", "codex", "dev", "--auth-kind", "chatgpt-login", "--label", "Dev")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
+	e.run(nil, "add", "codex/dev", "--auth-kind", "chatgpt-login", "--label", "Dev")
 	e.run(nil, "sync")
 
 	claudeWrapper := filepath.Join(e.binDir(), "claude-work")
@@ -111,7 +111,7 @@ func TestSyncFailedOverrideKeepsWrapperAndRegistry(t *testing.T) {
 func TestSyncRequirePathManualOutcomes(t *testing.T) {
 	t.Run("unsupported shell", func(t *testing.T) {
 		e := newEnv(t)
-		e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+		e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 		if out, err := e.tryRun([]string{"SHELL=/bin/tcsh"}, "sync", "--require-path"); err == nil {
 			t.Fatalf("--require-path must fail for an unsupported shell:\n%s", out)
 		}
@@ -122,7 +122,7 @@ func TestSyncRequirePathManualOutcomes(t *testing.T) {
 
 	t.Run("read-only rc", func(t *testing.T) {
 		e := newEnv(t)
-		e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+		e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 		rc := filepath.Join(e.root, ".zshrc")
 		writeFile(t, rc, "# mine\n")
 		if err := os.Chmod(rc, 0o444); err != nil {
@@ -156,7 +156,7 @@ func TestSyncRequirePathManualOutcomes(t *testing.T) {
 
 	t.Run("symlinked rc", func(t *testing.T) {
 		e := newEnv(t)
-		e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+		e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 		target := filepath.Join(e.root, "dotfiles", "zshrc")
 		writeFile(t, target, "# dotfiles\n")
 		rc := filepath.Join(e.root, ".zshrc")
@@ -224,7 +224,7 @@ func parseSyncReport(t *testing.T, stdout string) syncReport {
 // versioned schema, and show --json carries format_version.
 func TestSyncJSONReport(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 
 	stdout, stderr, err := e.tryRunSplit(nil, "sync", "--dry-run", "--json")
 	if err != nil {
@@ -273,7 +273,7 @@ func TestSyncJSONReport(t *testing.T) {
 	}
 
 	// A removed profile shows up as a removed wrapper.
-	e.run(nil, "remove", "claude", "work")
+	e.run(nil, "remove", "claude/work")
 	stdout, _, err = e.tryRunSplit(nil, "sync", "--dry-run", "--json")
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestSyncJSONReport(t *testing.T) {
 		t.Errorf("removal report: %+v", r)
 	}
 
-	e.run(nil, "add", "claude", "other", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/other", "--auth-kind", "oauth-login")
 	stdout, _, err = e.tryRunSplit(nil, "show", "claude/other", "--json")
 	if err != nil {
 		t.Fatal(err)

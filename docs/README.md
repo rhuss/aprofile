@@ -46,8 +46,8 @@ Logins, settings and all other runtime state stay private in every group, and me
 
 ```sh
 aprofile group create claude/work
-aprofile add claude acme --auth-kind oauth-login --group work
-aprofile add claude lab --endpoint https://lab.example.com --group home
+aprofile add claude/acme --auth-kind oauth-login --group work
+aprofile add claude/lab --endpoint https://lab.example.com --group home
 aprofile edit claude/personal --group home --dry-run   # what a join moves and sets aside
 aprofile edit claude/client --no-group                 # back to its own, fresh history
 aprofile group list
@@ -92,13 +92,13 @@ IDE extensions write lock files into the config dir of the session that started 
 
 | Command | What it does |
 |---------|--------------|
-| `aprofile add <harness> <name>` | Create a profile. Flags: `--share`, `--group`, `--hook-sets`, `--exclude-hook-sets`, `--model`, `--endpoint`, `--auth-kind`, `--auth-key`, `--env`, `--env-literal`, `--color`, `--icon`, `--label`, `--primary`, `--herdr-agent`, `--adopt`. |
+| `aprofile add <harness>/<name>` | Create a profile. Flags: `--share`, `--group`, `--hook-sets`, `--exclude-hook-sets`, `--model`, `--endpoint`, `--auth-kind`, `--auth-key`, `--env`, `--env-literal`, `--color`, `--icon`, `--label`, `--primary`, `--herdr-agent`, `--adopt`. |
 | `aprofile list` | List profiles grouped by harness (`--json` for a stable schema). |
 | `aprofile show <harness>/<name>` | Show one profile: its share level, every config-dir entry with its treatment and reason, hook sets, and whether it has credentials (never the values): credential files in the config dir, whether each auth reference resolves now, and the exec hook's `auth-status` answer, which covers logins kept in the macOS Keychain. |
 | `aprofile edit <harness>/<name>` | Change a profile's fields. `--share` applies a level change and `--group <group>` or `--no-group` a history group change, each with `--dry-run` and `--yes`. |
 | `aprofile group list\|show\|create\|delete` | Manage history groups (`--json`; `delete --purge` also removes the store). |
 | `aprofile rename <harness>/<name> <new-name>` | Rename a profile, moving its file, config dir and imported credential files together (references into that dir follow). Refused while the profile runs; where aprofile cannot check that, it asks first. `--force` skips both. |
-| `aprofile remove <harness> <name>` | Remove a profile. `--purge` also deletes its config dir and the credential files `import` copied for it (after confirmation). |
+| `aprofile remove <harness>/<name>` | Remove a profile. `--purge` also deletes its config dir and the credential files `import` copied for it (after confirmation). |
 | `aprofile sync` | Write one wrapper per profile, prepare each config dir for its share level, place hook sets, publish the registry, and manage the PATH block. Idempotent. Removes temp entries (`.aprofile-tmp-*`, `.aprofile-new-*`) an interrupted aprofile write left in a config dir once they (and, for a directory, everything in it) are older than a minute, and counts each removal as a change; an entry that an interrupted directory swap left only in its `.<entry>.aprofile-new-*-old` temp is renamed back instead, and a temp entry it cannot remove or restore is a problem. The summary counts problems (`0 changes, 2 problems (see above)`); a run with problems is never reported as up to date. `--fix-links` repairs leaking links, `--relink` restores links a harness replaced with a real file. |
 | `aprofile login <harness>/<name>` | Run the harness's own login flow with the profile's environment: the definition's `login_command` (`claude auth login`, `codex login`, `opencode auth login`; pi starts a session where you run `/login`), or the exec hook's `login` operation when the definition declares one. |
 | `aprofile copy <h>/<n> <h>/<n>` | Copy a profile within or across harnesses, converting MCP servers. `--overwrite` replaces an existing target's copied parts: it backs up what it replaces under `<data dir>/backups/` and asks first, and in a non-interactive run it requires `--yes` and exits with code 3 without it. `--adopt` reuses a leftover config dir; `--auth-key env:NAME` supplies the key a cross-harness target's auth kind needs. The target is in no history group unless `--group` names one of its harness; copy never carries history. |

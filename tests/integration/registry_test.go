@@ -13,10 +13,10 @@ import (
 // wrapper's process env carries the APROFILE_* contract.
 func TestScenario4RegistryAndEnvContract(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--primary", "--label", "Work",
+	e.run(nil, "add", "claude/work", "--primary", "--label", "Work",
 		"--color", "blue", "--icon", "W", "--model", "X",
 		"--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
-	e.run(nil, "add", "claude", "private", "--label", "Private",
+	e.run(nil, "add", "claude/private", "--label", "Private",
 		"--color", "red", "--icon", "P",
 		"--auth-kind", "oauth-token", "--auth-key", "env:PRIV_TOKEN")
 	e.run(nil, "sync")
@@ -82,8 +82,8 @@ func TestScenario4RegistryAndEnvContract(t *testing.T) {
 // profile store only; a /model-style change in settings.json does not change it.
 func TestRegistryModelFromProfileStore(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw-model")
-	e.run(nil, "add", "claude", "plain", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw-model")
+	e.run(nil, "add", "claude/plain", "--auth-kind", "oauth-login")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	m := readSettings(t, settings)

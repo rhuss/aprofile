@@ -55,7 +55,7 @@ func providerBlock(m map[string]any, name string) map[string]any {
 func TestLaunchCodexProviderAuth(t *testing.T) {
 	e := newEnv(t)
 	key := e.keyFile("glm", "sk-codex-glm\n")
-	e.run(nil, "add", "codex", "work-glm", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--model", "1.5")
+	e.run(nil, "add", "codex/work-glm", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--model", "1.5")
 	cfgPath := e.writeCodexConfig("work-glm", codexGW)
 
 	dry := e.run(nil, "sync", "--dry-run")
@@ -142,7 +142,7 @@ func TestLaunchCodexProviderAuth(t *testing.T) {
 func TestLaunchCodexNoCustomProvider(t *testing.T) {
 	e := newEnv(t)
 	key := e.keyFile("plain", "sk-plain\n")
-	e.run(nil, "add", "codex", "plain", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key)
+	e.run(nil, "add", "codex/plain", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key)
 	cfgPath := e.writeCodexConfig("plain", "model = \"o4\"\n")
 	e.run(nil, "sync")
 	if data, _ := os.ReadFile(cfgPath); string(data) != "model = \"o4\"\n" {

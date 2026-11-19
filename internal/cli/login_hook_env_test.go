@@ -54,7 +54,7 @@ func TestLoginEnvIncludesHookEnv(t *testing.T) {
 	t.Setenv("HOOK_SRC", "from-shell")
 	got := recordLogin(t)
 
-	if out, err := runCLI(t, "add", "claude", "work", "--auth-kind", "oauth-login", "--model", "opus"); err != nil {
+	if out, err := runCLI(t, "add", "claude/work", "--auth-kind", "oauth-login", "--model", "opus"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	if out, err := runCLI(t, "login", "claude/work"); err != nil {
@@ -79,7 +79,7 @@ func TestLoginEnvIncludesHookEnv(t *testing.T) {
 
 	// At share level all the wrapper carries everything and lists the hook's
 	// variables in APROFILE_SET_VARS.
-	if out, err := runCLI(t, "add", "claude", "shared", "--auth-kind", "oauth-login", "--model", "opus", "--share", "all"); err != nil {
+	if out, err := runCLI(t, "add", "claude/shared", "--auth-kind", "oauth-login", "--model", "opus", "--share", "all"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	if out, err := runCLI(t, "login", "claude/shared"); err != nil {
@@ -102,7 +102,7 @@ func TestLoginFailsOnMissingEnvHook(t *testing.T) {
 	execLogin = func(string, []string, []string) error { return errors.New("must not exec") }
 	t.Cleanup(func() { execLogin = orig })
 
-	if out, err := runCLI(t, "add", "claude", "work", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/work", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	_, err := runCLI(t, "login", "claude/work")

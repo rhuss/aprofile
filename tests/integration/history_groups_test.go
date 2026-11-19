@@ -133,7 +133,7 @@ func entryOf(sh showHistory, entry string) *showEntry {
 
 // addArgs returns the add arguments of a profile without an auth key.
 func addArgs(harnessName, name string, extra ...string) []string {
-	args := []string{"add", harnessName, name}
+	args := []string{"add", harnessName + "/" + name}
 	if harnessName == "claude" {
 		args = append(args, "--auth-kind", "oauth-login")
 	}
@@ -652,7 +652,7 @@ func TestHistoryGroupUS3RenameAndPurge(t *testing.T) {
 		t.Error("a refused rename changed the profile")
 	}
 
-	e.run(nil, "remove", "claude", "new", "--purge", "--yes")
+	e.run(nil, "remove", "claude/new", "--purge", "--yes")
 	assertNothingCreated(t, "purge (store)", storeBefore, entrySnapshot(t, store))
 	assertNothingCreated(t, "purge (default setup)", homeBefore, entrySnapshot(t, claudeHome))
 	if _, err := os.Stat(e.setAsideRoot("claude", "new")); !os.IsNotExist(err) {
@@ -665,7 +665,7 @@ func TestHistoryGroupUS3RenameAndPurge(t *testing.T) {
 	// A home member: purge never follows its links into the default setup.
 	e.run(nil, addArgs("claude", "member", "--group", "home")...)
 	homeBefore = entrySnapshot(t, claudeHome)
-	e.run(nil, "remove", "claude", "member", "--purge", "--yes")
+	e.run(nil, "remove", "claude/member", "--purge", "--yes")
 	assertNothingCreated(t, "purge home member (default setup)", homeBefore, entrySnapshot(t, claudeHome))
 }
 

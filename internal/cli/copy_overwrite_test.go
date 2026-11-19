@@ -20,7 +20,7 @@ func copyOverwriteSetup(t *testing.T) (storeFile, mcpFile string) {
 	testutil.HermeticHome(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
 	for _, n := range []string{"src", "dst"} {
-		if out, err := runCLI(t, "add", "claude", n, "--auth-kind", "oauth-login", "--model", "model-"+n); err != nil {
+		if out, err := runCLI(t, "add", "claude/"+n, "--auth-kind", "oauth-login", "--model", "model-"+n); err != nil {
 			t.Fatalf("add %s: %v\n%s", n, err, out)
 		}
 	}

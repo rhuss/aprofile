@@ -82,7 +82,7 @@ func TestPrimaryMoveKeepsImplicitShare(t *testing.T) {
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	store := filepath.Join(e.root, ".config", "aprofile", "profiles", "claude", "old.yaml")
 	writeFile(t, store, "harness: claude\nname: old\nauth_kind: oauth-login\nprimary: true\n")
-	e.run(nil, "add", "claude", "new", "--primary", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/new", "--primary", "--auth-kind", "oauth-login")
 	got := readFile(t, store)
 	if strings.Contains(got, "primary: true") {
 		t.Errorf("the primary flag moved off the old profile:\n%s", got)

@@ -15,7 +15,7 @@ func TestListExplainsUnknownWrapperStatusOncePerHarness(t *testing.T) {
 	h := testutil.HermeticHome(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
 	for _, n := range []string{"one", "two"} {
-		if out, err := runCLI(t, "add", "claude", n, "--auth-kind", "oauth-login"); err != nil {
+		if out, err := runCLI(t, "add", "claude/"+n, "--auth-kind", "oauth-login"); err != nil {
 			t.Fatalf("add %s: %v\n%s", n, err, out)
 		}
 	}

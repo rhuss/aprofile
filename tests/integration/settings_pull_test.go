@@ -14,7 +14,7 @@ import (
 func TestSettingsPull(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	writeFile(t, settings, `{"permissions":{"allow":["Bash(ls:*)","Bash(work-only)"]},"hooks":{"Stop":[{"matcher":"mine","hooks":[]}]}}`)
@@ -55,8 +55,8 @@ func TestSettingsPull(t *testing.T) {
 	}
 
 	// all and none profiles are refused with exit 2.
-	e.run(nil, "add", "claude", "lab", "--auth-kind", "oauth-login", "--share", "all")
-	e.run(nil, "add", "claude", "ci", "--auth-kind", "oauth-login", "--share", "none")
+	e.run(nil, "add", "claude/lab", "--auth-kind", "oauth-login", "--share", "all")
+	e.run(nil, "add", "claude/ci", "--auth-kind", "oauth-login", "--share", "none")
 	for _, ref := range []string{"claude/lab", "claude/ci"} {
 		if out, err := e.tryRun(nil, "settings", "pull", ref, "--dry-run"); exitCodeOf(err) != 2 {
 			t.Errorf("%s: exit %d, want 2\n%s", ref, exitCodeOf(err), out)
@@ -69,7 +69,7 @@ func TestSettingsPull(t *testing.T) {
 func TestSettingsPullKeepsLaunchEntries(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw-model")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw-model")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	for _, args := range [][]string{
@@ -100,7 +100,7 @@ func TestSettingsPullRestoresKeyCommandOverDefault(t *testing.T) {
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	e.writeDefaultClaudeSettings(`{"apiKeyHelper":"echo sk-default","env":{"ANTHROPIC_BASE_URL":"http://default","USER_X":"1"}}`)
 	key := e.keyFile("pull", "sk-pull-profile\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--share", "content",
+	e.run(nil, "add", "claude/work", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--share", "content",
 		"--endpoint", "http://profile", "--model", "gw-model")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")

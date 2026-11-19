@@ -62,7 +62,7 @@ func TestSC006DryRunMatchesApply(t *testing.T) {
 	}
 	for _, h := range allHarnesses {
 		for _, p := range pairs {
-			e.run(nil, "add", h, "p-"+p.from+"-"+p.to, "--auth-kind", interactiveKind[h], "--share", p.from)
+			e.run(nil, "add", h+"/p-"+p.from+"-"+p.to, "--auth-kind", interactiveKind[h], "--share", p.from)
 		}
 	}
 	e.run(nil, "sync")
@@ -114,7 +114,7 @@ func TestSC006DryRunMatchesApply(t *testing.T) {
 func TestLevelChangeDryRunContent(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "all")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "all")
 	e.run(nil, "sync")
 	out := e.run(nil, "edit", "claude/work", "--share", "content", "--dry-run")
 	for _, want := range []string{"unlink settings.json", "copy-once settings.json", "PreToolUse (1 group)", "aprofile hook-sets import claude", "nothing is deleted"} {
@@ -133,7 +133,7 @@ func TestLevelChangeDryRunContent(t *testing.T) {
 func TestLevelChangeToAllNeedsConfirmation(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	writeFile(t, settings, `{"permissions":{"allow":["Bash(work-only)"]}}`)
@@ -166,7 +166,7 @@ func TestLevelChangeToAllNeedsConfirmation(t *testing.T) {
 func TestLevelChangeNeverSynced(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "fresh", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/fresh", "--auth-kind", "oauth-login", "--share", "content")
 	out := e.run(nil, "edit", "claude/fresh", "--share", "none")
 	if !strings.Contains(out, "mkdir .") {
 		t.Errorf("the plan should create the config dir:\n%s", out)
@@ -179,7 +179,7 @@ func TestLevelChangeNeverSynced(t *testing.T) {
 // TestLevelChangeRefusedWhileRunning covers FR-017 and exit 4.
 func TestLevelChangeRefusedWhileRunning(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "busy", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/busy", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperRunningHarness$")
 	cmd.Env = append(os.Environ(), "APROFILE_CONFIG_DIR="+e.configDir("claude", "busy"), "APROFILE_TEST_HELPER=1")
@@ -292,7 +292,7 @@ func TestLevelChangeLaunchSettings(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	key := e.keyFile("w", "sk-level\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--share", "content", "--model", "gw")
+	e.run(nil, "add", "claude/work", "--auth-kind", "api-key", "--auth-key", "file:"+key, "--share", "content", "--model", "gw")
 	e.run(nil, "sync")
 	rec := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude", "work.json")
 	if _, err := os.Stat(rec); err != nil {
@@ -353,7 +353,7 @@ func TestLevelChangeLaunchSettings(t *testing.T) {
 // Feature 004 (research R6): rename moves the launch record, remove --purge deletes it.
 func TestLaunchRecordFollowsRenameAndPurge(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw")
 	e.run(nil, "sync")
 	recDir := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude")
 	if _, err := os.Stat(filepath.Join(recDir, "work.json")); err != nil {
@@ -369,7 +369,7 @@ func TestLaunchRecordFollowsRenameAndPurge(t *testing.T) {
 	if out := e.run(nil, "sync"); strings.Contains(out, "replaced user entry") {
 		t.Errorf("after rename the entries must still count as placed:\n%s", out)
 	}
-	e.run(nil, "remove", "claude", "job", "--purge", "--yes")
+	e.run(nil, "remove", "claude/job", "--purge", "--yes")
 	if _, err := os.Stat(filepath.Join(recDir, "job.json")); !os.IsNotExist(err) {
 		t.Error("purge left the record")
 	}
@@ -380,7 +380,7 @@ func TestLaunchRecordFollowsRenameAndPurge(t *testing.T) {
 func TestLevelChangeCorruptLaunchRecordKeepsLevel(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content", "--model", "gw")
 	e.run(nil, "sync")
 	rec := filepath.Join(e.root, ".local", "share", "aprofile", "managed-launch", "claude", "work.json")
 	if err := os.WriteFile(rec, []byte("{not json"), 0o644); err != nil {

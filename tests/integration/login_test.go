@@ -31,7 +31,7 @@ func assertNoProviderVars(t *testing.T, out string) {
 // in the wrapper.
 func TestLoginRunsHarnessLoginCommand(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	e.run(nil, "sync")
 
 	out := e.run(shellProviderVars, "login", "claude/work")
@@ -73,7 +73,7 @@ func TestLoginUsesExecHook(t *testing.T) {
 	e := newEnv(t)
 	testutil.WriteFile(t, filepath.Join(e.root, ".config", "aprofile", "harnesses.d", "claude.yaml"),
 		"name: claude\nexec_hook:\n  operations: [login]\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 
 	path := e.hookPath("#!/bin/sh\necho \"HOOK_OP: $1\"\nsed 's/^/HOOK_IN: /'\nenv | sed 's/^/HOOK_ENV: /'\n")
 	out := e.run(append([]string{path}, shellProviderVars...), "login", "claude/work")
@@ -113,7 +113,7 @@ func TestLoginWithoutFlowFails(t *testing.T) {
 	e := newEnv(t)
 	testutil.WriteFile(t, filepath.Join(e.root, ".config", "aprofile", "harnesses.d", "claude.yaml"),
 		"name: claude\nlogin_command: null\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	out, err := e.tryRun(nil, "login", "claude/work")
 	if err == nil || !strings.Contains(out, "login_command") || strings.Contains(out, "STUB_ARGS") {
 		t.Errorf("want a clear error and no launch: err=%v\n%s", err, out)

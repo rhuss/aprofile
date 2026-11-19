@@ -78,7 +78,7 @@ func TestUS1RuntimeStateNeverShared(t *testing.T) {
 	}
 	for _, h := range allHarnesses {
 		for _, lv := range allLevels {
-			e.run(nil, "add", h, "p-"+lv, "--auth-kind", interactiveKind[h], "--share", lv)
+			e.run(nil, "add", h+"/p-"+lv, "--auth-kind", interactiveKind[h], "--share", lv)
 		}
 	}
 	e.run(nil, "sync")
@@ -154,7 +154,7 @@ func assertNotLink(t *testing.T, path string) {
 func TestUS1UnknownEntryReported(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	foo := filepath.Join(e.configDir("claude", "work"), "foo.json")
 	writeFile(t, foo, `{"mine":true}`)
@@ -179,7 +179,7 @@ func TestUS1UnknownEntryReported(t *testing.T) {
 func TestUS1SliceOneLeakFixed(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "old", "--auth-kind", "oauth-login", "--share", "all")
+	e.run(nil, "add", "claude/old", "--auth-kind", "oauth-login", "--share", "all")
 	e.run(nil, "sync")
 	dir := e.configDir("claude", "old")
 	target := filepath.Join(e.root, ".claude", "history.jsonl")

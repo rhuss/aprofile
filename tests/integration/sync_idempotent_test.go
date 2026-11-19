@@ -15,7 +15,7 @@ import (
 // 0 changes and writes 0 files.
 func TestScenario2CallerOverrideAndIdempotentSync(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--model", "X", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
+	e.run(nil, "add", "claude/work", "--model", "X", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
 	e.run(nil, "sync")
 
 	out, err := e.runWrapper("claude-work", []string{"WORK_TOKEN=tok", "ANTHROPIC_MODEL=other", "ANTHROPIC_BASE_URL=http://other"}, "--model", "one-run")
@@ -31,7 +31,7 @@ func TestScenario2CallerOverrideAndIdempotentSync(t *testing.T) {
 
 	// A profile whose wrapper carries the settings (share level all: settings.json
 	// is linked) gets the profile's values, never the caller's.
-	e.run(nil, "add", "claude", "shared", "--share", "all", "--model", "X", "--endpoint", "http://profile", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/shared", "--share", "all", "--model", "X", "--endpoint", "http://profile", "--auth-kind", "oauth-login")
 	e.run(nil, "sync")
 	out, err = e.runWrapper("claude-shared", []string{"ANTHROPIC_MODEL=other", "ANTHROPIC_BASE_URL=http://other"})
 	if err != nil {

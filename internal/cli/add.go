@@ -64,11 +64,15 @@ func (f *profileFlags) bind(cmd *cobra.Command) {
 func newAddCmd() *cobra.Command {
 	f := &profileFlags{}
 	cmd := &cobra.Command{
-		Use:   "add <harness> <name>",
+		Use:   "add <harness>/<name>",
 		Short: "Create a profile",
-		Args:  cobra.ExactArgs(2),
+		Args:  profileRefArgs("add"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAdd(cmd, args[0], args[1], f)
+			h, n, err := parseProfileRef(args[0])
+			if err != nil {
+				return err
+			}
+			return runAdd(cmd, h, n, f)
 		},
 	}
 	f.bind(cmd)

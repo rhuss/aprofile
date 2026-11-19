@@ -20,7 +20,7 @@ import (
 // a non-TTY, errors naming --auth-key and never opens a form (it returns promptly).
 func TestAddMissingAuthKeyNonTTYFails(t *testing.T) {
 	e := newEnv(t)
-	out, err := e.tryRun(nil, "add", "claude", "work")
+	out, err := e.tryRun(nil, "add", "claude/work")
 	if err == nil {
 		t.Fatalf("add without --auth-key on a non-TTY should fail, not open a form:\n%s", out)
 	}
@@ -33,7 +33,7 @@ func TestAddMissingAuthKeyNonTTYFails(t *testing.T) {
 // still succeeds on a non-TTY (no required value is missing).
 func TestAddInteractiveKindNonTTYSucceeds(t *testing.T) {
 	e := newEnv(t)
-	out, err := e.tryRun(nil, "add", "claude", "login", "--auth-kind", "oauth-login")
+	out, err := e.tryRun(nil, "add", "claude/login", "--auth-kind", "oauth-login")
 	if err != nil {
 		t.Fatalf("add with an interactive auth kind should succeed on a non-TTY:\n%s\n%v", out, err)
 	}
@@ -43,7 +43,7 @@ func TestAddInteractiveKindNonTTYSucceeds(t *testing.T) {
 // the flags instead of opening a form.
 func TestEditNothingNonTTYFails(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:TOK")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:TOK")
 	out, err := e.tryRun(nil, "edit", "claude/work")
 	if err == nil {
 		t.Fatalf("bare edit on a non-TTY should fail, not open a form:\n%s", out)
@@ -56,7 +56,7 @@ func TestEditNothingNonTTYFails(t *testing.T) {
 // TestEditWithFlagNonTTYSucceeds: an edit that sets a flag applies non-interactively.
 func TestEditWithFlagNonTTYSucceeds(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:TOK")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:TOK")
 	if out, err := e.tryRun(nil, "edit", "claude/work", "--label", "Renamed"); err != nil {
 		t.Fatalf("edit with a flag should succeed on a non-TTY:\n%s\n%v", out, err)
 	}
@@ -83,7 +83,7 @@ func TestUIRequiresTerminal(t *testing.T) {
 // this proves form-add equals the flag command (SC-008).
 func TestFlagAddStoresFormValues(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work",
+	e.run(nil, "add", "claude/work",
 		"--label", "Work", "--color", "blue", "--icon", "W",
 		"--model", "m1", "--endpoint", "https://ep",
 		"--auth-kind", "oauth-token", "--auth-key", "env:TOK", "--herdr-agent", "coder")
@@ -115,7 +115,7 @@ func TestFlagAddStoresFormValues(t *testing.T) {
 func TestAddGroupFlagStoresGroup(t *testing.T) {
 	e := newEnv(t)
 	writeFile(t, filepath.Join(e.root, ".claude", "projects", "p", "s.jsonl"), "{}")
-	e.run(nil, "add", "claude", "grp", "--auth-kind", "oauth-login", "--group", "home")
+	e.run(nil, "add", "claude/grp", "--auth-kind", "oauth-login", "--group", "home")
 	if !strings.Contains(readFile(t, e.profileStorePath("claude", "grp")), "history_group: home") {
 		t.Error("add --group home did not store history_group")
 	}

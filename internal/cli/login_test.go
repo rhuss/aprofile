@@ -169,7 +169,7 @@ func TestLoginRunsDeclaredCommand(t *testing.T) {
 	}
 	t.Cleanup(func() { execLogin = orig })
 
-	if out, err := runCLI(t, "add", "claude", "work", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/work", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	out, err := runCLI(t, "login", "claude/work")
@@ -197,7 +197,7 @@ func TestLoginFailsWithoutCommandOrHook(t *testing.T) {
 	execLogin = func(string, []string, []string) error { return errors.New("must not exec") }
 	t.Cleanup(func() { execLogin = orig })
 
-	if out, err := runCLI(t, "add", "claude", "work", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/work", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	_, err := runCLI(t, "login", "claude/work")

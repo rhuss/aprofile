@@ -11,7 +11,7 @@ import (
 // once, and edit repairs it.
 func TestInvalidAppearanceOnLoadWarnsAndIsRepairable(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--color", "blue")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--color", "blue")
 	path := e.profileStorePath("claude", "work")
 	data, err := os.ReadFile(path)
 	if err != nil {

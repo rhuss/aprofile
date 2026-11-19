@@ -17,7 +17,7 @@ import (
 func TestTempFilesNotReportedAndStaleRemoved(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	dir := e.configDir("claude", "work")
 	stale := filepath.Join(dir, ".aprofile-tmp-4711")

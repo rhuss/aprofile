@@ -54,7 +54,7 @@ func fakeRunning(t *testing.T, running, known bool) {
 // needs --force (exit 3 without it) and changes nothing.
 func TestRenameUnknownRunningNeedsForce(t *testing.T) {
 	testutil.HermeticHome(t)
-	mustCLI(t, "add", "claude", "old", "--auth-kind", "oauth-login")
+	mustCLI(t, "add", "claude/old", "--auth-kind", "oauth-login")
 	fakeRunning(t, false, false)
 
 	out, err := runCLIInput(t, "", "rename", "claude/old", "new")
@@ -94,7 +94,7 @@ func TestRenameUnknownRunningNeedsForce(t *testing.T) {
 // FR-006a: a profile known to be running is refused with exit 4 unless --force.
 func TestRenameRunningRefused(t *testing.T) {
 	testutil.HermeticHome(t)
-	mustCLI(t, "add", "claude", "old", "--auth-kind", "oauth-login")
+	mustCLI(t, "add", "claude/old", "--auth-kind", "oauth-login")
 	fakeRunning(t, true, true)
 	if _, err := runCLIInput(t, "", "rename", "claude/old", "new"); exitCode(err) != ExitProfileRunning {
 		t.Fatalf("running profile: exit %d, want %d (%v)", exitCode(err), ExitProfileRunning, err)
@@ -105,7 +105,7 @@ func TestRenameRunningRefused(t *testing.T) {
 // T075: --auth-kind clears the references that do not belong to the new kind.
 func TestEditAuthKindClearsForeignRefs(t *testing.T) {
 	testutil.HermeticHome(t)
-	mustCLI(t, "add", "claude", "wk", "--auth-kind", "api-key", "--auth-key", "env:MY_KEY")
+	mustCLI(t, "add", "claude/wk", "--auth-kind", "api-key", "--auth-key", "env:MY_KEY")
 	mustCLI(t, "edit", "claude/wk", "--auth-kind", "oauth-login")
 	paths, _ := config.ResolvePaths()
 	p, err := profile.NewStore(paths).Load("claude", "wk")
@@ -131,7 +131,7 @@ func TestEditAuthKindClearsForeignRefs(t *testing.T) {
 // T075: a repeated --env NAME in add is stored once, the last value winning.
 func TestAddDedupesRepeatedEnv(t *testing.T) {
 	testutil.HermeticHome(t)
-	mustCLI(t, "add", "claude", "wk", "--auth-kind", "oauth-login",
+	mustCLI(t, "add", "claude/wk", "--auth-kind", "oauth-login",
 		"--env", "TEAM=a", "--env", "TEAM=b", "--env-literal", "MODE=x", "--env-literal", "MODE=y", "--env", "MODE=z")
 	paths, _ := config.ResolvePaths()
 	p, err := profile.NewStore(paths).Load("claude", "wk")
@@ -176,13 +176,13 @@ func TestWrapperNameClashRejected(t *testing.T) {
 	fakeRunning(t, false, true)
 	testutil.WriteFile(t, filepath.Join(home.ConfigHome, "aprofile", "harnesses.d", "cx.yaml"),
 		"name: cx\nbinary: cx\nwrapper_prefix: claude-x\nconfig_env:\n  CX_DIR: \".\"\n")
-	mustCLI(t, "add", "claude", "x-aa", "--auth-kind", "oauth-login")
+	mustCLI(t, "add", "claude/x-aa", "--auth-kind", "oauth-login")
 
-	_, err := runCLIInput(t, "", "add", "cx", "aa")
+	_, err := runCLIInput(t, "", "add", "cx/aa")
 	if err == nil || !strings.Contains(err.Error(), "claude/x-aa") || !strings.Contains(err.Error(), "claude-x-aa") {
 		t.Fatalf("add should name the clashing profile and wrapper, got %v", err)
 	}
-	mustCLI(t, "add", "cx", "bb")
+	mustCLI(t, "add", "cx/bb")
 	_, err = runCLIInput(t, "", "rename", "cx/bb", "aa")
 	if err == nil || !strings.Contains(err.Error(), "claude/x-aa") {
 		t.Fatalf("rename should name the clashing profile, got %v", err)
@@ -202,7 +202,7 @@ func TestRenameAndPurgeMoveImportedCredentials(t *testing.T) {
 	testutil.HermeticHome(t)
 	paths, _ := config.ResolvePaths()
 	oldCreds := paths.CredentialsDir("claude", "old")
-	mustCLI(t, "add", "claude", "old", "--auth-kind", "api-key", "--auth-key", "file:"+filepath.Join(oldCreds, "api_key"),
+	mustCLI(t, "add", "claude/old", "--auth-kind", "api-key", "--auth-key", "file:"+filepath.Join(oldCreds, "api_key"),
 		"--env-literal", "GOOGLE_APPLICATION_CREDENTIALS="+filepath.Join(oldCreds, "credentials"),
 		"--env", "OTHER=file:/elsewhere/x")
 	testutil.WriteFile(t, filepath.Join(oldCreds, "api_key"), "FAKE\n")
@@ -235,7 +235,7 @@ func TestRenameAndPurgeMoveImportedCredentials(t *testing.T) {
 		t.Errorf("unrelated reference changed: %q", env["OTHER"])
 	}
 
-	mustCLI(t, "remove", "claude", "new", "--purge", "--yes")
+	mustCLI(t, "remove", "claude/new", "--purge", "--yes")
 	if _, err := os.Stat(newCreds); !os.IsNotExist(err) {
 		t.Errorf("remove --purge left the imported credentials: %v", err)
 	}

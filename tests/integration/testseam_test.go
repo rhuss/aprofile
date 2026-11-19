@@ -30,7 +30,7 @@ func TestProductionBuildIgnoresTestSeam(t *testing.T) {
 		t.Errorf("the test binary should carry the seam (sanity check of this test)")
 	}
 
-	e.run(nil, "add", "claude", "busy", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/busy", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	// This test process is alive but does not use the profile: only the seam can
 	// make it the running answer.

@@ -73,7 +73,7 @@ func TestRemoveRejectsInvalidNames(t *testing.T) {
 		t.Run(tc.h+"_"+tc.n, func(t *testing.T) {
 			testutil.HermeticHome(t)
 			dir := plantTraversalTarget(t, tc.h, tc.n)
-			out, err := runCLIInput(t, "", "remove", tc.h, tc.n, "--purge", "--yes")
+			out, err := runCLIInput(t, "", "remove", tc.h+"/"+tc.n, "--purge", "--yes")
 			if err == nil || !strings.Contains(err.Error(), "must match") {
 				t.Fatalf("remove %s %s: err %v\n%s", tc.h, tc.n, err, out)
 			}

@@ -24,7 +24,7 @@ func TestCopyAcrossLevels(t *testing.T) {
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "hooks.d", "jira.yaml"),
 		"name: jira\nbodies:\n  claude:\n    Stop: [{matcher: x, hooks: []}]\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content", "--hook-sets", "jira")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content", "--hook-sets", "jira")
 	e.run(nil, "sync")
 	src := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	writeFile(t, src, `{"permissions":{"allow":["Bash(work-only)"]},"hooks":{"Stop":[{"matcher":"mine","hooks":[]}]}}`)
@@ -78,7 +78,7 @@ func TestCopyAcrossLevels(t *testing.T) {
 func TestHandEditedLevel(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	writeFile(t, settings, `{"own":true}`)
@@ -111,8 +111,8 @@ func TestSettingsPullApplies(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	testutil.SeedDefaultsAt(t, e.root, "pi")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
-	e.run(nil, "add", "pi", "pp", "--auth-kind", "login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "pi/pp", "--auth-kind", "login", "--share", "content")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	before := `{"permissions":{"allow":["Bash(work-only)"]},"hooks":{"Stop":[{"matcher":"mine","hooks":[]}]}}`
@@ -161,7 +161,7 @@ func TestReapplyNeedsConfirmationAndMissingScript(t *testing.T) {
 	script := filepath.Join(e.root, "no-such-dir", "hook.sh")
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "hooks.d", "base.yaml"),
 		"name: base\nbodies:\n  claude:\n    Stop:\n      - matcher: m\n        hooks: [{type: command, command: "+script+"}]\n")
-	e.run(nil, "add", "claude", "ci", "--auth-kind", "oauth-login", "--share", "none", "--hook-sets", "base")
+	e.run(nil, "add", "claude/ci", "--auth-kind", "oauth-login", "--share", "none", "--hook-sets", "base")
 	out := e.run(nil, "sync")
 	if !strings.Contains(out, script) || !strings.Contains(out, "does not exist") {
 		t.Errorf("sync reports the missing script:\n%s", out)
@@ -202,7 +202,7 @@ func TestImportShareHarnessShowDoctorExit(t *testing.T) {
 
 	e2 := newEnv(t)
 	testutil.SeedDefaultsAt(t, e2.root, "opencode")
-	e2.run(nil, "add", "opencode", "oc", "--auth-kind", "login", "--share", "none")
+	e2.run(nil, "add", "opencode/oc", "--auth-kind", "login", "--share", "none")
 	e2.run(nil, "sync")
 	rep, _ := doctorJSON(t, e2)
 	for _, f := range rep.Findings {
@@ -217,7 +217,7 @@ func TestImportShareHarnessShowDoctorExit(t *testing.T) {
 func TestSettingsPullReplacesNonJSONFile(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "opencode")
-	e.run(nil, "add", "opencode", "oc", "--auth-kind", "login", "--share", "content")
+	e.run(nil, "add", "opencode/oc", "--auth-kind", "login", "--share", "content")
 	e.run(nil, "sync")
 	tui := filepath.Join(e.configDir("opencode", "oc"), "config", "opencode", "tui.jsonc")
 	writeFile(t, tui, `{"theme":"light"}`)
@@ -233,7 +233,7 @@ func TestReapplyAlwaysConfirms(t *testing.T) {
 	e := newEnv(t)
 	set := filepath.Join(e.root, ".config", "aprofile", "hooks.d", "base.yaml")
 	writeFile(t, set, "name: base\nbodies:\n  claude:\n    Stop:\n      - matcher: m\n        hooks: [{type: command, command: /bin/true}]\n")
-	e.run(nil, "add", "claude", "ci", "--auth-kind", "oauth-login", "--share", "none", "--hook-sets", "base")
+	e.run(nil, "add", "claude/ci", "--auth-kind", "oauth-login", "--share", "none", "--hook-sets", "base")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "ci"), "settings.json")
 	before := readFile(t, settings)

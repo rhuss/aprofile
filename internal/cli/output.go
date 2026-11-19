@@ -105,4 +105,19 @@ func parseProfileRef(s string) (harness, name string, err error) {
 	return parts[0], parts[1], nil
 }
 
+// profileRefArgs is the positional-argument rule for commands taking a single
+// <harness>/<name> argument. The legacy two-argument form of add and remove is
+// rejected with a hint naming the slash form.
+func profileRefArgs(command string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			return nil
+		}
+		if len(args) == 2 && !strings.Contains(args[0], "/") && !strings.Contains(args[1], "/") {
+			return fmt.Errorf("did you mean \"aprofile %s %s/%s\"? pass the profile as <harness>/<name>", command, args[0], args[1])
+		}
+		return fmt.Errorf("%s takes one <harness>/<name> argument", command)
+	}
+}
+
 func sortStrings(s []string) { sort.Strings(s) }

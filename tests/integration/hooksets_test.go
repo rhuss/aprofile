@@ -60,9 +60,9 @@ func TestUS4HookSets(t *testing.T) {
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "hooks.d", "rtk.yaml"),
 		"name: rtk\nevery_profile: true\nbodies:\n  claude:\n    PreToolUse:\n      - matcher: Edit\n        hooks: [{type: command, command: rtk-edit}]\n")
 
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
-	e.run(nil, "add", "claude", "ci", "--auth-kind", "oauth-login", "--share", "none")
-	e.run(nil, "add", "claude", "lab", "--auth-kind", "oauth-login", "--share", "all")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/ci", "--auth-kind", "oauth-login", "--share", "none")
+	e.run(nil, "add", "claude/lab", "--auth-kind", "oauth-login", "--share", "all")
 	e.run(nil, "sync")
 	work := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	ci := filepath.Join(e.configDir("claude", "ci"), "settings.json")
@@ -106,7 +106,7 @@ func TestUS4HookSets(t *testing.T) {
 	}
 
 	// Scenario 3: a set without a body for the harness fails without changes.
-	e.run(nil, "add", "codex", "cx", "--auth-kind", "chatgpt-login", "--share", "content")
+	e.run(nil, "add", "codex/cx", "--auth-kind", "chatgpt-login", "--share", "content")
 	out, err := e.tryRun(nil, "edit", "codex/cx", "--hook-sets", "base")
 	if err == nil || !strings.Contains(out, "base") || !strings.Contains(out, "codex") {
 		t.Errorf("attaching a set without a codex body must fail naming both:\n%s", out)
@@ -178,7 +178,7 @@ func TestUS4FilesFormProfile(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "opencode")
 	e.run(nil, "hook-sets", "import", "opencode", "--name", "ocbase")
-	e.run(nil, "add", "opencode", "ww", "--auth-kind", "login", "--share", "none", "--hook-sets", "ocbase")
+	e.run(nil, "add", "opencode/ww", "--auth-kind", "login", "--share", "none", "--hook-sets", "ocbase")
 	e.run(nil, "sync")
 	plugins := filepath.Join(e.configDir("opencode", "ww"), "config", "opencode", "plugins")
 	target, err := os.Readlink(filepath.Join(plugins, "x.ts"))
@@ -203,7 +203,7 @@ func TestLevelChangePlacesHookSets(t *testing.T) {
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "hooks.d", "rtk.yaml"),
 		"name: rtk\nevery_profile: true\nbodies:\n  claude:\n    PreToolUse:\n      - matcher: Edit\n        hooks: [{type: command, command: rtk-edit}]\n")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "work"), "settings.json")
 	if got := groupMatchers(profileHooks(t, settings)["PreToolUse"]); got != "Edit" {
@@ -233,7 +233,7 @@ func TestLevelChangeDryRunSkipsIdenticalUserGroup(t *testing.T) {
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "hooks.d", "rtk.yaml"),
 		"name: rtk\nevery_profile: true\nbodies:\n  claude:\n    PreToolUse:\n      - matcher: Edit\n        hooks: [{type: command, command: rtk-edit}]\n")
-	e.run(nil, "add", "claude", "solo", "--auth-kind", "oauth-login", "--share", "none")
+	e.run(nil, "add", "claude/solo", "--auth-kind", "oauth-login", "--share", "none")
 	e.run(nil, "sync")
 	settings := filepath.Join(e.configDir("claude", "solo"), "settings.json")
 	writeFile(t, settings, `{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"rtk-edit"}]}]}}`)
@@ -258,7 +258,7 @@ func TestHookRecordFollowsRenameAndPurge(t *testing.T) {
 	testutil.SeedDefaultsAt(t, e.root, "claude")
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "hooks.d", "rtk.yaml"),
 		"name: rtk\nevery_profile: true\nbodies:\n  claude:\n    PreToolUse:\n      - matcher: Edit\n        hooks: [{type: command, command: rtk-edit}]\n")
-	e.run(nil, "add", "claude", "old", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/old", "--auth-kind", "oauth-login", "--share", "content")
 	e.run(nil, "sync")
 	records := filepath.Join(e.root, ".local", "share", "aprofile", "managed-hooks", "claude")
 	if _, err := os.Stat(filepath.Join(records, "old.json")); err != nil {
@@ -276,7 +276,7 @@ func TestHookRecordFollowsRenameAndPurge(t *testing.T) {
 		t.Errorf("after rename, sync removes the entries it placed: %v", got)
 	}
 
-	e.run(nil, "remove", "claude", "new", "--purge", "--yes")
+	e.run(nil, "remove", "claude/new", "--purge", "--yes")
 	if _, err := os.Stat(filepath.Join(records, "new.json")); !os.IsNotExist(err) {
 		t.Error("remove --purge must delete the profile's record")
 	}

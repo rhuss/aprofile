@@ -104,7 +104,7 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 	}
 
 	if len(profiles) == 0 {
-		fmt.Fprintln(a.out, "no profiles yet (create one with: aprofile add <harness> <name>)")
+		fmt.Fprintln(a.out, "no profiles yet (create one with: aprofile add <harness>/<name>)")
 	}
 	var lastHarness string
 	for _, p := range profiles {

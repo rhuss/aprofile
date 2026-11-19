@@ -22,7 +22,7 @@ func TestSyncReportsShadowedWrapper(t *testing.T) {
 	t.Setenv("PATH", shadowDir+string(os.PathListSeparator)+binDir+string(os.PathListSeparator)+"/usr/bin:/bin")
 
 	for _, n := range []string{"sh", "free"} {
-		if out, err := runCLI(t, "add", "claude", n, "--auth-kind", "oauth-login"); err != nil {
+		if out, err := runCLI(t, "add", "claude/"+n, "--auth-kind", "oauth-login"); err != nil {
 			t.Fatalf("add %s: %v\n%s", n, err, out)
 		}
 	}

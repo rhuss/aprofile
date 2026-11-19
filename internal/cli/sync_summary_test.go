@@ -14,7 +14,7 @@ import (
 // itself "already up to date"; its summary counts the problems.
 func TestSyncSummaryCountsProblems(t *testing.T) {
 	h := testutil.HermeticHome(t)
-	if out, err := runCLI(t, "add", "claude", "ok", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/ok", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	if out, err := runCLI(t, "sync"); err != nil {
@@ -51,7 +51,7 @@ func TestSyncSummaryCountsProblems(t *testing.T) {
 // run lists the removal as a planned change.
 func TestSyncSummaryCountsTempRemovals(t *testing.T) {
 	h := testutil.HermeticHome(t)
-	if out, err := runCLI(t, "add", "claude", "ok", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/ok", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	if out, err := runCLI(t, "sync"); err != nil {

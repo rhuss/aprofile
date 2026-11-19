@@ -39,7 +39,7 @@ func TestSC001DailyProfileFixtures(t *testing.T) {
 	e := newEnv(t)
 	for _, f := range fixtures {
 		key := e.keyFile(f.harness+"-"+f.name, "sk-"+f.harness+"-"+f.name+"\n")
-		args := []string{"add", f.harness, f.name, "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:" + key}
+		args := []string{"add", f.harness + "/" + f.name, "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:" + key}
 		if f.model != "" {
 			args = append(args, "--model", f.model)
 		}

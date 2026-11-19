@@ -19,8 +19,8 @@ func TestScenario3Isolation(t *testing.T) {
 	defaultSetup := filepath.Join(e.root, ".claude")
 	writeFile(t, filepath.Join(defaultSetup, "CLAUDE.md"), "v1\n")
 
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
-	e.run(nil, "add", "claude", "private", "--auth-kind", "oauth-token", "--auth-key", "env:PRIV_TOKEN")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
+	e.run(nil, "add", "claude/private", "--auth-kind", "oauth-token", "--auth-key", "env:PRIV_TOKEN")
 	e.run(nil, "sync")
 
 	work := e.configDir("claude", "work")
@@ -88,7 +88,7 @@ func TestScenario3Isolation(t *testing.T) {
 // sync --fix-links, and the link target is never deleted (FR-018, edge cases).
 func TestDoctorAndFixLinks(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN")
 	e.run(nil, "sync")
 
 	work := e.configDir("claude", "work")

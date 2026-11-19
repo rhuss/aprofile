@@ -62,7 +62,7 @@ func installCLIHook(t *testing.T, name, script string) {
 func TestShowReportsReferenceCredentials(t *testing.T) {
 	testutil.HermeticHome(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
-	if out, err := runCLI(t, "add", "claude", "work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN_T066"); err != nil {
+	if out, err := runCLI(t, "add", "claude/work", "--auth-kind", "oauth-token", "--auth-key", "env:WORK_TOKEN_T066"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	t.Setenv("WORK_TOKEN_T066", "")
@@ -103,7 +103,7 @@ func TestShowReportsKeychainLoginViaAuthStatus(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(h.ConfigHome, "aprofile", "harnesses.d", "claude.yaml"),
 		"name: claude\nexec_hook:\n  operations: [auth-status]\n")
 	installCLIHook(t, "claude", "#!/bin/sh\ncat >/dev/null\necho status=ok\necho 'detail=keychain'\n")
-	if out, err := runCLI(t, "add", "claude", "kc", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/kc", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	sj, text := showCreds(t, "claude/kc")
@@ -153,7 +153,7 @@ func TestSyncCallsWriteConfigHook(t *testing.T) {
 	installCLIHook(t, "claude", "#!/bin/sh\necho call >>"+calls+"\nin=$(cat)\ndir=$(printf '%s\\n' \"$in\" | sed -n 's/^config_dir=//p')\n"+
 		"[ -d \"$dir\" ] || { echo 'config dir not prepared' >&2; exit 5; }\n"+
 		"if [ -f \"$dir/hook-marker\" ]; then echo changed=false; else touch \"$dir/hook-marker\"; echo changed=true; fi\n")
-	if out, err := runCLI(t, "add", "claude", "wc", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/wc", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 
@@ -205,7 +205,7 @@ func TestSyncFailsOnMissingEnvHook(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(h.ConfigHome, "aprofile", "harnesses.d", "claude.yaml"),
 		"name: claude\nexec_hook:\n  operations: [env]\n")
 	t.Setenv("PATH", "/usr/bin:/bin")
-	if out, err := runCLI(t, "add", "claude", "envh", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/envh", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	out, err := runCLI(t, "sync")
@@ -225,7 +225,7 @@ func TestSyncAppliesConfigPatches(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(h.Root, ".claude", "settings.json"), `{"theme":"dark","env":{"KEEP":"1"}}`)
 	testutil.WriteFile(t, filepath.Join(h.ConfigHome, "aprofile", "harnesses.d", "claude.yaml"),
 		"name: claude\nconfig_patches:\n  - file: settings.json\n    merge:\n      env: { APROFILE_PATCHED: \"1\" }\n")
-	if out, err := runCLI(t, "add", "claude", "pc", "--auth-kind", "oauth-login", "--share", "content"); err != nil {
+	if out, err := runCLI(t, "add", "claude/pc", "--auth-kind", "oauth-login", "--share", "content"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	out, err := runCLI(t, "sync")

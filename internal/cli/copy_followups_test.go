@@ -38,7 +38,7 @@ func followupProfiles(t *testing.T, refs ...string) map[string]string {
 	dirs := map[string]string{}
 	for _, ref := range refs {
 		h, n, _ := strings.Cut(ref, "/")
-		args := []string{"add", h, n}
+		args := []string{"add", h + "/" + n}
 		if h == "claude" {
 			args = append(args, "--auth-kind", "oauth-login")
 		}
@@ -101,7 +101,7 @@ func TestCopyJSONSecretWarningsMerged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustCLI(t, "add", "codex", "src", "--share", "content")
+	mustCLI(t, "add", "codex/src", "--share", "content")
 	mustCLI(t, "sync")
 	src := p.ProfileConfigDir("codex", "src")
 	putFile(t, filepath.Join(src, "config.toml"), `model = "m"
@@ -173,7 +173,7 @@ func TestCopySettingsWarningSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustCLI(t, "add", "claude", "src", "--auth-kind", "oauth-login", "--share", "content")
+	mustCLI(t, "add", "claude/src", "--auth-kind", "oauth-login", "--share", "content")
 	mustCLI(t, "sync")
 	putFile(t, filepath.Join(p.ProfileConfigDir("claude", "src"), "settings.json"), `{"env":{"API_KEY":"sk-ant-SETTINGSCANARY000000000000000000AAAA"}}`)
 	out, _, err := runCLISplit(t, "copy", "claude/src", "claude/twin", "--json")

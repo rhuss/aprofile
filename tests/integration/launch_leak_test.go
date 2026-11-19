@@ -16,13 +16,13 @@ import (
 func TestSC006NoLaunchVariableLeaks(t *testing.T) {
 	e := newEnv(t)
 	key := e.keyFile("k", "sk-leak\n")
-	e.run(nil, "add", "claude", "deep", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key,
+	e.run(nil, "add", "claude/deep", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key,
 		"--model", "deep-model", "--endpoint", "http://deep",
 		"--env", "ANTHROPIC_DEFAULT_HAIKU_MODEL=deep-haiku", "--env", "DEEP_ONLY=1")
-	e.run(nil, "add", "claude", "private", "--share", "content", "--auth-kind", "oauth-login")
-	e.run(nil, "add", "codex", "glm", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key,
+	e.run(nil, "add", "claude/private", "--share", "content", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "codex/glm", "--share", "content", "--auth-kind", "api-key", "--auth-key", "file:"+key,
 		"--model", "glm-5", "--endpoint", "http://glm", "--env", "GLM_ONLY=1")
-	e.run(nil, "add", "opencode", "oc", "--share", "content", "--auth-kind", openCodeKind(t, e), "--env", "OC_ONLY=1")
+	e.run(nil, "add", "opencode/oc", "--share", "content", "--auth-kind", openCodeKind(t, e), "--env", "OC_ONLY=1")
 	cfg := e.configDir("codex", "glm")
 	if err := os.MkdirAll(cfg, 0o755); err != nil {
 		t.Fatal(err)

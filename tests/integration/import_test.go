@@ -232,7 +232,7 @@ func TestImportMapsCCDeckSchema(t *testing.T) {
 func TestImportMovesPrimaryAndReportsIt(t *testing.T) {
 	e := newEnv(t)
 	source := ccFixture(t, e.root)
-	e.run(nil, "add", "claude", "old", "--auth-kind", "oauth-login", "--primary")
+	e.run(nil, "add", "claude/old", "--auth-kind", "oauth-login", "--primary")
 
 	out := e.run(nil, "import", "cc-deck", "--source", source, "--source-data", ccDataDir(e.root))
 	if !strings.Contains(out, "moved primary flag from claude/old to claude/work") {
@@ -253,7 +253,7 @@ func TestImportMovesPrimaryAndReportsIt(t *testing.T) {
 func TestImportSkipsExistingAndExitsNonZero(t *testing.T) {
 	e := newEnv(t)
 	source := ccFixture(t, e.root)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 
 	out, err := e.tryRun(nil, "import", "cc-deck", "--source", source)
 	if err == nil {

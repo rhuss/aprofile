@@ -50,7 +50,7 @@ func TestCodexAcceptsModel(t *testing.T) {
 		t.Errorf("codex --model should be accepted: %v", err)
 	}
 	testutil.HermeticHome(t)
-	if out, err := runCLI(t, "add", "codex", "glm", "--auth-kind", "chatgpt-login", "--model", "glm-5"); err != nil {
+	if out, err := runCLI(t, "add", "codex/glm", "--auth-kind", "chatgpt-login", "--model", "glm-5"); err != nil {
 		t.Fatalf("add codex --model: %v\n%s", err, out)
 	}
 	if out, err := runCLI(t, "edit", "codex/glm", "--model", "glm-6"); err != nil {

@@ -22,9 +22,9 @@ func (e *env) writeHarness(file, content string) {
 func TestWrapperNameClashAcrossCommands(t *testing.T) {
 	e := newEnv(t)
 	e.writeHarness("cx.yaml", cxDefinition)
-	e.run(nil, "add", "claude", "x-aa", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/x-aa", "--auth-kind", "oauth-login")
 
-	out, err := e.tryRun(nil, "add", "cx", "aa")
+	out, err := e.tryRun(nil, "add", "cx/aa")
 	if err == nil || !strings.Contains(out, "claude/x-aa") || !strings.Contains(out, "claude-x-aa") {
 		t.Fatalf("add should refuse naming claude/x-aa and the wrapper: %v\n%s", err, out)
 	}
@@ -32,7 +32,7 @@ func TestWrapperNameClashAcrossCommands(t *testing.T) {
 		t.Fatalf("refused add must not create a profile")
 	}
 
-	e.run(nil, "add", "cx", "bb")
+	e.run(nil, "add", "cx/bb")
 	out, err = e.tryRun(nil, "rename", "cx/bb", "aa")
 	if err == nil || !strings.Contains(out, "claude/x-aa") {
 		t.Fatalf("rename should refuse naming claude/x-aa: %v\n%s", err, out)
@@ -69,8 +69,8 @@ func TestDuplicateWrapperPrefixReported(t *testing.T) {
 // reported as replaced by its own second copy.
 func TestMCPCopyDedupesServerNames(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "src", "--auth-kind", "oauth-login")
-	e.run(nil, "add", "claude", "dst", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/src", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/dst", "--auth-kind", "oauth-login")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "src"), ".claude.json"),
 		`{"mcpServers":{"gh":{"command":"mcp-gh"},"web":{"type":"http","url":"https://mcp.example.com"}}}`)

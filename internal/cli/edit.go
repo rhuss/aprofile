@@ -810,11 +810,15 @@ func moveRecord(from, to string) error {
 func newRemoveCmd() *cobra.Command {
 	var purge, yes bool
 	cmd := &cobra.Command{
-		Use:   "remove <harness> <name>",
+		Use:   "remove <harness>/<name>",
 		Short: "Remove a profile (config dir retained unless --purge)",
-		Args:  cobra.ExactArgs(2),
+		Args:  profileRefArgs("remove"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRemove(cmd, args[0], args[1], purge, yes)
+			h, n, err := parseProfileRef(args[0])
+			if err != nil {
+				return err
+			}
+			return runRemove(cmd, h, n, purge, yes)
 		},
 	}
 	cmd.Flags().BoolVar(&purge, "purge", false, "also delete the profile's config dir (credentials and state) and its imported credential files")

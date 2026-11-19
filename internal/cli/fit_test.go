@@ -43,7 +43,7 @@ func handEdit(t *testing.T, h, n, old, new string) {
 func TestUnknownAuthKindIsReported(t *testing.T) {
 	testutil.HermeticHome(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
-	if out, err := runCLI(t, "add", "claude", "work", "--auth-kind", "oauth-login"); err != nil {
+	if out, err := runCLI(t, "add", "claude/work", "--auth-kind", "oauth-login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	if out, err := runCLI(t, "sync"); err != nil {
@@ -125,7 +125,7 @@ func TestUnknownAuthKindIsReported(t *testing.T) {
 func TestUnusedModelAndEndpointAreReported(t *testing.T) {
 	testutil.HermeticHome(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
-	if out, err := runCLI(t, "add", "pi", "box", "--auth-kind", "login"); err != nil {
+	if out, err := runCLI(t, "add", "pi/box", "--auth-kind", "login"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	handEdit(t, "pi", "box", "", "model: big-model\nendpoint: https://llm.example.com\n")

@@ -64,7 +64,7 @@ type secretWarning struct {
 // look like secrets are reported as warnings (FR-033a).
 func TestScenario5SameHarnessCopy(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "auth-token", "--auth-key", "env:TOK", "--model", "m1", "--endpoint", "https://ep")
+	e.run(nil, "add", "claude/work", "--auth-kind", "auth-token", "--auth-key", "env:TOK", "--model", "m1", "--endpoint", "https://ep")
 	e.run(nil, "sync")
 
 	work := e.configDir("claude", "work")
@@ -126,7 +126,7 @@ func TestScenario5SameHarnessCopy(t *testing.T) {
 // are dropped and reported, and plugins are not carried (FR-033b, FR-035, FR-036).
 func TestScenario5CrossHarnessCopy(t *testing.T) {
 	e := newEnv(t)
-	e.run(nil, "add", "claude", "work", "--auth-kind", "auth-token", "--auth-key", "env:TOK", "--model", "m1", "--endpoint", "https://ep")
+	e.run(nil, "add", "claude/work", "--auth-kind", "auth-token", "--auth-key", "env:TOK", "--model", "m1", "--endpoint", "https://ep")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "work"), ".claude.json"), sourceClaudeJSON)
 
@@ -191,11 +191,11 @@ func TestScenario6SecretCanarySweep(t *testing.T) {
 	e := newEnv(t)
 
 	// A literal secret on the command line is rejected (FR-028).
-	if out, err := e.tryRun(nil, "add", "claude", "bad", "--auth-kind", "auth-token", "--auth-key", "sk-REALSECRETVALUE"); err == nil {
+	if out, err := e.tryRun(nil, "add", "claude/bad", "--auth-kind", "auth-token", "--auth-key", "sk-REALSECRETVALUE"); err == nil {
 		t.Fatalf("add with a literal secret should fail:\n%s", out)
 	}
 
-	e.run(nil, "add", "claude", "work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
+	e.run(nil, "add", "claude/work", "--auth-kind", "auth-token", "--auth-key", "env:TOK")
 	e.run(nil, "sync")
 	writeFile(t, filepath.Join(e.configDir("claude", "work"), ".claude.json"), sourceClaudeJSON)
 

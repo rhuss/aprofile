@@ -29,7 +29,7 @@ func TestScenario9WrapperOverhead(t *testing.T) {
 	e := newEnv(t)
 	// An interactive auth kind needs no reference, so the wrapper does no secret
 	// resolution and the measurement reflects pure wrapper overhead (SC-011: no hook).
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	e.run(nil, "sync")
 
 	wrapper := filepath.Join(e.root, ".local", "share", "aprofile", "bin", "claude-work")

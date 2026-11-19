@@ -15,7 +15,7 @@ import (
 // its description.
 func TestUS2DefaultLevelNamedOnAdd(t *testing.T) {
 	e := newEnv(t)
-	out := e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login")
+	out := e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login")
 	if !strings.Contains(out, "share level: content") || !strings.Contains(out, "Uses your instructions and skills") {
 		t.Errorf("add should name the level and its description:\n%s", out)
 	}
@@ -24,15 +24,15 @@ func TestUS2DefaultLevelNamedOnAdd(t *testing.T) {
 	}
 
 	writeFile(t, filepath.Join(e.root, ".config", "aprofile", "settings.yaml"), "default_share: none\n")
-	out = e.run(nil, "add", "claude", "ci", "--auth-kind", "oauth-login")
+	out = e.run(nil, "add", "claude/ci", "--auth-kind", "oauth-login")
 	if !strings.Contains(out, "share level: none") {
 		t.Errorf("settings.yaml default_share should apply:\n%s", out)
 	}
-	out = e.run(nil, "add", "claude", "lab", "--auth-kind", "oauth-login", "--share", "all")
+	out = e.run(nil, "add", "claude/lab", "--auth-kind", "oauth-login", "--share", "all")
 	if !strings.Contains(out, "share level: all") || !strings.Contains(out, "logins stay private, history too unless grouped") {
 		t.Errorf("--share all should be named with its description:\n%s", out)
 	}
-	if out, err := e.tryRun(nil, "add", "claude", "bad", "--auth-kind", "oauth-login", "--share", "most"); err == nil {
+	if out, err := e.tryRun(nil, "add", "claude/bad", "--auth-kind", "oauth-login", "--share", "most"); err == nil {
 		t.Errorf("an unknown level must be rejected:\n%s", out)
 	}
 	help := e.run(nil, "add", "--help")
@@ -63,7 +63,7 @@ func TestUS2HelpSharing(t *testing.T) {
 func TestUS2NoneProfile(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "ci", "--auth-kind", "oauth-login", "--share", "none")
+	e.run(nil, "add", "claude/ci", "--auth-kind", "oauth-login", "--share", "none")
 	e.run(nil, "sync")
 	dir := e.configDir("claude", "ci")
 	if l := links(t, dir); len(l) != 0 {
@@ -85,7 +85,7 @@ func TestUS2NoneProfile(t *testing.T) {
 func TestUS2ContentSettingsCopy(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "claude")
-	e.run(nil, "add", "claude", "work", "--auth-kind", "oauth-login", "--share", "content")
+	e.run(nil, "add", "claude/work", "--auth-kind", "oauth-login", "--share", "content")
 	out := e.run(nil, "sync")
 	if !strings.Contains(out, "hook-sets import") {
 		t.Errorf("sync should point to hook-sets import for the default hooks left out:\n%s", out)
@@ -121,9 +121,9 @@ func TestOwnedMCPFileSeededAtAllAndContent(t *testing.T) {
 	e := newEnv(t)
 	testutil.SeedDefaultsAt(t, e.root, "codex")
 	testutil.SeedDefaultsAt(t, e.root, "pi")
-	e.run(nil, "add", "codex", "cc", "--auth-kind", "chatgpt-login", "--share", "content")
-	e.run(nil, "add", "codex", "cn", "--auth-kind", "chatgpt-login", "--share", "none")
-	e.run(nil, "add", "pi", "pa", "--auth-kind", "login", "--share", "all")
+	e.run(nil, "add", "codex/cc", "--auth-kind", "chatgpt-login", "--share", "content")
+	e.run(nil, "add", "codex/cn", "--auth-kind", "chatgpt-login", "--share", "none")
+	e.run(nil, "add", "pi/pa", "--auth-kind", "login", "--share", "all")
 	e.run(nil, "sync")
 
 	cfg := filepath.Join(e.configDir("codex", "cc"), "config.toml")
