@@ -40,7 +40,7 @@ func TestListExplainsUnknownWrapperStatusOncePerHarness(t *testing.T) {
 		}
 	}
 	out, _ := runCLI(t, "list")
-	if n := strings.Count(out, "[unknown]"); n != 2 {
-		t.Errorf("both profiles should show [unknown], got %d:\n%s", n, out)
+	if n := strings.Count(out, "  unknown  "); n != 2 {
+		t.Errorf("both profiles should show status unknown, got %d:\n%s", n, out)
 	}
 }

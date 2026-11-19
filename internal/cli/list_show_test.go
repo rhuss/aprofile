@@ -183,9 +183,9 @@ func TestListGroupColumnAndShowSetAside(t *testing.T) {
 	}
 	for _, l := range strings.Split(out, "\n") {
 		switch {
-		case strings.Contains(l, "lab") && !strings.Contains(l, "group: home"):
+		case strings.HasPrefix(l, "claude/lab ") && !strings.HasSuffix(l, "  home"):
 			t.Errorf("list line of lab lacks its group: %q", l)
-		case strings.Contains(l, "solo") && !strings.Contains(l, "group: -"):
+		case strings.HasPrefix(l, "claude/solo ") && !strings.HasSuffix(l, "  -"):
 			t.Errorf("list line of solo lacks group -: %q", l)
 		}
 	}

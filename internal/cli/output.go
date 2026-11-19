@@ -71,6 +71,29 @@ func colorize(text, color string) string {
 	return lipgloss.NewStyle().Foreground(tui.TerminalColor(color)).Render(text)
 }
 
+// printTable writes header and rows as left-aligned columns separated by two
+// spaces. Widths are measured in terminal cells (lipgloss.Width), so ANSI colors
+// and wide icons do not break the alignment the way text/tabwriter would. The
+// last column is not padded, so lines carry no trailing spaces.
+func printTable(w io.Writer, header []string, rows [][]string) {
+	widths := make([]int, len(header))
+	for _, r := range append([][]string{header}, rows...) {
+		for i, c := range r {
+			widths[i] = max(widths[i], lipgloss.Width(c))
+		}
+	}
+	for _, r := range append([][]string{header}, rows...) {
+		var b strings.Builder
+		for i, c := range r {
+			b.WriteString(c)
+			if i < len(r)-1 {
+				b.WriteString(strings.Repeat(" ", widths[i]-lipgloss.Width(c)+2))
+			}
+		}
+		fmt.Fprintln(w, b.String())
+	}
+}
+
 // writeJSON encodes v as indented JSON to w.
 func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)

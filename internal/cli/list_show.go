@@ -106,12 +106,10 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 	if len(profiles) == 0 {
 		fmt.Fprintln(a.out, "no profiles yet (create one with: aprofile add <harness>/<name>)")
 	}
-	var lastHarness string
+	// One aligned table. The first column is the <harness>/<name> reference that
+	// show, edit, remove and the other profile commands take.
+	rows := make([][]string, 0, len(profiles))
 	for _, p := range profiles {
-		if p.Harness != lastHarness {
-			fmt.Fprintf(a.out, "%s:\n", p.Harness)
-			lastHarness = p.Harness
-		}
 		def, _ := a.set.Get(p.Harness)
 		status, serr := a.wrapperStatusErr(p, def)
 		reasons.add(p.Harness, serr)
@@ -120,15 +118,18 @@ func runList(cmd *cobra.Command, asJSON bool) error {
 				status += ", folder stale"
 			}
 		}
-		primary := ""
+		label := styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon)
 		if p.Primary {
-			primary = " (primary)"
+			label += " (primary)"
 		}
 		group := p.HistoryGroup
 		if group == "" {
 			group = "-"
 		}
-		fmt.Fprintf(a.out, "  %s%s  [%s] share: %s  group: %s\n", styleLabel(a.out, p.DisplayLabel(), p.Color, p.Icon), primary, status, p.ShareLevel(), group)
+		rows = append(rows, []string{p.Harness + "/" + p.Name, label, status, string(p.ShareLevel()), group})
+	}
+	if len(rows) > 0 {
+		printTable(a.out, []string{"PROFILE", "LABEL", "STATUS", "SHARE", "GROUP"}, rows)
 	}
 	switch len(leftovers) {
 	case 0:
