@@ -1,0 +1,52 @@
+version: 2
+
+builds:
+  - main: ./cmd/aprofile
+    binary: aprofile
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "aprofile-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^ci"
+      - "^Add brainstorm"
+
+brews:
+  - repository:
+      owner: rhuss
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/rhuss/aprofile
+    description: Side-by-side profiles for coding agents (Claude Code, Codex, OpenCode, pi)
+    install: |
+      bin.install "aprofile"
+    test: |
+      assert_match "Manage side-by-side profiles", shell_output("#{bin}/aprofile --help")
+
+release:
+  prerelease: auto
