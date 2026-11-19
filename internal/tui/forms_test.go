@@ -3,6 +3,7 @@ package tui
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,5 +155,135 @@ func TestIdentityFormInlineHarness(t *testing.T) {
 	press(t, f, tea.KeyDown)
 	if got := focused(f); got != "name" {
 		t.Fatalf("after down focus = %q, want name", got)
+	}
+}
+
+// walk records the focused field, then presses k until focus stops changing,
+// recording each newly focused field.
+func walk(t *testing.T, f *huh.Form, k tea.KeyType) []string {
+	t.Helper()
+	seen := []string{focused(f)}
+	for i := 0; i < 40; i++ {
+		press(t, f, k)
+		cur := focused(f)
+		if cur == seen[len(seen)-1] {
+			break
+		}
+		seen = append(seen, cur)
+	}
+	return seen
+}
+
+func fullProfileConfig() ProfileFormConfig {
+	return ProfileFormConfig{
+		AuthKinds:        []string{"oauth", "api-key"},
+		SupportsModel:    true,
+		SupportsEndpoint: true,
+		ShareOptions: []ShareOption{
+			{Value: "content", Description: "share content"},
+			{Value: "none", Description: "share nothing"},
+		},
+		HookSetOptions:   []string{"a"},
+		EveryProfileSets: []string{"b"},
+		GroupOptions:     []GroupOption{{Value: "", Label: "isolated"}, {Value: "home", Label: "home"}},
+	}
+}
+
+func TestProfileFormRowOrder(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	got := walk(t, f, tea.KeyDown)
+	want := []string{"label", "color", "icon", "model", "endpoint", "auth_kind", "auth_key",
+		"herdr_agent", "primary", "share", "hook_sets"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("down walk = %v, want %v", got, want)
+	}
+	press(t, f, tea.KeyTab)
+	if got := focused(f); got != "exclude_hook_sets" {
+		t.Fatalf("tab from hook_sets: focus = %q, want exclude_hook_sets", got)
+	}
+	press(t, f, tea.KeyTab)
+	if got := focused(f); got != "history_group" {
+		t.Fatalf("tab from exclude_hook_sets: focus = %q, want history_group", got)
+	}
+	press(t, f, tea.KeyDown, tea.KeyDown)
+	if got := focused(f); got != "history_group" {
+		t.Fatalf("down on last row: focus = %q, want history_group", got)
+	}
+	if f.State != huh.StateNormal {
+		t.Fatalf("down on last row changed state to %v; it must not submit", f.State)
+	}
+}
+
+func TestProfileFormUpCrossesSections(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	press(t, f, tea.KeyDown, tea.KeyDown, tea.KeyDown)
+	if got := focused(f); got != "model" {
+		t.Fatalf("focus = %q, want model", got)
+	}
+	press(t, f, tea.KeyUp)
+	if got := focused(f); got != "icon" {
+		t.Fatalf("up from model: focus = %q, want icon", got)
+	}
+}
+
+func TestProfileFormInlineSelect(t *testing.T) {
+	cfg := fullProfileConfig()
+	cfg.Values = FormValues{AuthKind: "api-key", Share: "none"}
+	v := cfg.Values
+	f := newProfileForm(cfg, &v)
+	start(t, f)
+	for i := 0; i < 10 && focused(f) != "auth_kind"; i++ {
+		press(t, f, tea.KeyDown)
+	}
+	press(t, f, tea.KeyDown, tea.KeyUp)
+	if got := focused(f); got != "auth_kind" {
+		t.Fatalf("down+up: focus = %q, want auth_kind", got)
+	}
+	if v.AuthKind != "api-key" {
+		t.Fatalf("down+up changed AuthKind to %q", v.AuthKind)
+	}
+	press(t, f, tea.KeyLeft)
+	if v.AuthKind != "oauth" {
+		t.Errorf("left: AuthKind = %q, want oauth", v.AuthKind)
+	}
+	if got := focused(f); got != "auth_kind" {
+		t.Fatalf("left moved focus to %q", got)
+	}
+	for i := 0; i < 10 && focused(f) != "share"; i++ {
+		press(t, f, tea.KeyDown)
+	}
+	if got := focused(f); got != "share" {
+		t.Fatalf("never reached share; focus = %q", got)
+	}
+	if v.Share != "none" {
+		t.Errorf("share = %q, want the pre-filled none", v.Share)
+	}
+}
+
+func TestProfileFormMinimalSections(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(ProfileFormConfig{}, &v)
+	start(t, f)
+	got := walk(t, f, tea.KeyDown)
+	want := []string{"label", "color", "icon", "auth_key", "herdr_agent", "primary"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("down walk = %v, want %v", got, want)
+	}
+	if strings.Contains(f.View(), "Sharing & history") {
+		t.Error("empty Sharing & history section is rendered")
+	}
+}
+
+func TestProfileFormEscAborts(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	press(t, f, tea.KeyDown, tea.KeyDown, tea.KeyEsc)
+	if f.State != huh.StateAborted {
+		t.Fatalf("state = %v, want aborted", f.State)
 	}
 }

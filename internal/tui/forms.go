@@ -117,41 +117,71 @@ func newIdentityForm(harnesses []string, id *Identity) *huh.Form {
 // (Constitution VI: the TUI only gathers input; the CLI applies it).
 func RunProfileForm(in io.Reader, out io.Writer, cfg ProfileFormConfig) (FormValues, bool, error) {
 	v := cfg.Values
-	fields := []huh.Field{
-		huh.NewInput().Title("Label").Value(&v.Label),
-		huh.NewInput().Title("Color (ANSI name or #rrggbb)").Value(&v.Color),
-		huh.NewInput().Title("Icon (single grapheme)").Value(&v.Icon),
-	}
+	ok, err := runForm(newProfileForm(cfg, &v), in, out)
+	return v, ok, err
+}
+
+// newProfileForm builds the profile form, writing into v. Fields are grouped into
+// titled sections shown together; a section whose fields the harness hides is left
+// out.
+func newProfileForm(cfg ProfileFormConfig, v *FormValues) *huh.Form {
+	var auth []huh.Field
 	if cfg.SupportsModel {
-		fields = append(fields, huh.NewInput().Title("Model").Value(&v.Model))
+		auth = append(auth, huh.NewInput().Key("model").Title("Model").Value(&v.Model))
 	}
 	if cfg.SupportsEndpoint {
-		fields = append(fields, huh.NewInput().Title("Endpoint (API base URL)").Value(&v.Endpoint))
+		auth = append(auth, huh.NewInput().Key("endpoint").Title("Endpoint (API base URL)").Value(&v.Endpoint))
 	}
 	if len(cfg.AuthKinds) > 0 {
-		fields = append(fields, huh.NewSelect[string]().
+		auth = append(auth, huh.NewSelect[string]().Key("auth_kind").
 			Title("Auth kind").
 			Options(huh.NewOptions(cfg.AuthKinds...)...).
+			Inline(true).
 			Value(&v.AuthKind))
 	}
-	fields = append(fields,
-		huh.NewInput().
-			Title("Auth key (env:NAME or file:/abs/path; blank for interactive login)").
-			Value(&v.AuthKey),
-		huh.NewInput().Title("HERDR_AGENT hint (optional)").Value(&v.HerdrAgent),
-		huh.NewConfirm().Title("Make this the primary profile for its harness?").Value(&v.Primary),
-	)
+	auth = append(auth, huh.NewInput().Key("auth_key").
+		Title("Auth key (env:NAME or file:/abs/path; blank for interactive login)").
+		Value(&v.AuthKey))
+
+	var sharing []huh.Field
 	if len(cfg.ShareOptions) > 0 {
-		fields = append(fields, shareSelect(cfg.ShareOptions, &v.Share))
+		sharing = append(sharing, shareSelect(cfg.ShareOptions, &v.Share))
 	}
-	fields = append(fields, hookSetFields(cfg.HookSetOptions, cfg.EveryProfileSets, &v.HookSets, &v.ExcludeHookSets)...)
+	sharing = append(sharing, hookSetFields(cfg.HookSetOptions, cfg.EveryProfileSets, &v.HookSets, &v.ExcludeHookSets)...)
 	if len(cfg.GroupOptions) > 0 {
-		fields = append(fields, groupSelect(cfg.GroupOptions, &v.HistoryGroup))
+		sharing = append(sharing, groupSelect(cfg.GroupOptions, &v.HistoryGroup))
 	}
 
-	form := huh.NewForm(huh.NewGroup(fields...))
-	ok, err := runForm(form, in, out)
-	return v, ok, err
+	return styleForm(huh.NewForm(sections(
+		section{"Appearance", []huh.Field{
+			huh.NewInput().Key("label").Title("Label").Value(&v.Label),
+			huh.NewInput().Key("color").Title("Color (ANSI name or #rrggbb)").Value(&v.Color),
+			huh.NewInput().Key("icon").Title("Icon (single grapheme)").Value(&v.Icon),
+		}},
+		section{"Model & auth", auth},
+		section{"Launch", []huh.Field{
+			huh.NewInput().Key("herdr_agent").Title("HERDR_AGENT hint (optional)").Value(&v.HerdrAgent),
+			huh.NewConfirm().Key("primary").Title("Make this the primary profile for its harness?").Value(&v.Primary),
+		}},
+		section{"Sharing & history", sharing},
+	)...))
+}
+
+// section is one titled group of form fields.
+type section struct {
+	title  string
+	fields []huh.Field
+}
+
+// sections turns sections into huh groups, skipping any without fields.
+func sections(secs ...section) []*huh.Group {
+	var groups []*huh.Group
+	for _, s := range secs {
+		if len(s.fields) > 0 {
+			groups = append(groups, huh.NewGroup(s.fields...).Title(s.title))
+		}
+	}
+	return groups
 }
 
 // shareSelect builds the share level choice: each option shows its one-line
@@ -166,7 +196,7 @@ func shareSelect(opts []ShareOption, value *string) huh.Field {
 	if *value == "" && len(opts) > 0 {
 		*value = opts[0].Value
 	}
-	return huh.NewSelect[string]().
+	return huh.NewSelect[string]().Key("share").
 		Title("Share level (what this profile uses from your default setup)").
 		DescriptionFunc(func() string {
 			o := byValue[*value]
@@ -176,6 +206,7 @@ func shareSelect(opts []ShareOption, value *string) huh.Field {
 			return "Fits: " + strings.Join(o.UseCases, "; ")
 		}, value).
 		Options(options...).
+		Inline(true).
 		Value(value)
 }
 
@@ -186,10 +217,11 @@ func groupSelect(opts []GroupOption, value *string) huh.Field {
 	for _, o := range opts {
 		options = append(options, huh.NewOption(o.Label, o.Value))
 	}
-	return huh.NewSelect[string]().
+	return huh.NewSelect[string]().Key("history_group").
 		Title("History group (which profiles share this profile's conversation history)").
 		Description("Logins stay private in every group.").
 		Options(options...).
+		Inline(true).
 		Value(value)
 }
 
@@ -197,13 +229,13 @@ func groupSelect(opts []GroupOption, value *string) huh.Field {
 func hookSetFields(sets, everyProfile []string, named, excluded *[]string) []huh.Field {
 	var fields []huh.Field
 	if len(sets) > 0 {
-		fields = append(fields, huh.NewMultiSelect[string]().
+		fields = append(fields, huh.NewMultiSelect[string]().Key("hook_sets").
 			Title("Hook sets to attach (not at share level all)").
 			Options(huh.NewOptions(sets...)...).
 			Value(named))
 	}
 	if len(everyProfile) > 0 {
-		fields = append(fields, huh.NewMultiSelect[string]().
+		fields = append(fields, huh.NewMultiSelect[string]().Key("exclude_hook_sets").
 			Title("Every-profile hook sets to skip (share level content)").
 			Options(huh.NewOptions(everyProfile...)...).
 			Value(excluded))
