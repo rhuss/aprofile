@@ -5,7 +5,8 @@
     "spex",
     "spex-gates",
     "spex-worktrees",
-    "spex-deep-review"
+    "spex-deep-review",
+    "spex-collab"
   ],
-  "security": "safe"
+  "security": "yolo"
 }

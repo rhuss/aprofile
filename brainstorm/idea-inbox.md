@@ -8,7 +8,7 @@ Out-of-scope ideas captured from reviews and conversations, waiting for a brains
 - **Reference**: 002-profile-isolation-levels (clarify session)
 - **Summary**: Remove `aprofile import cc-deck` (slice one FR-045, about 700 lines in
   `internal/importer/` and `internal/cli/import.go`). There is a single cc-deck installation,
-  which can be ported by hand with `aprofile add <harness> <name> --adopt --share <level>`.
+  which can be ported by hand with `aprofile add <harness>/<name> --adopt --share <level>`.
   Removal touches the code and tests, retires FR-045 and the `import --overwrite*` exceptions
   (constitution Principle II, slice one FR-019), the "one-time cc-deck import" scope line in the
   constitution's Technical Constraints, and the README.

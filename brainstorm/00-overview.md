@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-11-10
+Last updated: 2026-11-13
 
 ## Sessions
 
@@ -11,6 +11,7 @@ Last updated: 2026-11-10
 | 003 | 2026-11-09 | corgi-integration | active | - | - |
 | 005 | 2026-11-10 | companion-tool-files | active | - | - |
 | 006 | 2026-11-10 | neutralize-provider-switches | active | - | - |
+| 007 | 2026-11-13 | profile-features | active | - | - |
 
 ## Open Threads
 
@@ -40,6 +41,10 @@ Last updated: 2026-11-10
 - Does a ChatGPT-login Codex profile honor an exported `OPENAI_API_KEY` or `OPENAI_BASE_URL`? (from #006)
 - Does a login profile with only neutralizing entries count as "self-contained" in `show`/`list`? (from #006)
 - Wording and fix hint of the `show`/`doctor` warning for `all` login profiles. (from #006)
+- Exact TOML encoding of Codex `[otel]` exporters, to verify against a current release. (from #007)
+- Secret-bearing feature parameters (OTLP headers, auth) and the ref/literal distinction. (from #007)
+- `doctor` warnings for features depending on undocumented, version-dependent mechanisms. (from #007)
+- `features` interaction with `settings pull`. (from #007)
 
 ## Parked Ideas
 
