@@ -99,11 +99,21 @@ func TestFormKeyMap(t *testing.T) {
 }
 
 func TestFormTheme(t *testing.T) {
-	if !reflect.DeepEqual(formTheme(true), huh.ThemeBase16()) {
-		t.Error("formTheme(true) is not ThemeBase16")
+	if !reflect.DeepEqual(formTheme(true).Focused, huh.ThemeBase16().Focused) {
+		t.Error("formTheme(true) is not based on ThemeBase16")
 	}
-	if !reflect.DeepEqual(formTheme(false), huh.ThemeBase()) {
-		t.Error("formTheme(false) is not ThemeBase")
+	if !reflect.DeepEqual(formTheme(false).Focused, huh.ThemeBase().Focused) {
+		t.Error("formTheme(false) is not based on ThemeBase")
+	}
+	// Section titles are always-blurred notes; they must stand out, not render dim.
+	for _, color := range []bool{true, false} {
+		th := formTheme(color)
+		if !th.Blurred.NoteTitle.GetBold() {
+			t.Errorf("color=%v: section title (Blurred.NoteTitle) is not bold", color)
+		}
+		if got, want := th.Blurred.NoteTitle.GetForeground(), th.Focused.Title.GetForeground(); got != want {
+			t.Errorf("color=%v: section title color = %v, want the focused title color %v", color, got, want)
+		}
 	}
 	t.Setenv("NO_COLOR", "1")
 	if formsColor() {
@@ -275,6 +285,163 @@ func TestProfileFormMinimalSections(t *testing.T) {
 	}
 	if strings.Contains(f.View(), "Sharing & history") {
 		t.Error("empty Sharing & history section is rendered")
+	}
+}
+
+func newTestCopyForm(v *CopyValues) *huh.Form {
+	var hooks, excluded string
+	return newCopyForm([]string{"claude/a", "claude/b", "claude/c"}, v,
+		[]ShareOption{{Value: "content", Description: "share content"}, {Value: "none", Description: "share nothing"}},
+		&hooks, &excluded)
+}
+
+func TestCopyFormSourceList(t *testing.T) {
+	v := CopyValues{Source: "claude/a"}
+	f := newTestCopyForm(&v)
+	start(t, f)
+	if got := focused(f); got != "source" {
+		t.Fatalf("initial focus = %q, want source", got)
+	}
+	press(t, f, tea.KeyDown)
+	if got := focused(f); got != "source" {
+		t.Fatalf("down moved focus to %q; the source list keeps it", got)
+	}
+	if v.Source != "claude/b" {
+		t.Errorf("down: Source = %q, want claude/b", v.Source)
+	}
+	press(t, f, tea.KeyTab)
+	if got := focused(f); got != "target" {
+		t.Fatalf("tab from source: focus = %q, want target", got)
+	}
+}
+
+func TestCopyFormSourceHelpSaysTab(t *testing.T) {
+	v := CopyValues{Source: "claude/a"}
+	f := newTestCopyForm(&v)
+	start(t, f)
+	view := f.View()
+	if strings.Contains(view, "↓ next") {
+		t.Errorf("source list help offers ↓ next, but ↓ moves within the list:\n%s", view)
+	}
+	if !strings.Contains(view, "tab next") {
+		t.Errorf("source list help is missing tab next:\n%s", view)
+	}
+	if strings.Contains(view, "back") {
+		t.Errorf("first row offers back, which is disabled there:\n%s", view)
+	}
+}
+
+func TestCopyFormRowOrder(t *testing.T) {
+	v := CopyValues{Source: "claude/a"}
+	f := newTestCopyForm(&v)
+	start(t, f)
+	press(t, f, tea.KeyTab)
+	got := walk(t, f, tea.KeyDown)
+	want := []string{"target", "overwrite", "adopt", "auth", "auth_key", "label", "color", "icon",
+		"share", "hook_sets", "exclude_hook_sets"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("down walk = %v, want %v", got, want)
+	}
+	if f.State != huh.StateNormal {
+		t.Fatalf("down on last row changed state to %v; it must not submit", f.State)
+	}
+}
+
+func TestCopyFormInlineShare(t *testing.T) {
+	v := CopyValues{Source: "claude/a"}
+	f := newTestCopyForm(&v)
+	start(t, f)
+	press(t, f, tea.KeyTab)
+	for i := 0; i < 12 && focused(f) != "share"; i++ {
+		press(t, f, tea.KeyDown)
+	}
+	if got := focused(f); got != "share" {
+		t.Fatalf("never reached share; focus = %q", got)
+	}
+	if v.Share != "" {
+		t.Fatalf("initial Share = %q, want \"\" (same as the source)", v.Share)
+	}
+	press(t, f, tea.KeyRight)
+	if v.Share != "content" {
+		t.Errorf("right: Share = %q, want content", v.Share)
+	}
+}
+
+func TestProfileFormShowsSectionTitles(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	view := f.View()
+	for _, title := range []string{"Appearance", "Model & auth", "Launch", "Sharing & history"} {
+		if !strings.Contains(view, title) {
+			t.Errorf("view is missing section title %q", title)
+		}
+	}
+}
+
+// focusBlocks counts runs of consecutive lines carrying the focus bar; each run is
+// one field drawn as focused.
+func focusBlocks(view string) int {
+	n, in := 0, false
+	for _, line := range strings.Split(view, "\n") {
+		bar := strings.Contains(line, "┃")
+		if bar && !in {
+			n++
+		}
+		in = bar
+	}
+	return n
+}
+
+func TestProfileFormDrawsOneFocusedRow(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	for i := 0; i < 9; i++ {
+		if n := focusBlocks(f.View()); n != 1 {
+			t.Fatalf("at %q: %d rows drawn focused, want 1:\n%s", focused(f), n, f.View())
+		}
+		press(t, f, tea.KeyDown)
+	}
+}
+
+func TestProfileFormUpOnFirstRowStays(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	press(t, f, tea.KeyUp)
+	if got := focused(f); got != "label" {
+		t.Fatalf("up on first row: focus = %q, want label", got)
+	}
+	if n := focusBlocks(f.View()); n != 1 {
+		t.Fatalf("up on first row: %d rows drawn focused, want 1", n)
+	}
+}
+
+// TestProfileFormIsOneGroup pins the single-group structure: huh switches groups
+// asynchronously, and a burst of ↓ (a held key) across a group boundary left one
+// row drawn focused while typing went into another. Within one group every move is
+// synchronous. Section titles are Note rows, which focus skips.
+func TestProfileFormIsOneGroup(t *testing.T) {
+	v := FormValues{}
+	f := newProfileForm(fullProfileConfig(), &v)
+	start(t, f)
+	f.NextGroup() // applies itself; on the only group, "next group" means submit
+	if f.State != huh.StateCompleted {
+		t.Fatalf("NextGroup left state %v with focus on %q; the form must be a single group",
+			f.State, focused(f))
+	}
+}
+
+func TestFormHelpShowsArrowsAndEsc(t *testing.T) {
+	var c, p bool
+	f := newRemoveForm("claude/work", &c, &p)
+	start(t, f)
+	view := f.View()
+	for _, want := range []string{"esc cancel", "↓ next"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("help footer is missing %q:\n%s", want, view)
+		}
 	}
 }
 

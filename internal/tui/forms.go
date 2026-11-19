@@ -106,11 +106,11 @@ func RunIdentityForm(in io.Reader, out io.Writer, harnesses []string) (Identity,
 
 // newIdentityForm builds the harness and name form, writing into id.
 func newIdentityForm(harnesses []string, id *Identity) *huh.Form {
-	return styleForm(huh.NewForm(huh.NewGroup(
+	return newForm(section{"", []huh.Field{
 		huh.NewSelect[string]().Key("harness").Title("Harness").
 			Options(huh.NewOptions(harnesses...)...).Inline(true).Value(&id.Harness),
 		huh.NewInput().Key("name").Title("Profile name").Value(&id.Name),
-	)))
+	}})
 }
 
 // RunProfileForm collects a profile's fields. It returns ok=false when the user aborts
@@ -152,7 +152,7 @@ func newProfileForm(cfg ProfileFormConfig, v *FormValues) *huh.Form {
 		sharing = append(sharing, groupSelect(cfg.GroupOptions, &v.HistoryGroup))
 	}
 
-	return styleForm(huh.NewForm(sections(
+	return newForm(
 		section{"Appearance", []huh.Field{
 			huh.NewInput().Key("label").Title("Label").Value(&v.Label),
 			huh.NewInput().Key("color").Title("Color (ANSI name or #rrggbb)").Value(&v.Color),
@@ -164,25 +164,84 @@ func newProfileForm(cfg ProfileFormConfig, v *FormValues) *huh.Form {
 			huh.NewConfirm().Key("primary").Title("Make this the primary profile for its harness?").Value(&v.Primary),
 		}},
 		section{"Sharing & history", sharing},
-	)...))
+	)
 }
 
-// section is one titled group of form fields.
+// section is one titled group of form fields; an empty title draws no header.
 type section struct {
 	title  string
 	fields []huh.Field
 }
 
-// sections turns sections into huh groups, skipping any without fields.
-func sections(secs ...section) []*huh.Group {
-	var groups []*huh.Group
+// newForm builds a form from sections, skipping any without fields, and applies the
+// shared look and keys: Esc cancels, the arrow keys move between rows, and the help
+// line lists the cancel key.
+//
+// All sections go into ONE huh group, each headed by a Note row (focus skips notes).
+// huh switches groups asynchronously, so with one group per section a held ↓ across
+// a section boundary left one row drawn focused while typing went into another. One
+// group also scrolls to keep the focused row visible on a short terminal.
+func newForm(secs ...section) *huh.Form {
+	var fields []huh.Field
 	for _, s := range secs {
-		if len(s.fields) > 0 {
-			groups = append(groups, huh.NewGroup(s.fields...).Title(s.title))
+		if len(s.fields) == 0 {
+			continue
 		}
+		if s.title != "" {
+			fields = append(fields, huh.NewNote().Title(s.title))
+		}
+		fields = append(fields, s.fields...)
 	}
-	return groups
+	km := formKeyMap()
+	g := huh.NewGroup(fields...)
+	return huh.NewForm(g).
+		WithKeyMap(km).
+		WithTheme(formTheme(formsColor())).
+		WithShowHelp(true).
+		WithLayout(&helpLayout{group: g, quit: km.Quit})
 }
+
+// helpLayout draws the form's single group as huh does, with the cancel key added
+// to the help line (huh's help lists only the focused field's keys).
+type helpLayout struct {
+	group *huh.Group
+	quit  key.Binding
+}
+
+func (l *helpLayout) View(f *huh.Form) string {
+	view := l.group.View()
+	if len(f.Errors()) > 0 {
+		return view // the footer holds error lines; leave it as huh draws it
+	}
+	lines := strings.Split(view, "\n")
+	lines[len(lines)-1] = f.Help().ShortHelpView(append(arrowsTaken(f.KeyBinds()), l.quit))
+	return strings.Join(lines, "\n")
+}
+
+// arrowsTaken fixes the help of the row-movement keys on a field that uses ↑/↓
+// itself (a list select): huh checks the field's own ↑/↓ first, so there the rows
+// change with Tab and Shift+Tab, and the help must say so instead of ↓ next.
+func arrowsTaken(binds []key.Binding) []key.Binding {
+	used := map[string]bool{}
+	out := make([]key.Binding, 0, len(binds))
+	for _, b := range binds {
+		switch h := b.Help(); {
+		case h.Key == "↓" && used["down"]:
+			b.SetHelp("tab", h.Desc)
+		case h.Key == "↑" && used["up"]:
+			b.SetHelp("shift+tab", h.Desc)
+		}
+		if b.Enabled() {
+			for _, k := range b.Keys() {
+				used[k] = true
+			}
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func (l *helpLayout) GroupWidth(_ *huh.Form, _ *huh.Group, w int) int { return w }
 
 // shareSelect builds the share level choice: each option shows its one-line
 // description, and the description area lists the use cases it fits.
@@ -248,32 +307,46 @@ func hookSetFields(sets, everyProfile []string, named, excluded *[]string) []huh
 // shareOpts gives the levels with their one-line descriptions (FR-014).
 func RunCopyForm(in io.Reader, out io.Writer, sources []string, initial CopyValues, shareOpts []ShareOption) (CopyValues, bool, error) {
 	v := initial
+	hookSets := strings.Join(v.HookSets, ",")
+	excluded := strings.Join(v.ExcludeHookSets, ",")
+	ok, err := runForm(newCopyForm(sources, &v, shareOpts, &hookSets, &excluded), in, out)
+	v.HookSets = splitList(hookSets)
+	v.ExcludeHookSets = splitList(excluded)
+	return v, ok, err
+}
+
+// newCopyForm builds the copy form, writing into v and the comma-separated hook-set
+// texts. The source stays a scrollable list (it can hold many profiles), so ↑/↓ move
+// within it and Tab leaves it.
+func newCopyForm(sources []string, v *CopyValues, shareOpts []ShareOption, hookSets, excluded *string) *huh.Form {
 	levels := []huh.Option[string]{huh.NewOption("same as the source", "")}
 	for _, o := range shareOpts {
 		levels = append(levels, huh.NewOption(o.Value+": "+o.Description, o.Value))
 	}
-	hookSets := strings.Join(v.HookSets, ",")
-	excluded := strings.Join(v.ExcludeHookSets, ",")
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().Title("Source profile").Options(huh.NewOptions(sources...)...).Value(&v.Source),
-		huh.NewInput().Title("Target (<harness>/<name>)").Value(&v.Target),
-		huh.NewInput().Title("Auth kind for a cross-harness target (optional)").Value(&v.Auth),
-		huh.NewInput().Title("Auth key reference (env:NAME or file:/abs/path; optional)").Value(&v.AuthKey),
-		huh.NewInput().Title("Label override (optional)").Value(&v.Label),
-		huh.NewInput().Title("Color override (optional)").Value(&v.Color),
-		huh.NewInput().Title("Icon override (optional)").Value(&v.Icon),
-		huh.NewConfirm().Title("Overwrite the target if it exists?").Value(&v.Overwrite),
-		huh.NewConfirm().Title("Adopt an existing config dir left at the target's location?").Value(&v.Adopt),
-		huh.NewSelect[string]().Title("Share level of the target").
-			Options(levels...).
-			Value(&v.Share),
-		huh.NewInput().Title("Hook sets of the target (comma-separated; blank keeps the source's)").Value(&hookSets),
-		huh.NewInput().Title("Every-profile hook sets the target skips (comma-separated; blank keeps the source's)").Value(&excluded),
-	))
-	ok, err := runForm(form, in, out)
-	v.HookSets = splitList(hookSets)
-	v.ExcludeHookSets = splitList(excluded)
-	return v, ok, err
+	return newForm(
+		section{"Source & target", []huh.Field{
+			huh.NewSelect[string]().Key("source").Title("Source profile").
+				Options(huh.NewOptions(sources...)...).Height(6).Value(&v.Source),
+			huh.NewInput().Key("target").Title("Target (<harness>/<name>)").Value(&v.Target),
+			huh.NewConfirm().Key("overwrite").Title("Overwrite the target if it exists?").Value(&v.Overwrite),
+			huh.NewConfirm().Key("adopt").Title("Adopt an existing config dir left at the target's location?").Value(&v.Adopt),
+		}},
+		section{"Auth", []huh.Field{
+			huh.NewInput().Key("auth").Title("Auth kind for a cross-harness target (optional)").Value(&v.Auth),
+			huh.NewInput().Key("auth_key").Title("Auth key reference (env:NAME or file:/abs/path; optional)").Value(&v.AuthKey),
+		}},
+		section{"Overrides", []huh.Field{
+			huh.NewInput().Key("label").Title("Label override (optional)").Value(&v.Label),
+			huh.NewInput().Key("color").Title("Color override (optional)").Value(&v.Color),
+			huh.NewInput().Key("icon").Title("Icon override (optional)").Value(&v.Icon),
+		}},
+		section{"Sharing", []huh.Field{
+			huh.NewSelect[string]().Key("share").Title("Share level of the target").
+				Options(levels...).Inline(true).Value(&v.Share),
+			huh.NewInput().Key("hook_sets").Title("Hook sets of the target (comma-separated; blank keeps the source's)").Value(hookSets),
+			huh.NewInput().Key("exclude_hook_sets").Title("Every-profile hook sets the target skips (comma-separated; blank keeps the source's)").Value(excluded),
+		}},
+	)
 }
 
 // splitList parses a comma-separated list, dropping blanks.
@@ -299,19 +372,10 @@ func RunRemoveForm(in io.Reader, out io.Writer, ref string) (confirmed, purge bo
 
 // newRemoveForm builds the removal confirmation form, writing into confirmed and purge.
 func newRemoveForm(ref string, confirmed, purge *bool) *huh.Form {
-	return styleForm(huh.NewForm(huh.NewGroup(
+	return newForm(section{"", []huh.Field{
 		huh.NewConfirm().Key("confirm").Title("Remove profile "+ref+"?").Value(confirmed),
 		huh.NewConfirm().Key("purge").Title("Also purge its config dir (credentials and state)?").Value(purge),
-	)))
-}
-
-// styleForm applies the shared look and keys to a form: Esc cancels, the arrow keys
-// move between rows, sections stack on one screen, and the key help is shown.
-func styleForm(f *huh.Form) *huh.Form {
-	return f.WithKeyMap(formKeyMap()).
-		WithTheme(formTheme(formsColor())).
-		WithShowHelp(true).
-		WithLayout(huh.LayoutStack)
+	}})
 }
 
 // formKeyMap is huh's default keymap with Esc as cancel and ↑/↓ as previous/next
@@ -322,29 +386,32 @@ func styleForm(f *huh.Form) *huh.Form {
 func formKeyMap() *huh.KeyMap {
 	km := huh.NewDefaultKeyMap()
 	km.Quit = key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("esc", "cancel"))
-	km.Input.Prev = withKeys(km.Input.Prev, "up")
-	km.Input.Next = withKeys(km.Input.Next, "down")
-	km.Confirm.Prev = withKeys(km.Confirm.Prev, "up")
-	km.Confirm.Next = withKeys(km.Confirm.Next, "down")
-	km.Select.Prev = withKeys(km.Select.Prev, "up")
-	km.Select.Next = withKeys(km.Select.Next, "down")
+	km.Input.Prev = withArrow(km.Input.Prev, "up", "↑", "back")
+	km.Input.Next = withArrow(km.Input.Next, "down", "↓", "next")
+	km.Confirm.Prev = withArrow(km.Confirm.Prev, "up", "↑", "back")
+	km.Confirm.Next = withArrow(km.Confirm.Next, "down", "↓", "next")
+	km.Select.Prev = withArrow(km.Select.Prev, "up", "↑", "back")
+	km.Select.Next = withArrow(km.Select.Next, "down", "↓", "next")
 	km.Select.Filter = key.NewBinding()
 	km.MultiSelect.Filter = key.NewBinding()
 	return km
 }
 
-// withKeys returns b with extra keys added, keeping its help text.
-func withKeys(b key.Binding, extra ...string) key.Binding {
-	h := b.Help()
-	return key.NewBinding(key.WithKeys(append(b.Keys(), extra...)...), key.WithHelp(h.Key, h.Desc))
+// withArrow returns b with an arrow key added, shown in the help line as glyph.
+func withArrow(b key.Binding, arrow, glyph, desc string) key.Binding {
+	return key.NewBinding(key.WithKeys(append(b.Keys(), arrow)...), key.WithHelp(glyph, desc))
 }
 
 // formTheme picks the form theme: the terminal's own 16 colors, or no color.
+// Section titles are notes, which never take focus, so huh would draw them in the
+// dim blurred style; they are drawn bold in the focused title color instead.
 func formTheme(color bool) *huh.Theme {
+	t := huh.ThemeBase()
 	if color {
-		return huh.ThemeBase16()
+		t = huh.ThemeBase16()
 	}
-	return huh.ThemeBase()
+	t.Blurred.NoteTitle = t.Blurred.NoteTitle.Bold(true).Foreground(t.Focused.Title.GetForeground())
+	return t
 }
 
 // formsColor reports whether forms use color. Forms only open on a terminal, so
