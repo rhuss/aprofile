@@ -3,8 +3,10 @@ package tui
 import (
 	"errors"
 	"io"
+	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 )
 
@@ -98,12 +100,17 @@ func RunIdentityForm(in io.Reader, out io.Writer, harnesses []string) (Identity,
 	if len(harnesses) > 0 {
 		id.Harness = harnesses[0]
 	}
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().Title("Harness").Options(huh.NewOptions(harnesses...)...).Value(&id.Harness),
-		huh.NewInput().Title("Profile name").Value(&id.Name),
-	))
-	ok, err := runForm(form, in, out)
+	ok, err := runForm(newIdentityForm(harnesses, &id), in, out)
 	return id, ok, err
+}
+
+// newIdentityForm builds the harness and name form, writing into id.
+func newIdentityForm(harnesses []string, id *Identity) *huh.Form {
+	return styleForm(huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().Key("harness").Title("Harness").
+			Options(huh.NewOptions(harnesses...)...).Inline(true).Value(&id.Harness),
+		huh.NewInput().Key("name").Title("Profile name").Value(&id.Name),
+	)))
 }
 
 // RunProfileForm collects a profile's fields. It returns ok=false when the user aborts
@@ -251,15 +258,68 @@ func splitList(text string) []string {
 // RunRemoveForm confirms a removal and whether to purge the config dir. It returns
 // confirmed=false when the user declines or aborts.
 func RunRemoveForm(in io.Reader, out io.Writer, ref string) (confirmed, purge bool, err error) {
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().Title("Remove profile "+ref+"?").Value(&confirmed),
-		huh.NewConfirm().Title("Also purge its config dir (credentials and state)?").Value(&purge),
-	))
-	ok, ferr := runForm(form, in, out)
+	ok, ferr := runForm(newRemoveForm(ref, &confirmed, &purge), in, out)
 	if ferr != nil || !ok {
 		return false, false, ferr
 	}
 	return confirmed, purge, nil
+}
+
+// newRemoveForm builds the removal confirmation form, writing into confirmed and purge.
+func newRemoveForm(ref string, confirmed, purge *bool) *huh.Form {
+	return styleForm(huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Key("confirm").Title("Remove profile "+ref+"?").Value(confirmed),
+		huh.NewConfirm().Key("purge").Title("Also purge its config dir (credentials and state)?").Value(purge),
+	)))
+}
+
+// styleForm applies the shared look and keys to a form: Esc cancels, the arrow keys
+// move between rows, sections stack on one screen, and the key help is shown.
+func styleForm(f *huh.Form) *huh.Form {
+	return f.WithKeyMap(formKeyMap()).
+		WithTheme(formTheme(formsColor())).
+		WithShowHelp(true).
+		WithLayout(huh.LayoutStack)
+}
+
+// formKeyMap is huh's default keymap with Esc as cancel and ↑/↓ as previous/next
+// row for inputs, confirms and selects. Single selects are inline, so huh leaves
+// ↑/↓ free for row movement there; multi-selects keep ↑/↓ for their own items.
+// Filtering gets no key at all, so Esc never means "clear filter" (huh re-enables a
+// disabled filter binding on every update, so disabling it would not stick).
+func formKeyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+	km.Quit = key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("esc", "cancel"))
+	km.Input.Prev = withKeys(km.Input.Prev, "up")
+	km.Input.Next = withKeys(km.Input.Next, "down")
+	km.Confirm.Prev = withKeys(km.Confirm.Prev, "up")
+	km.Confirm.Next = withKeys(km.Confirm.Next, "down")
+	km.Select.Prev = withKeys(km.Select.Prev, "up")
+	km.Select.Next = withKeys(km.Select.Next, "down")
+	km.Select.Filter = key.NewBinding()
+	km.MultiSelect.Filter = key.NewBinding()
+	return km
+}
+
+// withKeys returns b with extra keys added, keeping its help text.
+func withKeys(b key.Binding, extra ...string) key.Binding {
+	h := b.Help()
+	return key.NewBinding(key.WithKeys(append(b.Keys(), extra...)...), key.WithHelp(h.Key, h.Desc))
+}
+
+// formTheme picks the form theme: the terminal's own 16 colors, or no color.
+func formTheme(color bool) *huh.Theme {
+	if color {
+		return huh.ThemeBase16()
+	}
+	return huh.ThemeBase()
+}
+
+// formsColor reports whether forms use color. Forms only open on a terminal, so
+// NO_COLOR is the one remaining condition of the CLI's color rule (FR-042).
+func formsColor() bool {
+	_, noColor := os.LookupEnv("NO_COLOR")
+	return !noColor
 }
 
 // runForm runs a huh form against the given streams and maps a user abort to ok=false
