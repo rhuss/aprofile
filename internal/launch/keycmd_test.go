@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/launch"
-	"github.com/cc-deck/aprofile/internal/secret"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/launch"
+	"github.com/rhuss/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // wrapperResolve returns what the wrapper's `IFS= read -r` resolution of a file:

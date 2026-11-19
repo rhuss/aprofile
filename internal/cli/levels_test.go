@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // T004/FR-014: one description per level, at most 80 characters; the all

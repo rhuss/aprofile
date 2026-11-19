@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/launch"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/launch"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func TestRecordMissingIsEmpty(t *testing.T) {

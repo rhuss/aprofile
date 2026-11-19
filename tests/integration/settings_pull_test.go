@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // TestSettingsPull covers US3 scenarios 4 and 6 and FR-018.

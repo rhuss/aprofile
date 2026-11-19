@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func profileHooks(t *testing.T, path string) map[string][]map[string]any {

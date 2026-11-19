@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func testCmd(input string) (*cobra.Command, *bytes.Buffer) {

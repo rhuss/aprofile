@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // A mixed file carries keys of several layers in one structured document (FR-013).

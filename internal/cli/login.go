@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/wrapper"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/wrapper"
 )
 
 // execLogin replaces this process with the harness's login command. Tests swap it

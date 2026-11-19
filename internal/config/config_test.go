@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func TestResolvePaths_XDGSet(t *testing.T) {

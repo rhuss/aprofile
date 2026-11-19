@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // namePattern matches a valid profile name (FR-002).

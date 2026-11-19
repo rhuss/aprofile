@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // copyOverwriteSetup creates claude/src and claude/dst, each with its own MCP

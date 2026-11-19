@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // Feature 003: history groups. Every test runs against the hermetic env of

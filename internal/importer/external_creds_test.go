@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/importer"
+	"github.com/rhuss/aprofile/internal/importer"
 )
 
 // TestImportListsExternalCredentialFiles covers T096 (FR-045, Notable-1): import

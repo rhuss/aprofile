@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // Store is where one history group keeps its history entries (spec 003). The home

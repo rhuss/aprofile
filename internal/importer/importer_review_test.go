@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/importer"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/importer"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func readJSONMap(t *testing.T, path string) map[string]any {

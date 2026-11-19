@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // env is a hermetic environment for one integration test: a temp HOME/XDG root,
@@ -37,14 +37,14 @@ func newEnv(t *testing.T) *env {
 		}
 	}
 
-	aprofileBin := testutil.BuildBinary(t, "github.com/cc-deck/aprofile/cmd/aprofile", "aprofile")
+	aprofileBin := testutil.BuildBinary(t, "github.com/rhuss/aprofile/cmd/aprofile", "aprofile")
 	// Build the stub and install it as "claude" so the wrapper's `exec claude`
 	// resolves to it.
-	stub := testutil.BuildBinary(t, "github.com/cc-deck/aprofile/tests/fixtures/stub", "claude")
+	stub := testutil.BuildBinary(t, "github.com/rhuss/aprofile/tests/fixtures/stub", "claude")
 	stubDir := filepath.Dir(stub)
 	// The same stub is also installed as "codex" (feature 004), so Codex wrappers
 	// can be run to observe their environment and arguments.
-	codexStubDir := filepath.Dir(testutil.BuildBinary(t, "github.com/cc-deck/aprofile/tests/fixtures/stub", "codex"))
+	codexStubDir := filepath.Dir(testutil.BuildBinary(t, "github.com/rhuss/aprofile/tests/fixtures/stub", "codex"))
 	binDir := filepath.Join(dataHome, "aprofile", "bin")
 
 	path := strings.Join([]string{stubDir, codexStubDir, binDir, "/usr/bin", "/bin"}, string(os.PathListSeparator))

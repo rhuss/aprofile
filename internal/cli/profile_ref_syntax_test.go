@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // add and remove take one <harness>/<name> argument like every other profile

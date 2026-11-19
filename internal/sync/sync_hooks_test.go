@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func setup(t *testing.T, defs map[string]string) (*config.Paths, *harness.Set, *profile.Store) {

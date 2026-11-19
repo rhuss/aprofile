@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/history"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/history"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // app bundles the resolved paths and loaded state for one command invocation. It

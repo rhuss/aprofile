@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // T091 (Prod6): sync removes aprofile's own stale temp entries from a profile config

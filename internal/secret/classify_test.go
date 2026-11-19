@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 func TestLooksLikeLiteralSecret(t *testing.T) {

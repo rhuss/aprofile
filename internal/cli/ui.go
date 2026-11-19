@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/tui"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/tui"
 )
 
 func newUICmd() *cobra.Command {

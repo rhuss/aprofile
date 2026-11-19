@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/layer"
 )
 
 // RecordFormatVersion is the managed-launch record schema version.

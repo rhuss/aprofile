@@ -11,7 +11,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/config"
 )
 
 // FormatVersion is the registry schema version.

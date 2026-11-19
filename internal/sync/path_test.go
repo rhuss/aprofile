@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/config"
 )
 
 // pathHome points HOME, ZDOTDIR and SHELL into a temp dir so EnsurePath never sees

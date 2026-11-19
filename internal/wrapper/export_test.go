@@ -1,8 +1,8 @@
 package wrapper
 
 import (
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // Render produces the wrapper script for one profile with no exec-hook env output.

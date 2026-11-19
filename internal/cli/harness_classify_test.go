@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func runCLI(t *testing.T, args ...string) (string, error) {

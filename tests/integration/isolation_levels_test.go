@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // interactiveKind is an auth kind without variables per built-in harness, so add

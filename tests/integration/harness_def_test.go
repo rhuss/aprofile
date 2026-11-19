@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // hdEnv is a hermetic environment for the harness-definition (US5) integration
@@ -36,7 +36,7 @@ func newHDEnv(t *testing.T) *hdEnv {
 		}
 	}
 
-	aprofileBin := testutil.BuildBinary(t, "github.com/cc-deck/aprofile/cmd/aprofile", "aprofile")
+	aprofileBin := testutil.BuildBinary(t, "github.com/rhuss/aprofile/cmd/aprofile", "aprofile")
 
 	// The fake harness binary: prints a marker and its environment so the test can
 	// assert the wrapper exec'd it with the hook-provided variable.

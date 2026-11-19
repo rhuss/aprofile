@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // TestHarnessShowLoginAndClears: the text form of `harness show` prints the

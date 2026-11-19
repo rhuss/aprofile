@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/config"
 )
 
 // errDeclined reports that the user answered no to a confirmation; the command

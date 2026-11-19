@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/importer"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/importer"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // TestImportBackendFromDefinition covers T087: the importer maps cc-deck's backend

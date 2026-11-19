@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 func TestValidateColor(t *testing.T) {

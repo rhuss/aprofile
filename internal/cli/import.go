@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/importer"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/importer"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 func newImportCmd() *cobra.Command {

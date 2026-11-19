@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/launch"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/secret"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/launch"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 type applyEnv struct {

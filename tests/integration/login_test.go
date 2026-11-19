@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // shellProviderVars are Claude Code provider switches a user's shell may export;

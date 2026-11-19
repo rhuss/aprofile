@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // Result is the classification of a single config-dir entry.

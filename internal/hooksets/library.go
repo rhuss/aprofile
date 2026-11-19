@@ -17,9 +17,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // Set is one hook set from the library.

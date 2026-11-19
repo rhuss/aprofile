@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // M12: a hook that times out is killed together with its children. A shell hook whose

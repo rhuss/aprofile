@@ -15,15 +15,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/history"
-	"github.com/cc-deck/aprofile/internal/hooksets"
-	"github.com/cc-deck/aprofile/internal/launch"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/registry"
-	"github.com/cc-deck/aprofile/internal/wrapper"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/history"
+	"github.com/rhuss/aprofile/internal/hooksets"
+	"github.com/rhuss/aprofile/internal/launch"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/registry"
+	"github.com/rhuss/aprofile/internal/wrapper"
 )
 
 // Options controls one sync run.

@@ -17,14 +17,14 @@ implementation). Within each story, write the test tasks first and confirm they 
 
 - **[P]**: can run in parallel (different files, no dependency on an incomplete task)
 - **[Story]**: US1..US7 for story-phase tasks; Setup/Foundational/Polish carry no story label
-- File paths are relative to the repo root; module is `github.com/cc-deck/aprofile`.
+- File paths are relative to the repo root; module is `github.com/rhuss/aprofile`.
 
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
 - [X] T001 Create the Go module layout per plan.md: `cmd/aprofile/`, `internal/{config,secret,harness,profile,layer,mcp,wrapper,registry,sync,importer,doctor,cli,tui,testutil}/`, `tests/{integration,fixtures}/`.
-- [X] T002 Initialize `go.mod` (module `github.com/cc-deck/aprofile`, Go 1.23) and pin dependencies: `spf13/cobra`, `charmbracelet/lipgloss`, `charmbracelet/bubbletea`, `charmbracelet/huh`, `gopkg.in/yaml.v3`, `github.com/pelletier/go-toml/v2`.
+- [X] T002 Initialize `go.mod` (module `github.com/rhuss/aprofile`, Go 1.23) and pin dependencies: `spf13/cobra`, `charmbracelet/lipgloss`, `charmbracelet/bubbletea`, `charmbracelet/huh`, `gopkg.in/yaml.v3`, `github.com/pelletier/go-toml/v2`.
 - [X] T003 [P] Add CI (`.github/workflows/ci.yml`) running `gofmt -l`, `go vet ./...`, `go test ./...` on Linux and macOS; add `Makefile` targets; add `.gitignore` entries ensuring `.mcp.json` and any credential files are never committed.
 - [X] T004 [P] Implement `internal/testutil`: hermetic `HOME`/XDG helpers over `t.TempDir()`+`t.Setenv()` (Principle VII) and a no-op stub harness binary built under `tests/fixtures/stub/` for wrapper and overhead tests.
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // The fake default setups below reproduce the entries research.md R1 observed on

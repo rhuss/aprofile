@@ -12,8 +12,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // Config patches (FR-019, T071) are the definition's merge-only writes into

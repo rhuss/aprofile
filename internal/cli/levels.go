@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // This file is the single source of the share-level text (plan Design Decision 6):

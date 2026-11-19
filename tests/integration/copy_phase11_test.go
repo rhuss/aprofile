@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // Phase 11 copy fixes: T067 (target load errors, leftover config dir, early auth

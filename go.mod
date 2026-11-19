@@ -1,4 +1,4 @@
-module github.com/cc-deck/aprofile
+module github.com/rhuss/aprofile
 
 go 1.24.0
 

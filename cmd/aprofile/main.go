@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/cc-deck/aprofile/internal/cli"
+	"github.com/rhuss/aprofile/internal/cli"
 )
 
 func main() {

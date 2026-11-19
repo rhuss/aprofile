@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // T097 (Notable-3, FR-022): a sync with problems and no changes does not call

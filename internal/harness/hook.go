@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // DefaultHookTimeout bounds every hook operation except login and pre-launch

@@ -3,7 +3,7 @@ package launch
 import (
 	"fmt"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // Key commands (FR-006, research R5): the harness runs them under /bin/sh, so they

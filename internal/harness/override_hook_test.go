@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // writeExec writes an executable script under dir and returns its path.

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // Temp name markers of aprofile's own atomic writes: config.WriteFileAtomic and the

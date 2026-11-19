@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // --- T062: login_command ---

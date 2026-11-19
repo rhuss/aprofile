@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // TestDoctorAuthStatusHook covers the FR-044 doctor check for the exec-hook auth-status
@@ -26,7 +26,7 @@ func TestDoctorAuthStatusHook(t *testing.T) {
 		}
 	}
 
-	aprofileBin := testutil.BuildBinary(t, "github.com/cc-deck/aprofile/cmd/aprofile", "aprofile")
+	aprofileBin := testutil.BuildBinary(t, "github.com/rhuss/aprofile/cmd/aprofile", "aprofile")
 
 	// Hook: answers auth-status with "missing"; every other operation is unsupported.
 	writeExecFile(t, filepath.Join(scripts, "aprofile-harness-hooked"),

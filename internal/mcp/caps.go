@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // repCaps is one flavor's representability matrix for the optional neutral fields

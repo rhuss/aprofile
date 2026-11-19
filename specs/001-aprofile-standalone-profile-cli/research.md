@@ -133,7 +133,7 @@ loses per-profile skills that `copy` should carry); repointing `$HOME` (rejected
 
 ## Technology choices
 
-- **Language/runtime**: Go 1.23 (single static binary), module `github.com/cc-deck/aprofile`
+- **Language/runtime**: Go 1.23 (single static binary), module `github.com/rhuss/aprofile`
   (constitution). **Rationale**: constitution-mandated; static binary suits a PATH wrapper manager.
 - **CLI/TUI**: cobra (commands), lipgloss + bubbletea + huh (output, browse, forms) - constitution
   stack, shared with cc-setup. **Rationale**: enables later cc-setup code reuse.

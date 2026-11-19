@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // T092: a binary built with the aprofile_testseam tag (the integration tests'

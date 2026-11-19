@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // spec 003 T011: the history step kinds.

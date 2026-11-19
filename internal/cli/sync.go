@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/layer"
-	syncpkg "github.com/cc-deck/aprofile/internal/sync"
+	"github.com/rhuss/aprofile/internal/layer"
+	syncpkg "github.com/rhuss/aprofile/internal/sync"
 )
 
 // syncJSON is the `sync --json` schema (FR-041), documented in

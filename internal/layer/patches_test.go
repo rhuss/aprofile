@@ -10,8 +10,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
 )
 
 // patchDef loads a data-only definition with the given config_patches YAML block,

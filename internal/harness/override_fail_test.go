@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // T068/FR-022: an override of a built-in that fails to load must not leave the

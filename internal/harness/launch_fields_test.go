@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // --- Feature 004 T003: folder_launch, launch_clear, model_arg, folder_key ---

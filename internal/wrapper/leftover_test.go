@@ -5,10 +5,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/testutil"
-	"github.com/cc-deck/aprofile/internal/wrapper"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/wrapper"
 )
 
 // FR-006b: a marked wrapper is a leftover when no profile owns it under that name;

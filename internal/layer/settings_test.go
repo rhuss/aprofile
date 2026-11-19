@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/layer"
 )
 
 func decode(t *testing.T, b []byte) map[string]any {

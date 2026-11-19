@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // validateProfileID checks a harness and profile name taken from the command line

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // T091 (Prod6): temp files an interrupted atomic write leaves in a config dir are

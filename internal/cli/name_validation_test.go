@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // Sec6: profile references are validated, so a "../" harness or name never reaches

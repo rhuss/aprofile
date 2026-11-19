@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/registry"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/registry"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func sampleEntries() []registry.Entry {

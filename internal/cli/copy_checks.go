@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // copyAuth is the auth a cross-harness copy gives its target, resolved and validated

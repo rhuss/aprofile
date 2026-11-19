@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // Folder states (FR-020, contracts/cli.md).

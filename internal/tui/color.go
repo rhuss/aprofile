@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // TerminalColor converts a profile color (an ANSI color name, matched case

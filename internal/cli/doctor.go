@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/doctor"
+	"github.com/rhuss/aprofile/internal/doctor"
 )
 
 type doctorJSON struct {

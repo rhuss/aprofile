@@ -22,8 +22,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
 )
 
 // Doc is the parsed content of the files the definition's folder_launch names,

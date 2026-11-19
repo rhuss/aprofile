@@ -7,7 +7,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // Codex MCP: the [mcp_servers.<name>] tables in config.toml. Codex expands no

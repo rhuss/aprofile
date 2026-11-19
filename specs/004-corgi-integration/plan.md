@@ -17,7 +17,7 @@ and stale or unplaced entries. The constitution moves to 2.0.0.
 
 ## Technical Context
 
-**Language/Version**: Go 1.24 (module `github.com/cc-deck/aprofile`)
+**Language/Version**: Go 1.24 (module `github.com/rhuss/aprofile`)
 
 **Primary Dependencies**: existing only: cobra, go-toml/v2 (already used for `config.toml`
 patches and MCP), lipgloss/huh/bubbletea. No new module.

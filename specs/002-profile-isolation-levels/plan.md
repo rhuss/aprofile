@@ -18,7 +18,7 @@ understandable. The registry and wrappers publish `share` / `APROFILE_SHARE`.
 
 ## Technical Context
 
-**Language/Version**: Go 1.24 (module `github.com/cc-deck/aprofile`)
+**Language/Version**: Go 1.24 (module `github.com/rhuss/aprofile`)
 
 **Primary Dependencies**: cobra, lipgloss, huh, bubbletea, `gopkg.in/yaml.v3`,
 `pelletier/go-toml/v2` (all existing). `golang.org/x/sys` moves from indirect to direct for the

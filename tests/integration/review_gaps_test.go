@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 func backupsOf(t *testing.T, e *env, h, n, file string) []string {

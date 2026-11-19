@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // Deep review regressions of feature 003 (history groups). Every test runs against

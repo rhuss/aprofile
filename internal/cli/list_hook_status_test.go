@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // M13: when the exec hook's env operation fails, list shows the wrapper status as

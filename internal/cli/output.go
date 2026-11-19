@@ -12,9 +12,9 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/secret"
-	"github.com/cc-deck/aprofile/internal/tui"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/tui"
 )
 
 func cmdErr() io.Writer { return os.Stderr }

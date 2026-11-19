@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // syncBudget is the plan's performance goal for one sync of 20 profiles.

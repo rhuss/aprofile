@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/config"
 )
 
 // ApplyOptions controls how a change plan is executed.

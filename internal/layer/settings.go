@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // This file holds the settings copy rules of FR-018 (settings pull) and the

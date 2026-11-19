@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
 )
 
 // Membership changes as change plans (spec 003, data-model.md "Membership state

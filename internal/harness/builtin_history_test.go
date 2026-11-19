@@ -3,7 +3,7 @@ package harness_test
 import (
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // TestBuiltinHistoryEntries pins the history entries of the built-in definitions

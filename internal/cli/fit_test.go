@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/registry"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/registry"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // handEdit replaces old with new in a profile's store file, as a user editing it by

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // T017/R11: a child process started with APROFILE_CONFIG_DIR set is detected; a

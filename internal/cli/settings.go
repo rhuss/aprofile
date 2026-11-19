@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/launch"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/profile"
-	syncpkg "github.com/cc-deck/aprofile/internal/sync"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/launch"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/profile"
+	syncpkg "github.com/rhuss/aprofile/internal/sync"
 )
 
 func newSettingsCmd() *cobra.Command {

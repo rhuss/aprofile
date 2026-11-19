@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // ImportFromDefault creates a hook set from the hooks in a harness's default setup

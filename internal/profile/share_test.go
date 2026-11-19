@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // T009/FR-033: a profile file without `share` loads as all, and loading never

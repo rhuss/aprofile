@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // TestSC006NoLaunchVariableLeaks (spec 004 SC-006, FR-014): for every ordered pair
@@ -36,7 +36,7 @@ func TestSC006NoLaunchVariableLeaks(t *testing.T) {
 	// variables its wrapper exports plus, for a Claude folder, the non-empty entries
 	// of its env block (a session started from the folder alone exports them). The
 	// session's launch variables are the names its APROFILE_SET_VARS lists.
-	ocStub := filepath.Dir(testutil.BuildBinary(t, "github.com/cc-deck/aprofile/tests/fixtures/stub", "opencode"))
+	ocStub := filepath.Dir(testutil.BuildBinary(t, "github.com/rhuss/aprofile/tests/fixtures/stub", "opencode"))
 	for i, v := range e.vars {
 		if p, ok := strings.CutPrefix(v, "PATH="); ok {
 			e.vars[i] = "PATH=" + ocStub + string(os.PathListSeparator) + p

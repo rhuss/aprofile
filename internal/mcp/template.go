@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // Embedded references. A native value may hold env references inside a larger

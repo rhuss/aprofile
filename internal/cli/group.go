@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/aprofile/internal/history"
+	"github.com/rhuss/aprofile/internal/history"
 )
 
 // groupJSON is one history group in --json output (data-model.md "JSON output").

@@ -19,7 +19,7 @@ amended (1.2.0) for the opt-in exception.
 
 ## Technical Context
 
-**Language/Version**: Go 1.24 (module `github.com/cc-deck/aprofile`)
+**Language/Version**: Go 1.24 (module `github.com/rhuss/aprofile`)
 
 **Primary Dependencies**: cobra, lipgloss, huh, bubbletea, `gopkg.in/yaml.v3` (all existing). No
 new modules.

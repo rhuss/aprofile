@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 // A reference in the neutral record is stored in internal/secret's canonical form

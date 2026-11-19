@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/harness"
 )
 
 // ErrNotFound is returned when a profile does not exist in the store.

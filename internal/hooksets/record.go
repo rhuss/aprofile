@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cc-deck/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/config"
 )
 
 // RecordFormatVersion is the managed-hooks record schema version.

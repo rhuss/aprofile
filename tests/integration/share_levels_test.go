@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // TestUS2DefaultLevelNamedOnAdd covers US2 scenario 1 and FR-007: without --share a

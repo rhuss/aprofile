@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/layer"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/layer"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // Divergence is a recorded managed entry that is no longer what aprofile placed:

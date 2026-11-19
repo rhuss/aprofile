@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/harness"
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/harness"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // TestStoreKeys covers T089/FR-002: Keys lists the (harness, name) of every store

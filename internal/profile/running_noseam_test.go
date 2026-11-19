@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/profile"
 )
 
 // T092: without the aprofile_testseam build tag (every production build),

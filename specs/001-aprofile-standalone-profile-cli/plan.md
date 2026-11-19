@@ -20,7 +20,7 @@ one design refinement: definitions redirect a *set* of environment variables int
 
 ## Technical Context
 
-**Language/Version**: Go 1.23 (single static binary), module `github.com/cc-deck/aprofile`.
+**Language/Version**: Go 1.23 (single static binary), module `github.com/rhuss/aprofile`.
 
 **Primary Dependencies**: cobra (commands); lipgloss, bubbletea, huh (output, browse, forms);
 `gopkg.in/yaml.v3` (profile store + harness definitions); `github.com/pelletier/go-toml/v2` (Codex

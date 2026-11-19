@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/cc-deck/aprofile/internal/secret"
+	"github.com/rhuss/aprofile/internal/secret"
 )
 
 //go:embed builtin/*.yaml

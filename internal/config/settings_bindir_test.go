@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/config"
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/config"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // bin_dir ends up in shell startup files and wrapper paths, so settings loading

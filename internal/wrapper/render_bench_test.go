@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-deck/aprofile/internal/profile"
-	"github.com/cc-deck/aprofile/internal/testutil"
-	"github.com/cc-deck/aprofile/internal/wrapper"
+	"github.com/rhuss/aprofile/internal/profile"
+	"github.com/rhuss/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/wrapper"
 )
 
 // BenchmarkWrapperStartup measures the start-up overhead a generated wrapper adds
@@ -19,7 +19,7 @@ import (
 // runs and fails above the 50 ms budget. Run with: go test -bench WrapperStartup
 // ./internal/wrapper/
 func BenchmarkWrapperStartup(b *testing.B) {
-	stub := testutil.BuildBinary(b, "github.com/cc-deck/aprofile/tests/fixtures/stub", "claude")
+	stub := testutil.BuildBinary(b, "github.com/rhuss/aprofile/tests/fixtures/stub", "claude")
 	dir := b.TempDir()
 	p := &profile.Profile{Harness: "claude", Name: "bench", AuthKind: "oauth-login", Share: profile.ShareContent}
 	content, err := wrapper.Render(p, claudeDef(b), filepath.Join(dir, "profile"))

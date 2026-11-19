@@ -224,7 +224,7 @@ Rationale: a bug in this tool damages live accounts; tests are the only safe pla
 
 ## Technical Constraints
 
-- Language: Go, module path `github.com/cc-deck/aprofile`, shipped as a single static binary.
+- Language: Go, module path `github.com/rhuss/aprofile`, shipped as a single static binary.
 - Platforms: Linux and macOS. Platform-specific code MUST sit behind build tags or a small
   interface, with both platforms covered in CI.
 - Stack: cobra for commands; lipgloss, huh and bubbletea for output, forms and browse views

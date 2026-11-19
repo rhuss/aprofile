@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/tui"
+	"github.com/rhuss/aprofile/internal/tui"
 )
 
 // TestUICopyFlagsCarryAuthKeyAndAdopt: the TUI copy form's auth key reference and

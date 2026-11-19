@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-deck/aprofile/internal/testutil"
+	"github.com/rhuss/aprofile/internal/testutil"
 )
 
 // T092: the running-process test seam exists only in the binary the tests build
 // (testutil.BuildBinary, tag aprofile_testseam). A production build
 // (`go build ./cmd/aprofile`) does not contain it and ignores APROFILE_TEST_RUNNING.
 func TestProductionBuildIgnoresTestSeam(t *testing.T) {
-	prod := testutil.BuildProductionBinary(t, "github.com/cc-deck/aprofile/cmd/aprofile", "aprofile")
+	prod := testutil.BuildProductionBinary(t, "github.com/rhuss/aprofile/cmd/aprofile", "aprofile")
 	e := newEnv(t)
 
 	const name = "APROFILE_TEST_RUNNING"
