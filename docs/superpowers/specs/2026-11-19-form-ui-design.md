@@ -49,7 +49,7 @@ All changes live in `internal/tui/forms.go`, so `add`, `edit`, `copy`, `remove` 
 ## Calls made by Claude (correct if wrong)
 
 - **Theme:** `huh.ThemeBase16`, because it uses the terminal's own 16 colors and stays readable on light and dark backgrounds. Fall back to `huh.ThemeBase` when color is disabled, matching the browse view's color rule (FR-042).
-- **Copy form source select:** stays a scrollable list (with `.Height`) rather than inline, since it can hold many profiles and cycling ◀▶ through dozens is worse than a list. It behaves like a multi-select for arrows (↑/↓ inside, Tab out).
+- **Copy form source select:** inline like every other select. (First built as a scrollable list; review found that holding ↑ to get back to the top moved past Target into the list and silently changed, even wrapped, the source the browse view had already chosen. Cost: picking among many sources means repeated ←/→.)
 - **Section names and field grouping** as listed above.
 
 ## Left to the builder

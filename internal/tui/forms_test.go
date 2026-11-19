@@ -302,32 +302,44 @@ func TestCopyFormSourceList(t *testing.T) {
 	if got := focused(f); got != "source" {
 		t.Fatalf("initial focus = %q, want source", got)
 	}
-	press(t, f, tea.KeyDown)
-	if got := focused(f); got != "source" {
-		t.Fatalf("down moved focus to %q; the source list keeps it", got)
-	}
+	press(t, f, tea.KeyRight)
 	if v.Source != "claude/b" {
-		t.Errorf("down: Source = %q, want claude/b", v.Source)
+		t.Errorf("right: Source = %q, want claude/b", v.Source)
 	}
-	press(t, f, tea.KeyTab)
+	press(t, f, tea.KeyDown)
 	if got := focused(f); got != "target" {
-		t.Fatalf("tab from source: focus = %q, want target", got)
+		t.Fatalf("down from source: focus = %q, want target", got)
 	}
 }
 
-func TestCopyFormSourceHelpSaysTab(t *testing.T) {
+// TestCopyFormUpNeverChangesSource: holding ↑ to get back to the top must not
+// change the source profile (the browse view already chose it).
+func TestCopyFormUpNeverChangesSource(t *testing.T) {
 	v := CopyValues{Source: "claude/a"}
 	f := newTestCopyForm(&v)
 	start(t, f)
-	view := f.View()
-	if strings.Contains(view, "↓ next") {
-		t.Errorf("source list help offers ↓ next, but ↓ moves within the list:\n%s", view)
+	press(t, f, tea.KeyDown)
+	press(t, f, tea.KeyUp, tea.KeyUp, tea.KeyUp)
+	if got := focused(f); got != "source" {
+		t.Fatalf("focus = %q, want source", got)
 	}
-	if !strings.Contains(view, "tab next") {
-		t.Errorf("source list help is missing tab next:\n%s", view)
+	if v.Source != "claude/a" {
+		t.Fatalf("↑ changed Source to %q", v.Source)
 	}
-	if strings.Contains(view, "back") {
-		t.Errorf("first row offers back, which is disabled there:\n%s", view)
+}
+
+// TestFormFitsTerminalHeight: the view must not be taller than the terminal, or
+// the renderer drops the top line (usually the focused field's title).
+func TestFormFitsTerminalHeight(t *testing.T) {
+	for _, h := range []int{14, 24} {
+		v := FormValues{}
+		f := newProfileForm(fullProfileConfig(), &v)
+		start(t, f)
+		_, cmd := f.Update(tea.WindowSizeMsg{Width: 100, Height: h})
+		drain(t, f, cmd, 0)
+		if n := strings.Count(f.View(), "\n") + 1; n > h {
+			t.Errorf("height %d: view has %d lines", h, n)
+		}
 	}
 }
 

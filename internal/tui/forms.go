@@ -213,32 +213,15 @@ func (l *helpLayout) View(f *huh.Form) string {
 	if len(f.Errors()) > 0 {
 		return view // the footer holds error lines; leave it as huh draws it
 	}
+	// huh ends the view with a blank line and the one-line help footer, but sizes
+	// the group for the footer alone, so the view is one line taller than the
+	// terminal and the renderer drops the top line. The help replaces both lines.
 	lines := strings.Split(view, "\n")
-	lines[len(lines)-1] = f.Help().ShortHelpView(append(arrowsTaken(f.KeyBinds()), l.quit))
-	return strings.Join(lines, "\n")
-}
-
-// arrowsTaken fixes the help of the row-movement keys on a field that uses ↑/↓
-// itself (a list select): huh checks the field's own ↑/↓ first, so there the rows
-// change with Tab and Shift+Tab, and the help must say so instead of ↓ next.
-func arrowsTaken(binds []key.Binding) []key.Binding {
-	used := map[string]bool{}
-	out := make([]key.Binding, 0, len(binds))
-	for _, b := range binds {
-		switch h := b.Help(); {
-		case h.Key == "↓" && used["down"]:
-			b.SetHelp("tab", h.Desc)
-		case h.Key == "↑" && used["up"]:
-			b.SetHelp("shift+tab", h.Desc)
-		}
-		if b.Enabled() {
-			for _, k := range b.Keys() {
-				used[k] = true
-			}
-		}
-		out = append(out, b)
+	if l.group.Footer() == "" || len(lines) < 2 {
+		return view
 	}
-	return out
+	help := f.Help().ShortHelpView(append(f.KeyBinds(), l.quit))
+	return strings.Join(append(lines[:len(lines)-2], help), "\n")
 }
 
 func (l *helpLayout) GroupWidth(_ *huh.Form, _ *huh.Group, w int) int { return w }
@@ -316,8 +299,8 @@ func RunCopyForm(in io.Reader, out io.Writer, sources []string, initial CopyValu
 }
 
 // newCopyForm builds the copy form, writing into v and the comma-separated hook-set
-// texts. The source stays a scrollable list (it can hold many profiles), so ↑/↓ move
-// within it and Tab leaves it.
+// texts. The source is inline like every other select: ←/→ change it, and holding ↑
+// to get back to the top can never change it by accident.
 func newCopyForm(sources []string, v *CopyValues, shareOpts []ShareOption, hookSets, excluded *string) *huh.Form {
 	levels := []huh.Option[string]{huh.NewOption("same as the source", "")}
 	for _, o := range shareOpts {
@@ -326,7 +309,7 @@ func newCopyForm(sources []string, v *CopyValues, shareOpts []ShareOption, hookS
 	return newForm(
 		section{"Source & target", []huh.Field{
 			huh.NewSelect[string]().Key("source").Title("Source profile").
-				Options(huh.NewOptions(sources...)...).Height(6).Value(&v.Source),
+				Options(huh.NewOptions(sources...)...).Inline(true).Value(&v.Source),
 			huh.NewInput().Key("target").Title("Target (<harness>/<name>)").Value(&v.Target),
 			huh.NewConfirm().Key("overwrite").Title("Overwrite the target if it exists?").Value(&v.Overwrite),
 			huh.NewConfirm().Key("adopt").Title("Adopt an existing config dir left at the target's location?").Value(&v.Adopt),
